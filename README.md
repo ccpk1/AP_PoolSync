@@ -33,7 +33,7 @@ This is a custom integration for Home Assistant to monitor and control AutoPilot
 3.  **Edit Code:** (Should no loger be needed!!)
     * If the code does not find your Heatpump/Chloronator, you must edit const.py to help
     * You will see `CHLORINATOR_ID = "-1"` and `HEATPUMP_ID = "0"`
-    * Above settings will work if you only have a HeatPump 
+    * Above settings will work if you only have a HeatPump
     * If you do not have a chlorinator or heatpump, set the corresponding id to "-1"
     * If you only have one, the one you have will be "0"
     * If you have both, try clorinator "0" and heatpump "1", or try clorinator "1" and heatpump "0"
@@ -54,12 +54,12 @@ This is a custom integration for Home Assistant to monitor and control AutoPilot
     * You will be prompted to enter the local IP address of your PoolSync device. Click "Submit".
 5.  **Push-Button Linking:**
     * The integration will attempt to initiate the linking process by sending a command to your PoolSync device.
-    * You will be prompted to **press the "Auth" button on your PoolSync device**. (Sometimes this does not show, and only shows a submit button)
-    * The configuration flow will show the approximate time remaining to press the button.
+    * Home Assistant will show a progress screen telling you to **press the "Auth" or "Service" button on your PoolSync device**.
+    * The configuration flow will show the approximate time remaining to complete the link attempt.
     * Once the button is pressed and the device responds, the integration will retrieve an access password and the device's MAC address.
 6.  **Setup Complete:**
     * If successful, the integration will be added, and entities for your PoolSync device will be created.
-    * If there's an error (e.g., device not found, button not pressed in time), you'll see an error message, and you can try again. You may need to restart your PoolSync device if linking repeatedly fails.
+    * If there's an error (for example, the device is unreachable or the button was not pressed in time), you'll see a retry screen and can try again. You may need to restart your PoolSync device if linking repeatedly fails.
 
 ## Entities
 
@@ -87,7 +87,7 @@ This integration will create several entities, including (but not limited to):
     * HeatPump Module Online Status
     * Heat Pump Fan
     * Heat Pump Compressor
-    * Heat Pump Flow 
+    * Heat Pump Flow
 * **Number Controls:**
     * Chlorinator Output (allows setting the output percentage, typically 0-100%)
     * HeatPump Temperature Set Point (allows setting the output percentage, typically 40-104 F)
@@ -102,7 +102,7 @@ If you want a simple switch to turn heater on/off:
    * Change `off action` to number, entity number.poolsync_heat_mode to 0
    * Associate with the poolsync device under Device (optional: this will make it show in the integration's list of entities)
    * You can make another swtich with on action to 2 if you want cool mode
-     
+
 If you want a sensor that shows if set to Off/Heat/Cool
    * Make a switch template (Settings->Devices & Servies-> Helpers Tab). type template, then select sensor template
    * Set value template to below where XXXX is the MAC of your poolsync (should come up if type poolsync)
@@ -115,7 +115,7 @@ If you want a sensor that shows if set to Off/Heat/Cool
           {% endif %}
    ```
    * Associate with the poolsync device under Device (optional: this will make it show in the integration's list of entities)
-     
+
 ## Options
 
 After setting up the integration, you can adjust the polling interval:
