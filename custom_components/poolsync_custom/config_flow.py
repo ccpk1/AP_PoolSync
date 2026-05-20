@@ -47,6 +47,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for PoolSync Custom."""
 
     VERSION = 1
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -61,6 +62,35 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Create an API client instance."""
         session = async_get_clientsession(self.hass)
         return PoolSyncApiClient(ip_address, session)
+
+    async def _async_begin_pushlink(self) -> str | None:
+        """Start a new push-link attempt for the current device."""
+        assert self._ip_address is not None
+
+        if self._task_still_running(self._link_task):
+            self._link_task.cancel()
+
+        self._password = None
+        self._mac_address = None
+        self._link_task = None
+        self._link_error = None
+
+        if self._api_client is None:
+            self._api_client = await self._async_create_client(self._ip_address)
+
+        try:
+            await self._api_client.start_pushlink()
+        except PoolSyncApiCommunicationError:
+            return "cannot_connect"
+        except PoolSyncApiError as err:
+            _LOGGER.error(
+                "API error during push-link start for %s: %s",
+                self._ip_address,
+                err,
+            )
+            return "api_error"
+
+        return None
 
     @staticmethod
     def _validate_ip_address(ip_address: str) -> bool:
@@ -107,7 +137,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._link_task = None
 
         if self._password and self._mac_address:
-            return await self._async_finish_link()
+            return self.async_show_progress_done(next_step_id="finish_link")
 
         return self.async_show_progress_done(next_step_id="link_failed")
 
@@ -126,19 +156,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not self._validate_ip_address(self._ip_address):
                 errors["base"] = "invalid_ip"
             else:
-                self._api_client = await self._async_create_client(self._ip_address)
-                try:
-                    await self._api_client.start_pushlink()
+                errors["base"] = await self._async_begin_pushlink()
+                if not errors["base"]:
+                    errors = {}
                     return await self.async_step_link()
-                except PoolSyncApiCommunicationError:
-                    errors["base"] = "cannot_connect"
-                except PoolSyncApiError as e:
-                    _LOGGER.error(
-                        "API error during push-link start for %s: %s",
-                        self._ip_address,
-                        e,
-                    )
-                    errors["base"] = "api_error"
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
@@ -177,8 +198,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Show a retry screen after a failed push-link attempt."""
         if user_input is not None:
-            return await self.async_step_user(
-                {POOLSYNC_CONF_IP_ADDRESS: self._ip_address}
+            self._link_error = await self._async_begin_pushlink()
+            if self._link_error is None:
+                return await self.async_step_link()
+
+            return self.async_show_form(
+                step_id="link_failed",
+                errors={"base": self._link_error},
+                description_placeholders={
+                    "ip_address": self._ip_address or "",
+                    "time_remaining": str(PUSHLINK_TIMEOUT_S),
+                },
             )
 
         self._set_confirm_only()
@@ -190,6 +220,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "time_remaining": str(PUSHLINK_TIMEOUT_S),
             },
         )
+
+    async def async_step_finish_link(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Create the config entry after a successful push-link."""
+        del user_input
+        return await self._async_finish_link()
 
     async def _async_poll_for_password(self) -> None:
         """Poll the device for pushlink status until password is received or timeout."""
@@ -265,8 +302,6 @@ class PoolSyncOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry  # Storing the config_entry is deprecated, but options are derived from it
-        # Make a mutable copy of the options for modification
         self.options = dict(config_entry.options)
 
     async def async_step_init(
@@ -296,7 +331,7 @@ class PoolSyncOptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Required(
                         OPTION_SCAN_INTERVAL,
                         default=current_scan_interval,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=10)),
+                    ): vol.Coerce(int),
                 }
             ),
             errors=errors,

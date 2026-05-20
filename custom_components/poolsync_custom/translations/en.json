@@ -1,7 +1,7 @@
 {
   "config": {
     "progress": {
-      "link": "Press the 'Auth' or 'Service' button on your PoolSync device at `{ip_address}` to complete local linking.\n\nThe integration is waiting for the device to return its access password. This attempt will time out after about `{time_remaining}` seconds."
+      "link": "Press the Auth or Service button on your PoolSync device at {ip_address} to complete local linking.\n\nThe integration is waiting for the device to return its access password. This attempt will time out after about {time_remaining} seconds."
     },
     "step": {
       "user": {
@@ -13,22 +13,22 @@
       },
       "link_failed": {
         "title": "PoolSync Setup: Link Device",
-        "description": "The PoolSync device at `{ip_address}` did not finish linking. Select Submit to retry the push-link process.\n\nIf this keeps failing, restart the PoolSync device and try again."
+        "description": "The PoolSync device at {ip_address} did not finish linking. Select Submit to retry the push-link process.\n\nIf this keeps failing, restart the PoolSync device and try again."
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to the PoolSync device at the specified IP address. Please check the IP address and ensure the device is powered on and connected to the network.",
       "invalid_ip": "The IP address format is invalid. Please enter a valid IP address (e.g., 192.168.1.100).",
       "api_error": "An API error occurred while communicating with the PoolSync device. Check Home Assistant logs for more details. The device might have responded with an unexpected message.",
+      "internal_error_polling_setup": "Internal setup error during the device linking phase. Please try again.",
       "link_failed": "The linking process failed. The device did not provide a valid password after the button press, or a communication error occurred during linking. Please try again. You may need to restart your PoolSync device.",
-      "link_timeout": "The linking process timed out. The 'Auth' or 'Service' button was not pressed within the allowed time, or the device did not respond with a password. Please try again. You may need to restart your PoolSync device.",
+      "link_timeout": "The linking process timed out. The Auth or Service button was not pressed within the allowed time, or the device did not respond with a password. Please try again. You may need to restart your PoolSync device.",
       "unknown": "An unexpected error occurred. Please check the Home Assistant logs for details."
     },
     "abort": {
       "already_configured": "This PoolSync device (based on its MAC address) is already configured.",
       "user_cancelled": "Configuration cancelled by user.",
-      "internal_error": "An internal error occurred in the configuration flow. Please try again.",
-      "internal_error_polling_setup": "Internal setup error during the device linking (polling) phase. Please try again."
+      "internal_error": "An internal error occurred in the configuration flow. Please try again."
     }
   },
   "options": {
