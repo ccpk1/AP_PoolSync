@@ -1,5 +1,7 @@
 """Binary sensor platform for the PoolSync Custom integration."""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from typing import Any, cast
@@ -10,7 +12,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -23,13 +25,15 @@ from .sensor import _get_value_from_path  # Reuse helper
 
 _LOGGER = logging.getLogger(__name__)
 
+type BinarySensorDescription = tuple[
+    BinarySensorEntityDescription,
+    list[str | int],
+    Callable[[Any], bool | None] | None,
+]
+
 # Corrected BINARY_SENSOR_DESCRIPTIONS paths
 BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
-    tuple[
-        BinarySensorEntityDescription,
-        list[str | int],
-        Callable[[Any], bool | None] | None,
-    ],
+    BinarySensorDescription,
     ...,
 ] = (
     # --- System Wide Binary Sensors (data from `poolSync`) ---
@@ -65,11 +69,7 @@ BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
     ),
 )
 BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
-    tuple[
-        BinarySensorEntityDescription,
-        list[str | int],
-        Callable[[Any], bool | None] | None,
-    ],
+    BinarySensorDescription,
     ...,
 ] = (
     # --- ChlorSync Device Specific Binary Sensors (data from `devices.0`) ---
@@ -95,11 +95,7 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
     ),  # CORRECTED PATH
 )
 BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
-    tuple[
-        BinarySensorEntityDescription,
-        list[str | int],
-        Callable[[Any], bool | None] | None,
-    ],
+    BinarySensorDescription,
     ...,
 ] = (
     # --- ChlorSync Device Specific Binary Sensors (data from `devices.0`) ---
@@ -153,11 +149,31 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
 )
 
 
+def _build_binary_sensors(
+    coordinator: PoolSyncDataUpdateCoordinator,
+    descriptions: tuple[BinarySensorDescription, ...],
+    device_id: str | None = None,
+) -> list[PoolSyncBinarySensor]:
+    """Build binary sensors, copying mutable data paths per entity."""
+    sensors: list[PoolSyncBinarySensor] = []
+
+    for description, template_path, value_fn in descriptions:
+        data_path = template_path.copy()
+        if device_id is not None:
+            data_path[1] = device_id
+        sensors.append(
+            PoolSyncBinarySensor(coordinator, description, data_path, value_fn)
+        )
+
+    return sensors
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    del hass
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     binary_sensors_to_add: list[PoolSyncBinarySensor] = []
 
@@ -173,30 +189,29 @@ async def async_setup_entry(
     heatpump_id = HEATPUMP_ID
     chlor_id = CHLORINATOR_ID
     if coordinator.data and isinstance(coordinator.data.get("deviceType"), dict):
-        deviceTypes = coordinator.data.get("deviceType")
-        temp = [key for key, value in deviceTypes.items() if value == "heatPump"]
+        device_types = cast(dict[str, str], coordinator.data["deviceType"])
+        temp = [key for key, value in device_types.items() if value == "heatPump"]
         heatpump_id = temp[0] if temp else "-1"
-        temp = [key for key, value in deviceTypes.items() if value == "chlorSync"]
+        temp = [key for key, value in device_types.items() if value == "chlorSync"]
         chlor_id = temp[0] if temp else "-1"
 
-    for description, data_path, value_fn in BINARY_SENSOR_DESCRIPTIONS_POOLSYNC:
-        binary_sensors_to_add.append(
-            PoolSyncBinarySensor(coordinator, description, data_path, value_fn)
-        )
+    binary_sensors_to_add.extend(
+        _build_binary_sensors(coordinator, BINARY_SENSOR_DESCRIPTIONS_POOLSYNC)
+    )
 
     if chlor_id != "-1":
-        for description, data_path, value_fn in BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC:
-            data_path[1] = chlor_id
-            binary_sensors_to_add.append(
-                PoolSyncBinarySensor(coordinator, description, data_path, value_fn)
+        binary_sensors_to_add.extend(
+            _build_binary_sensors(
+                coordinator, BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC, chlor_id
             )
+        )
 
     if heatpump_id != "-1":
-        for description, data_path, value_fn in BINARY_SENSOR_DESCRIPTIONS_HEATPUMP:
-            data_path[1] = heatpump_id
-            binary_sensors_to_add.append(
-                PoolSyncBinarySensor(coordinator, description, data_path, value_fn)
+        binary_sensors_to_add.extend(
+            _build_binary_sensors(
+                coordinator, BINARY_SENSOR_DESCRIPTIONS_HEATPUMP, heatpump_id
             )
+        )
 
     if binary_sensors_to_add:
         async_add_entities(binary_sensors_to_add)
@@ -225,31 +240,42 @@ class PoolSyncBinarySensor(
         self._value_fn = value_fn
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
         self._attr_device_info = coordinator.device_info
+        self._update_attrs()
 
-    @property
-    def is_on(self) -> bool | None:
+    @callback
+    def _update_attrs(self) -> None:
+        """Update cached entity attributes from coordinator data."""
         raw_value = _get_value_from_path(self.coordinator.data, self._data_path)
         if raw_value is None:
-            return None
+            self._attr_is_on = None
+            return
+
         if self._value_fn:
             try:
-                return self._value_fn(raw_value)
-            except Exception as e:
+                self._attr_is_on = self._value_fn(raw_value)
+            except (AttributeError, TypeError, ValueError) as err:
                 _LOGGER.error(
                     "BinarySensor %s: Error processing value '%s' with value_fn: %s",
                     self.entity_description.key,
                     raw_value,
-                    e,
+                    err,
                 )
-                return None
-        if isinstance(raw_value, bool):
-            return raw_value
-        if isinstance(raw_value, int):
-            return bool(raw_value)
-        return None
+                self._attr_is_on = None
+                return
+        elif isinstance(raw_value, bool):
+            self._attr_is_on = raw_value
+        elif isinstance(raw_value, int):
+            self._attr_is_on = bool(raw_value)
+        else:
+            self._attr_is_on = None
 
-    @property
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._update_attrs()
+        super()._handle_coordinator_update()
+
+    @property  # pyright: ignore[reportIncompatibleVariableOverride]
     def available(self) -> bool:
-        coordinator_available = super().available
-        is_on_state = self.is_on
-        return coordinator_available and (is_on_state is not None)
+        """Return True if entity is available."""
+        return super().available and self.is_on is not None

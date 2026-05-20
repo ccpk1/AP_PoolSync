@@ -1,0 +1,7 @@
+{
+  "python.analysis.extraPaths": [
+    ".",
+    "./custom_components"
+  ],
+  "python.analysis.typeCheckingMode": "basic"
+}

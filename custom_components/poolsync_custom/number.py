@@ -1,5 +1,9 @@
 """Number platform for the PoolSync Custom integration."""
 
+# pyright: reportAbstractUsage=false
+
+# pylint: disable=abstract-method
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +20,7 @@ from homeassistant.const import (
     PERCENTAGE,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError  # For service call errors
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -36,7 +40,7 @@ from .sensor import _get_value_from_path  # Reuse helper from sensor.py
 _LOGGER = logging.getLogger(__name__)
 
 type NumberDescription = tuple[
-    NumberEntityDescription, list[str], Callable[[Any], Any] | None
+    NumberEntityDescription, list[str | int], Callable[[Any], Any] | None
 ]
 
 NUMBER_DESCRIPTIONS_CHLOR: tuple[NumberDescription, ...] = (
@@ -257,7 +261,7 @@ async def async_setup_entry(
         )
 
 
-class PoolSyncChlorOutputNumberEntity(
+class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], NumberEntity
 ):
     """Representation of a PoolSync Chlorinator Output Number entity."""
@@ -268,7 +272,7 @@ class PoolSyncChlorOutputNumberEntity(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: NumberEntityDescription,
-        data_path: list[str],
+        data_path: list[str | int],
         value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
         """Initialize the number entity."""
@@ -281,6 +285,7 @@ class PoolSyncChlorOutputNumberEntity(
 
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
         self._attr_device_info = coordinator.device_info
+        self._update_attrs()
 
         _LOGGER.debug(
             "NUMBER_ENTITY %s: Initialized. Unique ID: %s, Data Path: %s",
@@ -289,16 +294,17 @@ class PoolSyncChlorOutputNumberEntity(
             self._data_path,
         )
 
-    @property
-    def native_value(self) -> float | None:
-        """Return the current value of the number entity."""
+    @callback
+    def _update_attrs(self) -> None:
+        """Update cached entity attributes from coordinator data."""
         value = _get_value_from_path(self.coordinator.data, self._data_path)
-        # _LOGGER.debug("NUMBER_ENTITY %s: native_value raw from path %s: %s", self.entity_description.key, self._data_path, value)
         if value is None:
-            return None
+            self._attr_native_value = None
+            self._attr_available = False
+            return
+
         try:
-            num_value = float(value)
-            return num_value
+            self._attr_native_value = float(value)
         except (ValueError, TypeError):
             _LOGGER.error(
                 "NUMBER_ENTITY %s: could not convert value '%s' (type: %s) to float from path %s",
@@ -307,13 +313,23 @@ class PoolSyncChlorOutputNumberEntity(
                 type(value).__name__,
                 self._data_path,
             )
-            return None
+            self._attr_native_value = None
+            self._attr_available = False
+            return
+
+        self._attr_available = super().available
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._update_attrs()
+        super()._handle_coordinator_update()
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         new_value = int(value)
-        device_id = self._data_path[1]
-        key_id = self._data_path[3]
+        device_id = cast(str, self._data_path[1])
+        key_id = cast(str, self._data_path[3])
 
         _LOGGER.info(
             "NUMBER_ENTITY %s: Attempting to set native_value to %d (from HA UI float value: %f)",
@@ -374,18 +390,3 @@ class PoolSyncChlorOutputNumberEntity(
             raise HomeAssistantError(
                 f"Failed to set chlorine output to {new_value}%: {e}"
             ) from e
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        coordinator_available = super().available
-        # Check if the specific data path for the current value exists
-        value_exists = (
-            _get_value_from_path(self.coordinator.data, self._data_path) is not None
-        )
-        is_available = coordinator_available and value_exists
-        # _LOGGER.debug(
-        #     "NUMBER_ENTITY %s: Availability check: coordinator_available=%s, value_exists_at_path=%s, final_available=%s",
-        #     self.entity_description.key, coordinator_available, value_exists, is_available
-        # )
-        return is_available

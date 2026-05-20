@@ -1,5 +1,11 @@
 """Tests for the PoolSync config flow."""
 
+# pylint: disable=redefined-outer-name
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+# pyright: reportMissingModuleSource=false
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +35,7 @@ TEST_MAC_ADDRESS = "AABBCCDDEEFF"
 
 
 @pytest.fixture
-def mock_setup_entry():
+def mocked_setup_entry():
     """Prevent config-entry setup from reaching the real runtime code."""
     with patch(
         "custom_components.poolsync_custom.async_setup_entry",
@@ -119,7 +125,7 @@ async def test_user_flow_link_failures(
     assert result["errors"] == {"base": expected_error}
 
 
-async def test_user_flow_success(hass, mock_setup_entry) -> None:
+async def test_user_flow_success(hass, mocked_setup_entry) -> None:
     """Test the happy path for the PoolSync user flow."""
     result = await _start_user_flow(hass)
 
@@ -154,7 +160,7 @@ async def test_user_flow_success(hass, mock_setup_entry) -> None:
         CONF_PASSWORD: TEST_PASSWORD,
         API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
     }
-    assert mock_setup_entry.await_count == 1
+    assert mocked_setup_entry.await_count == 1
 
 
 async def test_user_flow_invalid_ip(hass) -> None:

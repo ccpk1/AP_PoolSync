@@ -23,6 +23,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
 
 
 class PoolSyncApiError(Exception):
@@ -63,6 +64,11 @@ class PoolSyncApiClient:
         self._base_url = f"http://{self._ip_address}"
         _LOGGER.debug("PoolSyncApiClient initialized for IP: %s", self._ip_address)
 
+    @property
+    def ip_address(self) -> str:
+        """Return the configured PoolSync device IP address."""
+        return self._ip_address
+
     async def async_set_device_config_value(
         self,
         device_id: str,
@@ -102,7 +108,7 @@ class PoolSyncApiClient:
                 params=params,
                 headers=headers,
                 json=json_data,
-                timeout=HTTP_TIMEOUT,
+                timeout=REQUEST_TIMEOUT,
             ) as response:
                 response_text = await response.text()
                 _LOGGER.debug(
@@ -216,7 +222,7 @@ class PoolSyncApiClient:
                 method,
                 url,
                 headers=headers,
-                timeout=HTTP_TIMEOUT,  # No json=data for these GET/PUTs
+                timeout=REQUEST_TIMEOUT,  # No json=data for these GET/PUTs
             ) as response:
                 response_text = (
                     await response.text()

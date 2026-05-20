@@ -1,5 +1,10 @@
 """Tests for PoolSync number platform setup."""
 
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+# pyright: reportMissingModuleSource=false
+
 from __future__ import annotations
 
 from unittest.mock import Mock
@@ -46,6 +51,6 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
 
     assert len(added_entities) == 3
-    assert {entity._data_path[1] for entity in added_entities} == {"5", "7"}
+    assert {entity.native_value for entity in added_entities} == {55.0, 82.0, 1.0}
     assert NUMBER_DESCRIPTIONS_CHLOR[0][1][1] == "-1"
     assert NUMBER_DESCRIPTIONS_HEATPUMP_F[0][1][1] == "0"

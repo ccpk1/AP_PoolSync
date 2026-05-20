@@ -1,5 +1,11 @@
 """Tests for PoolSync integration setup and unload."""
 
+# pylint: disable=redefined-outer-name
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+# pyright: reportMissingModuleSource=false
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -30,7 +36,7 @@ TEST_MAC_ADDRESS = "AABBCCDDEEFF"
 
 
 @pytest.fixture
-def mock_config_entry() -> MockConfigEntry:
+def poolsync_config_entry() -> MockConfigEntry:
     """Return a default mocked PoolSync config entry."""
     return MockConfigEntry(
         domain=DOMAIN,
@@ -46,10 +52,10 @@ def mock_config_entry() -> MockConfigEntry:
 
 
 async def test_async_setup_entry_sets_runtime_data(
-    hass, mock_config_entry: MockConfigEntry
+    hass, poolsync_config_entry: MockConfigEntry
 ) -> None:
     """Test setup stores the coordinator on the config entry runtime data."""
-    mock_config_entry.add_to_hass(hass)
+    poolsync_config_entry.add_to_hass(hass)
 
     with (
         patch.object(
@@ -63,17 +69,17 @@ async def test_async_setup_entry_sets_runtime_data(
             new=AsyncMock(return_value=True),
         ) as mock_forward_entry_setups,
     ):
-        assert await async_setup_entry(hass, mock_config_entry)
+        assert await async_setup_entry(hass, poolsync_config_entry)
 
-    assert isinstance(mock_config_entry.runtime_data, PoolSyncDataUpdateCoordinator)
-    mock_forward_entry_setups.assert_awaited_once_with(mock_config_entry, PLATFORMS)
+    assert isinstance(poolsync_config_entry.runtime_data, PoolSyncDataUpdateCoordinator)
+    mock_forward_entry_setups.assert_awaited_once_with(poolsync_config_entry, PLATFORMS)
 
 
 async def test_async_setup_entry_raises_not_ready_on_refresh_failure(
-    hass, mock_config_entry: MockConfigEntry
+    hass, poolsync_config_entry: MockConfigEntry
 ) -> None:
     """Test setup retries when the initial refresh fails."""
-    mock_config_entry.add_to_hass(hass)
+    poolsync_config_entry.add_to_hass(hass)
 
     with patch.object(
         PoolSyncDataUpdateCoordinator,
@@ -81,12 +87,10 @@ async def test_async_setup_entry_raises_not_ready_on_refresh_failure(
         new=AsyncMock(side_effect=UpdateFailed("cannot connect")),
     ):
         with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, mock_config_entry)
+            await async_setup_entry(hass, poolsync_config_entry)
 
 
-async def test_async_setup_entry_raises_config_error_without_mac(
-    hass, mock_config_entry: MockConfigEntry
-) -> None:
+async def test_async_setup_entry_raises_config_error_without_mac(hass) -> None:
     """Test setup fails clearly when the config entry is missing identity data."""
     missing_mac_entry = MockConfigEntry(
         domain=DOMAIN,
@@ -104,34 +108,34 @@ async def test_async_setup_entry_raises_config_error_without_mac(
 
 
 async def test_async_unload_entry_clears_runtime_data(
-    hass, mock_config_entry: MockConfigEntry
+    hass, poolsync_config_entry: MockConfigEntry
 ) -> None:
     """Test unload removes runtime data after unloading platforms."""
-    mock_config_entry.add_to_hass(hass)
-    mock_config_entry.runtime_data = object()
+    poolsync_config_entry.add_to_hass(hass)
+    poolsync_config_entry.runtime_data = object()
 
     with patch.object(
         hass.config_entries,
         "async_unload_platforms",
         new=AsyncMock(return_value=True),
     ) as mock_unload_platforms:
-        assert await async_unload_entry(hass, mock_config_entry)
+        assert await async_unload_entry(hass, poolsync_config_entry)
 
-    mock_unload_platforms.assert_awaited_once_with(mock_config_entry, PLATFORMS)
-    assert not hasattr(mock_config_entry, "runtime_data")
+    mock_unload_platforms.assert_awaited_once_with(poolsync_config_entry, PLATFORMS)
+    assert not hasattr(poolsync_config_entry, "runtime_data")
 
 
 async def test_async_update_options_listener_reloads_entry(
-    hass, mock_config_entry: MockConfigEntry
+    hass, poolsync_config_entry: MockConfigEntry
 ) -> None:
     """Test options updates trigger a config entry reload."""
-    mock_config_entry.add_to_hass(hass)
+    poolsync_config_entry.add_to_hass(hass)
 
     with patch.object(
         hass.config_entries,
         "async_reload",
         new=AsyncMock(return_value=True),
     ) as mock_reload:
-        await async_update_options_listener(hass, mock_config_entry)
+        await async_update_options_listener(hass, poolsync_config_entry)
 
-    mock_reload.assert_awaited_once_with(mock_config_entry.entry_id)
+    mock_reload.assert_awaited_once_with(poolsync_config_entry.entry_id)

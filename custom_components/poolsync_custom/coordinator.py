@@ -41,7 +41,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.config_entry_id = config_entry_id
         self.mac_address = mac_address
-        self._ip_address = api_client._ip_address
+        self._ip_address = api_client.ip_address
         self._unavailable_logged = False
 
         logger_name = f"{DOMAIN}({self.mac_address or self._ip_address})"

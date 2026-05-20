@@ -1,12 +1,15 @@
 """Tests for the PoolSync coordinator."""
 
+# pyright: reportPrivateUsage=false
+# pyright: reportMissingImports=false
+# pyright: reportMissingModuleSource=false
+
+# pylint: disable=import-error,no-name-in-module
+
 from __future__ import annotations
 
 import logging
 from unittest.mock import AsyncMock, Mock
-
-import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.poolsync_custom.api import PoolSyncApiCommunicationError
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
@@ -18,7 +21,7 @@ TEST_MAC_ADDRESS = "AABBCCDDEEFF"
 
 def _build_coordinator(hass, api_client: Mock) -> PoolSyncDataUpdateCoordinator:
     """Create a coordinator for tests."""
-    api_client._ip_address = TEST_IP_ADDRESS
+    api_client.ip_address = TEST_IP_ADDRESS
     return PoolSyncDataUpdateCoordinator(
         hass=hass,
         api_client=api_client,
@@ -38,10 +41,8 @@ async def test_logs_unavailable_once_on_repeated_failures(hass, caplog) -> None:
     coordinator = _build_coordinator(hass, api_client)
 
     with caplog.at_level(logging.INFO):
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
+        await coordinator.async_refresh()
+        await coordinator.async_refresh()
 
     unavailable_logs = [
         record.message
@@ -65,12 +66,11 @@ async def test_logs_recovery_after_failure(hass, caplog) -> None:
     coordinator = _build_coordinator(hass, api_client)
 
     with caplog.at_level(logging.INFO):
-        with pytest.raises(UpdateFailed):
-            await coordinator._async_update_data()
+        await coordinator.async_refresh()
+        await coordinator.async_refresh()
 
-        result = await coordinator._async_update_data()
-
-    assert result == {"poolSync": {}, "devices": {}}
+    assert coordinator.data == {"poolSync": {}, "devices": {}}
+    assert coordinator.last_update_success
     assert (
         f"PoolSync device {coordinator.name} is unavailable: cannot connect"
         in caplog.messages

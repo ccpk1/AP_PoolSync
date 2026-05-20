@@ -1,5 +1,10 @@
 """Tests for the PoolSync number write path."""
 
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+# pyright: reportMissingModuleSource=false
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, Mock
@@ -20,7 +25,7 @@ TEST_MAC_ADDRESS = "AABBCCDDEEFF"
 
 def _build_coordinator(hass, api_client: Mock) -> PoolSyncDataUpdateCoordinator:
     """Create a coordinator for number entity tests."""
-    api_client._ip_address = TEST_IP_ADDRESS
+    api_client.ip_address = TEST_IP_ADDRESS
     coordinator = PoolSyncDataUpdateCoordinator(
         hass=hass,
         api_client=api_client,

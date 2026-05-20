@@ -46,15 +46,13 @@ def _change_temperature_unit(description, is_metric):
     return description
 
 
-def _get_value_from_path(
-    data: dict[str, Any] | None, path: list[str | int]
-) -> Any:
+def _get_value_from_path(data: dict[str, Any] | None, path: list[str | int]) -> Any:
     """Safely retrieve a value from a nested dictionary using a path list."""
     if data is None:
         return None
     value = data
     try:
-        for i, key_or_index in enumerate(path):
+        for key_or_index in path:
             if value is None:
                 return None
             if isinstance(key_or_index, str):
@@ -434,20 +432,17 @@ class PoolSyncSensor(CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEnt
         if self._value_fn:
             try:
                 return self._value_fn(value)
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError) as err:
                 _LOGGER.error(
                     "Sensor %s: Error processing value '%s' with value_fn: %s",
                     self.entity_description.key,
                     value,
-                    e,
+                    err,
                 )
                 return None
         if isinstance(value, (str, int, float)) or value is None:
             return value
-        try:
-            return str(value)
-        except Exception:
-            return None
+        return str(value)
 
     @property
     def available(self) -> bool:
@@ -460,7 +455,7 @@ class PoolSyncSensor(CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEnt
                     value_is_present_and_processable = (
                         self._value_fn(val_at_path) is not None
                     )
-                except Exception:
+                except (AttributeError, TypeError, ValueError):
                     value_is_present_and_processable = False
             else:
                 value_is_present_and_processable = True

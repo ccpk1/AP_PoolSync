@@ -1,0 +1,14 @@
+{
+  "include": [
+    "custom_components",
+    "tests"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "."
+      ]
+    }
+  ]
+}
