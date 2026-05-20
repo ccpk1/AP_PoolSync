@@ -71,10 +71,10 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
         for entity in added_entities
         if entity.entity_description.key == "hp_setpoint_temp"
     )
-    assert chlor_sensor._data_path[1] == "5"
-    assert heat_sensor._data_path[1] == "7"
-    assert SENSOR_DESCRIPTIONS_CHLORSYNC[0][1][1] == "-1"
-    assert SENSOR_DESCRIPTIONS_HEATPUMP[0][1][1] == "0"
+    assert chlor_sensor.native_value == 24.5
+    assert heat_sensor.native_value == 84
+    assert SENSOR_DESCRIPTIONS_CHLORSYNC[0][0].key == "water_temp"
+    assert SENSOR_DESCRIPTIONS_HEATPUMP[0][0].key == "hp_water_temp"
 
 
 async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
@@ -126,10 +126,9 @@ async def test_sensor_uses_parsed_runtime_values() -> None:
         coordinator,
         next(
             description
-            for description, _, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+            for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
             if description.key == "system_datetime"
         ),
-        ["poolSync", "status", "dateTime"],
         lambda v: v,
     )
 

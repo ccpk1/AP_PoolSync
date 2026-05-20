@@ -16,10 +16,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    CHLORINATOR_ID,
-    HEATPUMP_ID,
-)
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     ensure_parsed_data,
@@ -30,16 +26,13 @@ _LOGGER = logging.getLogger(__name__)
 
 type BinarySensorDescription = tuple[
     BinarySensorEntityDescription,
-    list[str | int],
     Callable[[Any], bool | None] | None,
 ]
 
-# Corrected BINARY_SENSOR_DESCRIPTIONS paths
 BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
     BinarySensorDescription,
     ...,
 ] = (
-    # --- System Wide Binary Sensors (data from `poolSync`) ---
     (
         BinarySensorEntityDescription(
             key="poolsync_online",
@@ -47,7 +40,6 @@ BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
             device_class=BinarySensorDeviceClass.CONNECTIVITY,
             entity_registry_enabled_default=True,
         ),
-        ["poolSync", "status", "online"],
         lambda v: bool(v) if isinstance(v, (bool, int)) else None,
     ),
     (
@@ -57,7 +49,6 @@ BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
             icon="mdi:account-wrench",
             entity_registry_enabled_default=True,
         ),
-        ["poolSync", "config", "serviceMode"],
         lambda v: bool(v) if isinstance(v, int) else None,
     ),
     (
@@ -67,7 +58,6 @@ BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
             device_class=BinarySensorDeviceClass.PROBLEM,
             entity_registry_enabled_default=True,
         ),
-        ["poolSync", "faults"],
         lambda v: bool(v) if isinstance(v, int) else None,
     ),
 )
@@ -75,7 +65,6 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
     BinarySensorDescription,
     ...,
 ] = (
-    # --- ChlorSync Device Specific Binary Sensors (data from `devices.0`) ---
     (
         BinarySensorEntityDescription(
             key="chlorsync_online",
@@ -83,9 +72,8 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
             device_class=BinarySensorDeviceClass.CONNECTIVITY,
             entity_registry_enabled_default=True,
         ),
-        ["devices", CHLORINATOR_ID, "nodeAttr", "online"],
         lambda v: bool(v) if isinstance(v, (bool, int)) else None,
-    ),  # CORRECTED PATH
+    ),
     (
         BinarySensorEntityDescription(
             key="chlorsync_fault",
@@ -93,15 +81,13 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
             device_class=BinarySensorDeviceClass.PROBLEM,
             entity_registry_enabled_default=True,
         ),
-        ["devices", CHLORINATOR_ID, "faults"],
         lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
-    ),  # CORRECTED PATH
+    ),
 )
 BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
     BinarySensorDescription,
     ...,
 ] = (
-    # --- ChlorSync Device Specific Binary Sensors (data from `devices.0`) ---
     (
         BinarySensorEntityDescription(
             key="heatpump_online",
@@ -109,9 +95,8 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
             device_class=BinarySensorDeviceClass.CONNECTIVITY,
             entity_registry_enabled_default=True,
         ),
-        ["devices", HEATPUMP_ID, "nodeAttr", "online"],
         lambda v: bool(v) if isinstance(v, (bool, int)) else None,
-    ),  # CORRECTED PATH
+    ),
     (
         BinarySensorEntityDescription(
             key="heatpump_fault",
@@ -119,16 +104,14 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
             device_class=BinarySensorDeviceClass.PROBLEM,
             entity_registry_enabled_default=True,
         ),
-        ["devices", HEATPUMP_ID, "faults"],
         lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
-    ),  # CORRECTED PATH
+    ),
     (
         BinarySensorEntityDescription(
             key="heatpump_flow",
             name="HeatPump Flow",
             entity_registry_enabled_default=True,
         ),
-        ["devices", HEATPUMP_ID, "status", "ctrlFlags"],
         lambda v: bool(v >= 1) if isinstance(v, (bool, int)) else None,
     ),
     (
@@ -137,7 +120,6 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
             name="HeatPump Compressor",
             entity_registry_enabled_default=True,
         ),
-        ["devices", HEATPUMP_ID, "status", "stateFlags"],
         lambda v: bool(v == 8) if isinstance(v, (bool, int)) else None,
     ),
     (
@@ -146,7 +128,6 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
             name="HeatPump Fan",
             entity_registry_enabled_default=True,
         ),
-        ["devices", HEATPUMP_ID, "status", "stateFlags"],
         lambda v: bool(v == 8 or v == 520) if isinstance(v, (bool, int)) else None,
     ),
 )
@@ -155,18 +136,12 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
 def _build_binary_sensors(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: tuple[BinarySensorDescription, ...],
-    device_id: str | None = None,
 ) -> list[PoolSyncBinarySensor]:
-    """Build binary sensors, copying mutable data paths per entity."""
+    """Build binary sensors."""
     sensors: list[PoolSyncBinarySensor] = []
 
-    for description, template_path, value_fn in descriptions:
-        data_path = template_path.copy()
-        if device_id is not None:
-            data_path[1] = device_id
-        sensors.append(
-            PoolSyncBinarySensor(coordinator, description, data_path, value_fn)
-        )
+    for description, value_fn in descriptions:
+        sensors.append(PoolSyncBinarySensor(coordinator, description, value_fn))
 
     return sensors
 
@@ -198,9 +173,7 @@ async def async_setup_entry(
 
     if chlor_id and parsed_data.chlorinator.is_present:
         binary_sensors_to_add.extend(
-            _build_binary_sensors(
-                coordinator, BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC, chlor_id
-            )
+            _build_binary_sensors(coordinator, BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC)
         )
     elif chlor_id and devices is not None:
         _LOGGER.warning(
@@ -211,9 +184,7 @@ async def async_setup_entry(
 
     if heatpump_id and parsed_data.heat_pump.is_present:
         binary_sensors_to_add.extend(
-            _build_binary_sensors(
-                coordinator, BINARY_SENSOR_DESCRIPTIONS_HEATPUMP, heatpump_id
-            )
+            _build_binary_sensors(coordinator, BINARY_SENSOR_DESCRIPTIONS_HEATPUMP)
         )
     elif heatpump_id and devices is not None:
         _LOGGER.warning(
@@ -240,12 +211,10 @@ class PoolSyncBinarySensor(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: BinarySensorEntityDescription,
-        data_path: list[str | int],
         value_fn: Callable[[Any], bool | None] | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
-        self._data_path = data_path
         self._value_fn = value_fn
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
         self._attr_device_info = coordinator.device_info

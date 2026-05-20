@@ -176,3 +176,29 @@ async def test_device_info_gracefully_handles_missing_parsed_role_metadata(
     device_info = coordinator.device_info
     assert device_info["name"] == f"PoolSync {TEST_MAC_ADDRESS[-6:]}"
     assert device_info["model"] == "PoolSync"
+
+
+async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) -> None:
+    """Test device info lazily derives parsed runtime state from raw coordinator data."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(return_value={"poolSync": {}, "devices": {}})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {
+            "config": {"name": "Pool House"},
+            "system": {"fwVersion": "9.8.7", "hwVersion": "6.5.4"},
+        },
+        "devices": {
+            "5": {"nodeAttr": {"name": "ChlorSync Pro"}},
+        },
+        "deviceType": {"5": "chlorSync"},
+    }
+    coordinator.parsed_data = None
+
+    device_info = coordinator.device_info
+
+    assert coordinator.parsed_data is not None
+    assert device_info["name"] == "Pool House"
+    assert device_info["model"] == "ChlorSync Pro"
+    assert device_info["sw_version"] == "9.8.7"
+    assert device_info["hw_version"] == "6.5.4"

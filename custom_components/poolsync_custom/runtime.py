@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import CHLORINATOR_ID, HEATPUMP_ID
+
+type PoolSyncDeviceRole = Literal["chlorinator", "heat_pump"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,11 +134,16 @@ def ensure_parsed_data(
     return parsed_data
 
 
-def _get_role_data(
-    parsed_data: PoolSyncParsedData, role: str
+def get_role_data(
+    parsed_data: PoolSyncParsedData, role: PoolSyncDeviceRole
 ) -> PoolSyncDeviceRoleData:
     """Return normalized data for a known device role."""
     return parsed_data.chlorinator if role == "chlorinator" else parsed_data.heat_pump
+
+
+def _get_dict_value(section: dict[str, Any] | None, key: str) -> Any:
+    """Return a value from a parsed section when available."""
+    return section.get(key) if section is not None else None
 
 
 def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -205,156 +213,131 @@ def parse_poolsync_runtime_data(data: dict[str, Any]) -> PoolSyncParsedData:
     )
 
 
+_NUMBER_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
+    "chlor_output_control": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.config, "chlorOutput"
+    ),
+    "temperature_output_control": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.config, "setpoint"
+    ),
+    "heat_mode": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.config, "mode"
+    ),
+}
+
+
+_BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
+    "poolsync_online": lambda parsed_data: _get_dict_value(
+        parsed_data.system.status, "online"
+    ),
+    "service_mode_active": lambda parsed_data: _get_dict_value(
+        parsed_data.system.config, "serviceMode"
+    ),
+    "system_fault": lambda parsed_data: _get_dict_value(
+        parsed_data.system.data, "faults"
+    ),
+    "chlorsync_online": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.node_attr, "online"
+    ),
+    "chlorsync_fault": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.data, "faults"
+    ),
+    "heatpump_online": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.node_attr, "online"
+    ),
+    "heatpump_fault": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.data, "faults"
+    ),
+    "heatpump_flow": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.status, "ctrlFlags"
+    ),
+    "heatpump_compressor": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.status, "stateFlags"
+    ),
+    "heatpump_fan": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.status, "stateFlags"
+    ),
+}
+
+
+_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
+    "board_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.system.status, "boardTemp"
+    ),
+    "wifi_rssi": lambda parsed_data: _get_dict_value(parsed_data.system.status, "rssi"),
+    "system_datetime": lambda parsed_data: _get_dict_value(
+        parsed_data.system.status, "dateTime"
+    ),
+    "firmware_version": lambda parsed_data: _get_dict_value(
+        parsed_data.system.system, "fwVersion"
+    ),
+    "hardware_version": lambda parsed_data: _get_dict_value(
+        parsed_data.system.system, "hwVersion"
+    ),
+    "uptime_seconds": lambda parsed_data: _get_dict_value(
+        parsed_data.system.stats, "upTimeSecs"
+    ),
+    "water_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "waterTemp"
+    ),
+    "salt_ppm": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "saltPPM"
+    ),
+    "flow_rate": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "flowRate"
+    ),
+    "chlor_output_setting": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.config, "chlorOutput"
+    ),
+    "boost_remaining": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "boostRemaining"
+    ),
+    "cell_fwd_current": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "fwdCurrent"
+    ),
+    "cell_rev_current": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "revCurrent"
+    ),
+    "cell_output_voltage": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "outVoltage"
+    ),
+    "cell_serial_number": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.system, "cellSerialNum"
+    ),
+    "cell_firmware_version": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.system, "cellFwVersion"
+    ),
+    "cell_hardware_version": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.system, "cellHwVersion"
+    ),
+    "hp_water_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.status, "waterTemp"
+    ),
+    "hp_air_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.status, "airTemp"
+    ),
+    "hp_mode": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.config, "mode"
+    ),
+    "hp_setpoint_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.config, "setpoint"
+    ),
+}
+
+
 def get_number_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
     """Return a number value from parsed runtime data."""
-    if key == "chlor_output_control":
-        config = parsed_data.chlorinator.config
-        return config.get("chlorOutput") if config is not None else None
-
-    if key == "temperature_output_control":
-        config = parsed_data.heat_pump.config
-        return config.get("setpoint") if config is not None else None
-
-    if key == "heat_mode":
-        config = parsed_data.heat_pump.config
-        return config.get("mode") if config is not None else None
-
-    return None
+    getter = _NUMBER_VALUE_GETTERS.get(key)
+    return getter(parsed_data) if getter is not None else None
 
 
 def get_binary_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
     """Return a binary sensor source value from parsed runtime data."""
-    if key == "poolsync_online":
-        status = parsed_data.system.status
-        return status.get("online") if status is not None else None
-
-    if key == "service_mode_active":
-        config = parsed_data.system.config
-        return config.get("serviceMode") if config is not None else None
-
-    if key == "system_fault":
-        return (
-            parsed_data.system.data.get("faults") if parsed_data.system.data else None
-        )
-
-    if key == "chlorsync_online":
-        node_attr = parsed_data.chlorinator.node_attr
-        return node_attr.get("online") if node_attr is not None else None
-
-    if key == "chlorsync_fault":
-        return (
-            parsed_data.chlorinator.data.get("faults")
-            if parsed_data.chlorinator.data is not None
-            else None
-        )
-
-    if key == "heatpump_online":
-        node_attr = parsed_data.heat_pump.node_attr
-        return node_attr.get("online") if node_attr is not None else None
-
-    if key == "heatpump_fault":
-        return (
-            parsed_data.heat_pump.data.get("faults")
-            if parsed_data.heat_pump.data is not None
-            else None
-        )
-
-    status = parsed_data.heat_pump.status
-    if status is None:
-        return None
-
-    if key == "heatpump_flow":
-        return status.get("ctrlFlags")
-    if key in {"heatpump_compressor", "heatpump_fan"}:
-        return status.get("stateFlags")
-
-    return None
+    getter = _BINARY_SENSOR_VALUE_GETTERS.get(key)
+    return getter(parsed_data) if getter is not None else None
 
 
 def get_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
     """Return a sensor source value from parsed runtime data."""
-    if key == "board_temp":
-        status = parsed_data.system.status
-        return status.get("boardTemp") if status is not None else None
-
-    if key == "wifi_rssi":
-        status = parsed_data.system.status
-        return status.get("rssi") if status is not None else None
-
-    if key == "system_datetime":
-        status = parsed_data.system.status
-        return status.get("dateTime") if status is not None else None
-
-    if key == "firmware_version":
-        system = parsed_data.system.system
-        return system.get("fwVersion") if system is not None else None
-
-    if key == "hardware_version":
-        system = parsed_data.system.system
-        return system.get("hwVersion") if system is not None else None
-
-    if key == "uptime_seconds":
-        stats = parsed_data.system.stats
-        return stats.get("upTimeSecs") if stats is not None else None
-
-    if key == "water_temp":
-        status = parsed_data.chlorinator.status
-        return status.get("waterTemp") if status is not None else None
-
-    if key == "salt_ppm":
-        status = parsed_data.chlorinator.status
-        return status.get("saltPPM") if status is not None else None
-
-    if key == "flow_rate":
-        status = parsed_data.chlorinator.status
-        return status.get("flowRate") if status is not None else None
-
-    if key == "chlor_output_setting":
-        config = parsed_data.chlorinator.config
-        return config.get("chlorOutput") if config is not None else None
-
-    if key == "boost_remaining":
-        status = parsed_data.chlorinator.status
-        return status.get("boostRemaining") if status is not None else None
-
-    if key == "cell_fwd_current":
-        status = parsed_data.chlorinator.status
-        return status.get("fwdCurrent") if status is not None else None
-
-    if key == "cell_rev_current":
-        status = parsed_data.chlorinator.status
-        return status.get("revCurrent") if status is not None else None
-
-    if key == "cell_output_voltage":
-        status = parsed_data.chlorinator.status
-        return status.get("outVoltage") if status is not None else None
-
-    if key == "cell_serial_number":
-        system = parsed_data.chlorinator.system
-        return system.get("cellSerialNum") if system is not None else None
-
-    if key == "cell_firmware_version":
-        system = parsed_data.chlorinator.system
-        return system.get("cellFwVersion") if system is not None else None
-
-    if key == "cell_hardware_version":
-        system = parsed_data.chlorinator.system
-        return system.get("cellHwVersion") if system is not None else None
-
-    if key == "hp_water_temp":
-        status = parsed_data.heat_pump.status
-        return status.get("waterTemp") if status is not None else None
-
-    if key == "hp_air_temp":
-        status = parsed_data.heat_pump.status
-        return status.get("airTemp") if status is not None else None
-
-    if key == "hp_mode":
-        config = parsed_data.heat_pump.config
-        return config.get("mode") if config is not None else None
-
-    if key == "hp_setpoint_temp":
-        config = parsed_data.heat_pump.config
-        return config.get("setpoint") if config is not None else None
-
-    return None
+    getter = _SENSOR_VALUE_GETTERS.get(key)
+    return getter(parsed_data) if getter is not None else None

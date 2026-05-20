@@ -18,7 +18,13 @@ from .api import (
     PoolSyncApiError,
 )
 from .const import DEFAULT_NAME, DOMAIN, MANUFACTURER, MODEL
-from .runtime import PoolSyncParsedData, ensure_parsed_data, parse_poolsync_runtime_data
+from .runtime import (
+    PoolSyncDeviceRole,
+    PoolSyncParsedData,
+    ensure_parsed_data,
+    get_role_data,
+    parse_poolsync_runtime_data,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,7 +97,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_write_role_config(
         self,
         *,
-        role: str,
+        role: PoolSyncDeviceRole,
         key_id: str,
         value: int,
         description: str,
@@ -101,9 +107,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("API password not available to set value")
 
         parsed_data = self.get_parsed_data()
-        role_data = (
-            parsed_data.chlorinator if role == "chlorinator" else parsed_data.heat_pump
-        )
+        role_data = get_role_data(parsed_data, role)
         if role_data.device_id is None or not role_data.is_present:
             raise HomeAssistantError(f"PoolSync {description} target is not available")
 
@@ -225,29 +229,24 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sw_version = None
         hw_version = None
         config_name_from_api: str | None = None
+        parsed_data = (
+            ensure_parsed_data(self)
+            if self.parsed_data is None and isinstance(self.data, dict)
+            else self.parsed_data
+        )
 
-        if self.parsed_data is not None:
-            if (system_config := self.parsed_data.system.config) is not None:
+        if parsed_data is not None:
+            if (system_config := parsed_data.system.config) is not None:
                 config_name_from_api = system_config.get("name")
 
-            if (system_info := self.parsed_data.system.system) is not None:
+            if (system_info := parsed_data.system.system) is not None:
                 sw_version = system_info.get("fwVersion")
                 hw_version = system_info.get("hwVersion")
 
-            if (
-                chlorinator_node_attr := self.parsed_data.chlorinator.node_attr
-            ) is not None:
+            if (chlorinator_node_attr := parsed_data.chlorinator.node_attr) is not None:
                 api_model_name = chlorinator_node_attr.get("name")
                 if api_model_name:
                     model_name = api_model_name
-        elif self.data and isinstance(self.data.get("poolSync"), dict):
-            poolsync_main_data = self.data["poolSync"]
-            if isinstance(poolsync_main_data.get("config"), dict):
-                config_name_from_api = poolsync_main_data["config"].get("name")
-            if isinstance(poolsync_main_data.get("system"), dict):
-                system_info = poolsync_main_data["system"]
-                sw_version = system_info.get("fwVersion")
-                hw_version = system_info.get("hwVersion")
 
         if config_name_from_api and config_name_from_api != "PoolSync®":
             device_name = config_name_from_api

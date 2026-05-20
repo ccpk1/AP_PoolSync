@@ -29,17 +29,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM
 
-from .const import CHLORINATOR_ID, HEATPUMP_ID
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import ensure_parsed_data, get_sensor_value
 
 _LOGGER = logging.getLogger(__name__)
 
-type SensorDescription = tuple[
-    SensorEntityDescription,
-    list[str | int],
-    Callable[[Any], Any] | None,
-]
+type SensorDescription = tuple[SensorEntityDescription, Callable[[Any], Any] | None]
 
 
 def _change_temperature_unit(description, is_metric):
@@ -54,9 +49,7 @@ def _change_temperature_unit(description, is_metric):
     return description
 
 
-# Corrected SENSOR_DESCRIPTIONS paths
 SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
-    # --- ChlorSync Device Sensors (data from `devices.0`) ---
     (
         SensorEntityDescription(
             key="water_temp",
@@ -67,7 +60,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
         ),
-        ["devices", CHLORINATOR_ID, "status", "waterTemp"],
         None,
     ),
     (
@@ -79,7 +71,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
         ),
-        ["devices", CHLORINATOR_ID, "status", "saltPPM"],
         None,
     ),
     (
@@ -90,7 +81,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
         ),
-        ["devices", CHLORINATOR_ID, "status", "flowRate"],
         None,
     ),
     (
@@ -101,9 +91,8 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             native_unit_of_measurement=PERCENTAGE,
             state_class=SensorStateClass.MEASUREMENT,
         ),
-        ["devices", CHLORINATOR_ID, "config", "chlorOutput"],
         None,
-    ),  # This is the sensor for the setting
+    ),
     (
         SensorEntityDescription(
             key="boost_remaining",
@@ -112,7 +101,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
         ),
-        ["devices", CHLORINATOR_ID, "status", "boostRemaining"],
         None,
     ),
     (
@@ -126,7 +114,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["devices", CHLORINATOR_ID, "status", "fwdCurrent"],
         None,
     ),
     (
@@ -140,7 +127,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["devices", CHLORINATOR_ID, "status", "revCurrent"],
         None,
     ),
     (
@@ -154,7 +140,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["devices", CHLORINATOR_ID, "status", "outVoltage"],
         None,
     ),
     (
@@ -165,7 +150,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["devices", CHLORINATOR_ID, "system", "cellSerialNum"],
         None,
     ),
     (
@@ -176,7 +160,6 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["devices", CHLORINATOR_ID, "system", "cellFwVersion"],
         None,
     ),
     (
@@ -187,12 +170,10 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["devices", CHLORINATOR_ID, "system", "cellHwVersion"],
         None,
     ),
 )
 SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
-    # --- System Wide Sensors (data from `poolSync`) ---
     (
         SensorEntityDescription(
             key="board_temp",
@@ -205,7 +186,6 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             entity_category=EntityCategory.DIAGNOSTIC,
             suggested_display_precision=0,
         ),
-        ["poolSync", "status", "boardTemp"],
         None,
     ),
     (
@@ -219,7 +199,6 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["poolSync", "status", "rssi"],
         None,
     ),
     (
@@ -231,7 +210,6 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["poolSync", "status", "dateTime"],
         lambda v: dt_util.parse_datetime(v) if isinstance(v, str) else None,
     ),
     (
@@ -242,7 +220,6 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["poolSync", "system", "fwVersion"],
         None,
     ),
     (
@@ -253,7 +230,6 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["poolSync", "system", "hwVersion"],
         None,
     ),
     (
@@ -267,12 +243,10 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        ["poolSync", "stats", "upTimeSecs"],
         None,
     ),
 )
 SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
-    # --- HeatPump Device Sensors (data from `devices.0`) ---
     (
         SensorEntityDescription(
             key="hp_water_temp",
@@ -283,7 +257,6 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
         ),
-        ["devices", HEATPUMP_ID, "status", "waterTemp"],
         None,
     ),
     (
@@ -296,7 +269,6 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
         ),
-        ["devices", HEATPUMP_ID, "status", "airTemp"],
         None,
     ),
     (
@@ -307,7 +279,6 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
         ),
-        ["devices", HEATPUMP_ID, "config", "mode"],
         None,
     ),
     (
@@ -320,7 +291,6 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
         ),
-        ["devices", HEATPUMP_ID, "config", "setpoint"],
         None,
     ),
 )
@@ -330,19 +300,13 @@ def _build_sensor_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[SensorDescription],
     is_metric: bool,
-    device_id: str | None = None,
 ) -> list[PoolSyncSensor]:
-    """Build sensor entities, copying mutable data paths per entity."""
+    """Build sensor entities."""
     sensors: list[PoolSyncSensor] = []
 
-    for description, template_path, value_fn in descriptions:
+    for description, value_fn in descriptions:
         entity_description = _change_temperature_unit(description, is_metric)
-        data_path = template_path.copy()
-        if device_id is not None:
-            data_path[1] = device_id
-        sensors.append(
-            PoolSyncSensor(coordinator, entity_description, data_path, value_fn)
-        )
+        sensors.append(PoolSyncSensor(coordinator, entity_description, value_fn))
 
     return sensors
 
@@ -384,7 +348,6 @@ async def async_setup_entry(
                 coordinator,
                 SENSOR_DESCRIPTIONS_CHLORSYNC,
                 is_metric=is_metric,
-                device_id=chlor_id,
             )
         )
     elif chlor_id and devices is not None:
@@ -400,7 +363,6 @@ async def async_setup_entry(
                 coordinator,
                 SENSOR_DESCRIPTIONS_HEATPUMP,
                 is_metric=is_metric,
-                device_id=heatpump_id,
             )
         )
     elif heatpump_id and devices is not None:
@@ -426,12 +388,10 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: SensorEntityDescription,
-        data_path: list[str | int],
         value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
-        self._data_path = data_path
         self._value_fn = value_fn
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
         self._attr_device_info = coordinator.device_info

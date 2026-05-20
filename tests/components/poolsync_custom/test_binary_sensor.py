@@ -72,10 +72,10 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
         for entity in added_entities
         if entity.entity_description.key == "heatpump_online"
     )
-    assert chlor_fault._data_path[1] == "5"
-    assert heat_online._data_path[1] == "7"
-    assert BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[0][1][1] == "-1"
-    assert BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][1][1] == "0"
+    assert chlor_fault.is_on is False
+    assert heat_online.is_on is True
+    assert BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[0][0].key == "chlorsync_online"
+    assert BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][0].key == "heatpump_online"
 
 
 async def test_binary_sensor_updates_cached_state() -> None:
@@ -84,8 +84,7 @@ async def test_binary_sensor_updates_cached_state() -> None:
     sensor = PoolSyncBinarySensor(
         coordinator,
         BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][0],
-        ["devices", "7", "nodeAttr", "online"],
-        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][2],
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][1],
     )
 
     assert sensor.is_on is True

@@ -26,22 +26,18 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.unit_system import METRIC_SYSTEM
 
-from .const import (
-    CHLORINATOR_ID,
-    HEATPUMP_ID,
-    # DEFAULT_CHLOR_OUTPUT_MIN,
-    # DEFAULT_CHLOR_OUTPUT_MAX,
-    # DEFAULT_CHLOR_OUTPUT_STEP,
-    # NUMBER_KEY_CHLOR_OUTPUT,
-)
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import ensure_parsed_data, get_number_value
 
 _LOGGER = logging.getLogger(__name__)
 
-type NumberDescription = tuple[
-    NumberEntityDescription, list[str | int], Callable[[Any], Any] | None
-]
+_WRITE_METHODS: dict[str, str] = {
+    "chlor_output_control": "async_set_chlorinator_output",
+    "temperature_output_control": "async_set_heat_pump_setpoint",
+    "heat_mode": "async_set_heat_pump_mode",
+}
+
+type NumberDescription = tuple[NumberEntityDescription, Callable[[Any], Any] | None]
 
 NUMBER_DESCRIPTIONS_CHLOR: tuple[NumberDescription, ...] = (
     (
@@ -55,9 +51,8 @@ NUMBER_DESCRIPTIONS_CHLOR: tuple[NumberDescription, ...] = (
             native_step=1,  # DEFAULT_CHLOR_OUTPUT_STEP,     # e.g., 1 or 5
             mode=NumberMode.SLIDER,  # Or NumberMode.BOX
         ),
-        ["devices", CHLORINATOR_ID, "config", "chlorOutput"],
         None,
-    ),  # Path to get current value
+    ),
 )
 
 NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
@@ -72,9 +67,8 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
             native_step=1,  # e.g., 1 or 5
             mode=NumberMode.BOX,  # Or NumberMode.BOX
         ),
-        ["devices", HEATPUMP_ID, "config", "setpoint"],
         None,
-    ),  # Path to get current value
+    ),
     (
         NumberEntityDescription(
             key="heat_mode",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
@@ -85,9 +79,8 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
             native_step=1,  # e.g., 1 or 5
             mode=NumberMode.BOX,  # Or NumberMode.BOX
         ),
-        ["devices", HEATPUMP_ID, "config", "mode"],
         None,
-    ),  # Path to get current value
+    ),
 )
 
 NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
@@ -102,9 +95,8 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
             native_step=0.5,  # e.g., 1 or 5
             mode=NumberMode.SLIDER,  # Or NumberMode.BOX
         ),
-        ["devices", HEATPUMP_ID, "config", "setpoint"],
         None,
-    ),  # Path to get current value
+    ),
     (
         NumberEntityDescription(
             key="heat_mode",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
@@ -115,47 +107,38 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
             native_step=1,  # e.g., 1 or 5
             mode=NumberMode.BOX,  # Or NumberMode.BOX
         ),
-        ["devices", HEATPUMP_ID, "config", "mode"],
         None,
-    ),  # Path to get current value
+    ),
 )
 
 
 def _build_number_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[NumberDescription],
-    device_id: str,
 ) -> list[PoolSyncChlorOutputNumberEntity]:
     """Build number entities for a specific PoolSync device."""
     number_entities: list[PoolSyncChlorOutputNumberEntity] = []
 
     parsed_data = ensure_parsed_data(coordinator)
 
-    for description, template_path, value_fn in descriptions:
-        data_path = template_path.copy()
-        data_path[1] = device_id
-
+    for description, value_fn in descriptions:
         current_value = get_number_value(parsed_data, description.key)
         if current_value is None:
             _LOGGER.warning(
-                "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s at path %s is None. Entity may be unavailable or show an unexpected state initially.",
+                "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s is None. Entity may be unavailable or show an unexpected state initially.",
                 coordinator.name,
                 description.key,
-                data_path,
             )
         else:
             _LOGGER.debug(
-                "NUMBER_PLATFORM: Coordinator %s: Initial value for number entity %s at path %s is %s.",
+                "NUMBER_PLATFORM: Coordinator %s: Initial value for number entity %s is %s.",
                 coordinator.name,
                 description.key,
-                data_path,
                 current_value,
             )
 
         number_entities.append(
-            PoolSyncChlorOutputNumberEntity(
-                coordinator, description, data_path, value_fn
-            )
+            PoolSyncChlorOutputNumberEntity(coordinator, description, value_fn)
         )
 
     return number_entities
@@ -201,7 +184,7 @@ async def async_setup_entry(
 
     if chlor_id and parsed_data.chlorinator.is_present:
         number_entities.extend(
-            _build_number_entities(coordinator, NUMBER_DESCRIPTIONS_CHLOR, chlor_id)
+            _build_number_entities(coordinator, NUMBER_DESCRIPTIONS_CHLOR)
         )
     elif chlor_id:
         _LOGGER.warning(
@@ -218,9 +201,7 @@ async def async_setup_entry(
             number_descriptions_heatpump = NUMBER_DESCRIPTIONS_HEATPUMP_F
 
         number_entities.extend(
-            _build_number_entities(
-                coordinator, number_descriptions_heatpump, heatpump_id
-            )
+            _build_number_entities(coordinator, number_descriptions_heatpump)
         )
     elif heatpump_id:
         _LOGGER.warning(
@@ -241,7 +222,7 @@ async def async_setup_entry(
         )
     else:
         _LOGGER.warning(
-            "NUMBER_PLATFORM: No number entities were created for %s. Check descriptions and data paths.",
+            "NUMBER_PLATFORM: No number entities were created for %s. Check descriptions and parsed data.",
             coordinator.name,
         )
 
@@ -257,13 +238,11 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: NumberEntityDescription,
-        data_path: list[str | int],
         value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
         self.entity_description = description
-        self._data_path = data_path
         self._value_fn = (
             value_fn  # Not used for native_value here, but kept for pattern consistency
         )
@@ -273,10 +252,9 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._update_attrs()
 
         _LOGGER.debug(
-            "NUMBER_ENTITY %s: Initialized. Unique ID: %s, Data Path: %s",
+            "NUMBER_ENTITY %s: Initialized. Unique ID: %s",
             self.entity_description.name,
             self._attr_unique_id,
-            self._data_path,
         )
 
     @callback
@@ -294,11 +272,10 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             self._attr_native_value = float(value)
         except (ValueError, TypeError):
             _LOGGER.error(
-                "NUMBER_ENTITY %s: could not convert value '%s' (type: %s) to float from path %s",
+                "NUMBER_ENTITY %s: could not convert value '%s' (type: %s) to float",
                 self.entity_description.key,
                 value,
                 type(value).__name__,
-                self._data_path,
             )
             self._attr_native_value = None
             self._attr_available = False
@@ -331,16 +308,12 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             raise HomeAssistantError("API password not available to set value.")
 
         try:
-            if self.entity_description.key == "chlor_output_control":
-                await self.coordinator.async_set_chlorinator_output(new_value)
-            elif self.entity_description.key == "temperature_output_control":
-                await self.coordinator.async_set_heat_pump_setpoint(new_value)
-            elif self.entity_description.key == "heat_mode":
-                await self.coordinator.async_set_heat_pump_mode(new_value)
-            else:
+            if (method_name := _WRITE_METHODS.get(self.entity_description.key)) is None:
                 raise HomeAssistantError(
                     f"Unsupported number command: {self.entity_description.key}"
                 )
+
+            await getattr(self.coordinator, method_name)(new_value)
 
             _LOGGER.info(
                 "NUMBER_ENTITY %s: Successfully set value to %d and requested refresh.",

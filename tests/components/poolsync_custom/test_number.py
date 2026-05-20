@@ -64,7 +64,6 @@ def _build_entity(hass, api_client: Mock) -> PoolSyncChlorOutputNumberEntity:
             native_max_value=100,
             native_step=1,
         ),
-        ["devices", "1", "config", "chlorOutput"],
     )
 
 
@@ -131,7 +130,6 @@ async def test_async_set_native_value_routes_heat_pump_mode_command(hass) -> Non
             native_max_value=2,
             native_step=1,
         ),
-        ["devices", "7", "config", "mode"],
     )
 
     await entity.async_set_native_value(2)
