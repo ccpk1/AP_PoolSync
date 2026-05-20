@@ -141,3 +141,38 @@ async def test_async_set_native_value_routes_heat_pump_mode_command(hass) -> Non
         password=TEST_PASSWORD,
     )
     coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_number_entity_becomes_unavailable_when_value_missing(hass) -> None:
+    """Test number entities report unavailable when their parsed value is missing."""
+    api_client = Mock()
+    api_client.ip_address = TEST_IP_ADDRESS
+    coordinator = PoolSyncDataUpdateCoordinator(
+        hass=hass,
+        api_client=api_client,
+        password=TEST_PASSWORD,
+        update_interval_seconds=120,
+        config_entry_id="test-entry-id",
+        mac_address=TEST_MAC_ADDRESS,
+    )
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"1": {"config": {}}},
+        "deviceType": {"1": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        NumberEntityDescription(
+            key="chlor_output_control",
+            name="Chlorinator Output",
+            native_unit_of_measurement=PERCENTAGE,
+            native_min_value=0,
+            native_max_value=100,
+            native_step=1,
+        ),
+    )
+
+    assert entity.native_value is None
+    assert entity.available is False

@@ -6,7 +6,10 @@ import logging
 from typing import Any
 
 import aiohttp
+from aiohttp import DummyCookieJar
 from aiohttp.client_exceptions import ClientConnectorError
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 # Assuming const.py is in the same directory
 from .const import (
@@ -24,6 +27,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
+
+
+def async_create_poolsync_session(hass: HomeAssistant) -> aiohttp.ClientSession:
+    """Create a dedicated no-cookie client session for PoolSync traffic."""
+    return async_create_clientsession(hass, cookie_jar=DummyCookieJar())
 
 
 class PoolSyncApiError(Exception):
@@ -328,7 +336,11 @@ class PoolSyncApiClient:
         """
         _LOGGER.debug("Querying push-link status for %s.", self._ip_address)
         response = await self._request("GET", API_PATH_PUSHLINK_STATUS)
-        _LOGGER.info(response)
+        _LOGGER.debug(
+            "Received push-link status for %s with keys: %s",
+            self._ip_address,
+            sorted(response),
+        )
         # Expected keys: "timeRemaining" or "password" and "macAddress"
         return response
 

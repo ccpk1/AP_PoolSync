@@ -34,6 +34,8 @@ from .runtime import ensure_parsed_data, get_sensor_value
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0  # Coordinator-based updates
+
 type SensorDescription = tuple[SensorEntityDescription, Callable[[Any], Any] | None]
 
 
@@ -76,7 +78,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="flow_rate",
-            name="Chlor Flow Rate",
+            name="Chlorinator Flow Rate",
             icon="mdi:pump",
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
@@ -274,7 +276,7 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="hp_mode",
-            name="Mode",
+            name="Heat Pump Mode",
             icon="mdi:pump",
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
@@ -284,7 +286,7 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="hp_setpoint_temp",
-            name="SetPoint Temperature",
+            name="Setpoint Temperature",
             icon="mdi:coolant-temperature",
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             device_class=SensorDeviceClass.TEMPERATURE,

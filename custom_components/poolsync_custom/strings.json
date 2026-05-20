@@ -11,6 +11,10 @@
           "ip_address": "IP Address"
         }
       },
+      "reauth_confirm": {
+        "title": "PoolSync Reauthenticate Device",
+        "description": "Press Submit to start local relinking for the PoolSync device at {ip_address}. Then press the Auth or Service button on the physical device to complete reauthentication."
+      },
       "link_failed": {
         "title": "PoolSync Setup: Link Device",
         "description": "The PoolSync device at {ip_address} did not finish linking. Select Submit to retry the push-link process.\n\nIf this keeps failing, restart the PoolSync device and try again."
@@ -28,6 +32,7 @@
     "abort": {
       "already_configured": "This PoolSync device (based on its MAC address) is already configured.",
       "internal_error": "An internal error occurred in the configuration flow. Please try again.",
+      "wrong_device": "The device returned by the reauthentication flow does not match the already configured PoolSync device.",
       "user_cancelled": "Configuration cancelled by user."
     }
   },

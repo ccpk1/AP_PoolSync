@@ -12,10 +12,9 @@ from homeassistant.exceptions import (
     ConfigEntryError,
     ConfigEntryNotReady,
 )
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .api import PoolSyncApiClient
+from .api import PoolSyncApiClient, async_create_poolsync_session
 from .const import (
     API_RESPONSE_MAC_ADDRESS,
     DEFAULT_SCAN_INTERVAL,
@@ -46,7 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> 
             f"Missing PoolSync MAC address in config entry for {ip_address}"
         )
 
-    session = async_get_clientsession(hass)
+    session = async_create_poolsync_session(hass)
     api_client = PoolSyncApiClient(ip_address=ip_address, session=session)
 
     scan_interval = entry.options.get(OPTION_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)

@@ -75,6 +75,33 @@ async def test_async_setup_entry_sets_runtime_data(
     mock_forward_entry_setups.assert_awaited_once_with(poolsync_config_entry, PLATFORMS)
 
 
+async def test_async_setup_entry_uses_dedicated_poolsync_session(
+    hass, poolsync_config_entry: MockConfigEntry
+) -> None:
+    """Test setup creates a dedicated PoolSync session instead of reusing the shared one."""
+    poolsync_config_entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.poolsync_custom.async_create_poolsync_session",
+            return_value=object(),
+        ) as mock_create_session,
+        patch.object(
+            PoolSyncDataUpdateCoordinator,
+            "async_config_entry_first_refresh",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        assert await async_setup_entry(hass, poolsync_config_entry)
+
+    mock_create_session.assert_called_once_with(hass)
+
+
 async def test_async_setup_entry_raises_not_ready_on_refresh_failure(
     hass, poolsync_config_entry: MockConfigEntry
 ) -> None:

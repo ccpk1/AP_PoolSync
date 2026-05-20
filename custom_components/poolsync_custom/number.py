@@ -31,6 +31,8 @@ from .runtime import ensure_parsed_data, get_number_value
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0  # Coordinator-based updates
+
 _WRITE_METHODS: dict[str, str] = {
     "chlor_output_control": "async_set_chlorinator_output",
     "temperature_output_control": "async_set_heat_pump_setpoint",
@@ -59,7 +61,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Temperature Output",  # This will be the entity name
+            name="Target Temperature",  # This will be the entity name
             icon="mdi:knob",  # Using a knob icon for control
             native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             native_min_value=40,  # e.g., 0
@@ -72,7 +74,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="heat_mode",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="heat_mode",  # This will be the entity name
+            name="Heat Mode",  # This will be the entity name
             icon="mdi:knob",  # Using a knob icon for control
             native_min_value=0,  # e.g., 0
             native_max_value=2,  # e.g., 100
@@ -87,7 +89,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Temperature Output",  # This will be the entity name
+            name="Target Temperature",  # This will be the entity name
             icon="mdi:knob",  # Using a knob icon for control
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             native_min_value=5,  # e.g., 0
@@ -100,7 +102,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="heat_mode",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="heat_mode",  # This will be the entity name
+            name="Heat Mode",  # This will be the entity name
             icon="mdi:knob",  # Using a knob icon for control
             native_min_value=0,  # e.g., 0
             native_max_value=2,  # e.g., 100
@@ -288,6 +290,11 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         """Handle updated data from the coordinator."""
         self._update_attrs()
         super()._handle_coordinator_update()
+
+    @property
+    def available(self) -> bool:
+        """Return True if the entity has a usable current value."""
+        return super().available and self.native_value is not None
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""

@@ -24,6 +24,8 @@ from .runtime import (
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0  # Coordinator-based updates
+
 type BinarySensorDescription = tuple[
     BinarySensorEntityDescription,
     Callable[[Any], bool | None] | None,
@@ -91,7 +93,7 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
     (
         BinarySensorEntityDescription(
             key="heatpump_online",
-            name="HeatPump Module Online",
+            name="Heat Pump Module Online",
             device_class=BinarySensorDeviceClass.CONNECTIVITY,
             entity_registry_enabled_default=True,
         ),
@@ -100,7 +102,7 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
     (
         BinarySensorEntityDescription(
             key="heatpump_fault",
-            name="HeatPump Module Fault",
+            name="Heat Pump Module Fault",
             device_class=BinarySensorDeviceClass.PROBLEM,
             entity_registry_enabled_default=True,
         ),
@@ -109,7 +111,7 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
     (
         BinarySensorEntityDescription(
             key="heatpump_flow",
-            name="HeatPump Flow",
+            name="Heat Pump Flow",
             entity_registry_enabled_default=True,
         ),
         lambda v: bool(v >= 1) if isinstance(v, (bool, int)) else None,
@@ -117,7 +119,7 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
     (
         BinarySensorEntityDescription(
             key="heatpump_compressor",
-            name="HeatPump Compressor",
+            name="Heat Pump Compressor",
             entity_registry_enabled_default=True,
         ),
         lambda v: bool(v == 8) if isinstance(v, (bool, int)) else None,
@@ -125,7 +127,7 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
     (
         BinarySensorEntityDescription(
             key="heatpump_fan",
-            name="HeatPump Fan",
+            name="Heat Pump Fan",
             entity_registry_enabled_default=True,
         ),
         lambda v: bool(v == 8 or v == 520) if isinstance(v, (bool, int)) else None,

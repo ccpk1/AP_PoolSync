@@ -74,6 +74,7 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     )
     assert chlor_fault.is_on is False
     assert heat_online.is_on is True
+    assert heat_online.name == "Heat Pump Module Online"
     assert BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[0][0].key == "chlorsync_online"
     assert BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][0].key == "heatpump_online"
 

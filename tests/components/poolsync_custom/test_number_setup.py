@@ -54,5 +54,21 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
 
     assert len(added_entities) == 3
     assert {entity.native_value for entity in added_entities} == {55.0, 82.0, 1.0}
+    assert (
+        next(
+            entity
+            for entity in added_entities
+            if entity.entity_description.key == "heat_mode"
+        ).name
+        == "Heat Mode"
+    )
+    assert (
+        next(
+            entity
+            for entity in added_entities
+            if entity.entity_description.key == "temperature_output_control"
+        ).name
+        == "Target Temperature"
+    )
     assert NUMBER_DESCRIPTIONS_CHLOR[0][0].key == "chlor_output_control"
     assert NUMBER_DESCRIPTIONS_HEATPUMP_F[0][0].key == "temperature_output_control"

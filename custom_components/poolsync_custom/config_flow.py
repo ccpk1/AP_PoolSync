@@ -5,20 +5,21 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-from typing import Any, Self
+from collections.abc import Mapping
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 # Use the provided API client and constants
 from .api import (
     PoolSyncApiClient,
     PoolSyncApiCommunicationError,
     PoolSyncApiError,
+    async_create_poolsync_session,
 )
 from .const import (
     API_RESPONSE_MAC_ADDRESS,
@@ -61,7 +62,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_create_client(self, ip_address: str) -> PoolSyncApiClient:
         """Create an API client instance."""
-        session = async_get_clientsession(self.hass)
+        session = async_create_poolsync_session(self.hass)
         return PoolSyncApiClient(ip_address, session)
 
     async def _async_begin_pushlink(self) -> str | None:
@@ -69,6 +70,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert self._ip_address is not None
 
         if self._task_still_running(self._link_task):
+            assert self._link_task is not None
             self._link_task.cancel()
 
         self._password = None
@@ -108,13 +110,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Return if the current link task is active."""
         return task is not None and not task.done()
 
-    async def _async_finish_link(self) -> FlowResult:
+    async def _async_finish_link(self) -> ConfigFlowResult:
         """Create the entry after a successful push-link."""
         assert self._ip_address is not None
         assert self._password is not None
         assert self._mac_address is not None
 
         await self.async_set_unique_id(self._mac_address)
+
+        if self.source == config_entries.SOURCE_REAUTH:
+            self._abort_if_unique_id_mismatch(reason="wrong_device")
+            return self.async_update_reload_and_abort(
+                self._get_reauth_entry(),
+                unique_id=self._mac_address,
+                data_updates={
+                    CONF_IP_ADDRESS: self._ip_address,
+                    CONF_PASSWORD: self._password,
+                    API_RESPONSE_MAC_ADDRESS: self._mac_address,
+                },
+            )
+
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
@@ -126,7 +141,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def _async_handle_completed_link_task(self) -> FlowResult:
+    async def _async_handle_completed_link_task(self) -> ConfigFlowResult:
         """Handle the result of the background link task."""
         assert self._link_task is not None
 
@@ -142,23 +157,25 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_progress_done(next_step_id="link_failed")
 
-    def is_matching(self, other_flow: Self) -> bool:
+    def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
         """Return if this flow matches another discovery flow."""
         return False
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step where the user provides the IP address."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            self._ip_address = user_input[POOLSYNC_CONF_IP_ADDRESS].strip()
-            if not self._validate_ip_address(self._ip_address):
+            ip_address = user_input[POOLSYNC_CONF_IP_ADDRESS].strip()
+            self._ip_address = ip_address
+            if not self._validate_ip_address(ip_address):
                 errors["base"] = "invalid_ip"
             else:
-                errors["base"] = await self._async_begin_pushlink()
-                if not errors["base"]:
+                if error := await self._async_begin_pushlink():
+                    errors["base"] = error
+                else:
                     errors = {}
                     return await self.async_step_link()
 
@@ -168,7 +185,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_link(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Wait for the PoolSync device to return its password."""
         del user_input
 
@@ -196,7 +213,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_link_failed(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Show a retry screen after a failed push-link attempt."""
         if user_input is not None:
             self._link_error = await self._async_begin_pushlink()
@@ -224,10 +241,42 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_finish_link(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Create the config entry after a successful push-link."""
         del user_input
         return await self._async_finish_link()
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle reauth on authentication failure."""
+        self._ip_address = str(entry_data[CONF_IP_ADDRESS]).strip()
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm a new local push-link for reauthentication."""
+        reauth_entry = self._get_reauth_entry()
+        self._ip_address = str(reauth_entry.data[CONF_IP_ADDRESS]).strip()
+
+        if user_input is not None:
+            self._link_error = await self._async_begin_pushlink()
+            if self._link_error is None:
+                return await self.async_step_link()
+
+            self._set_confirm_only()
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                errors={"base": self._link_error},
+                description_placeholders={"ip_address": self._ip_address},
+            )
+
+        self._set_confirm_only()
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            description_placeholders={"ip_address": self._ip_address},
+        )
 
     async def _async_poll_for_password(self) -> None:
         """Poll the device for pushlink status until password is received or timeout."""
@@ -307,7 +356,7 @@ class PoolSyncOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         errors: dict[str, str] = {}
 

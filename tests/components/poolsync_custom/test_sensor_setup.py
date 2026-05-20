@@ -73,6 +73,8 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     )
     assert chlor_sensor.native_value == 24.5
     assert heat_sensor.native_value == 84
+    assert chlor_sensor.name == "Water Temperature"
+    assert heat_sensor.name == "Setpoint Temperature"
     assert SENSOR_DESCRIPTIONS_CHLORSYNC[0][0].key == "water_temp"
     assert SENSOR_DESCRIPTIONS_HEATPUMP[0][0].key == "hp_water_temp"
 
