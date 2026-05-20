@@ -17,6 +17,7 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.poolsync_custom.api import PoolSyncApiCommunicationError
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
 from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
+from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 
 TEST_IP_ADDRESS = "192.168.50.70"
 TEST_PASSWORD = "test-password"
@@ -43,7 +44,9 @@ def _build_coordinator(hass, api_client: Mock) -> PoolSyncDataUpdateCoordinator:
                 }
             }
         },
+        "deviceType": {"1": "chlorSync"},
     }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
     coordinator.async_request_refresh = AsyncMock(return_value=None)
     return coordinator
 
@@ -90,7 +93,53 @@ async def test_async_set_native_value_raises_homeassistant_error(hass) -> None:
     )
     entity = _build_entity(hass, api_client)
 
-    with pytest.raises(HomeAssistantError, match="Failed to set chlorine output"):
+    with pytest.raises(HomeAssistantError, match="Failed to set chlorinator output"):
         await entity.async_set_native_value(42)
 
     entity.coordinator.async_request_refresh.assert_not_awaited()
+
+
+async def test_async_set_native_value_routes_heat_pump_mode_command(hass) -> None:
+    """Test number writes route heat pump mode through the coordinator command path."""
+    api_client = Mock()
+    api_client.ip_address = TEST_IP_ADDRESS
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = PoolSyncDataUpdateCoordinator(
+        hass=hass,
+        api_client=api_client,
+        password=TEST_PASSWORD,
+        update_interval_seconds=120,
+        config_entry_id="test-entry-id",
+        mac_address=TEST_MAC_ADDRESS,
+    )
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {"config": {"mode": 1}},
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        NumberEntityDescription(
+            key="heat_mode",
+            name="Heat Mode",
+            native_min_value=0,
+            native_max_value=2,
+            native_step=1,
+        ),
+        ["devices", "7", "config", "mode"],
+    )
+
+    await entity.async_set_native_value(2)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="7",
+        key_id="mode",
+        value=2,
+        password=TEST_PASSWORD,
+    )
+    coordinator.async_request_refresh.assert_awaited_once()

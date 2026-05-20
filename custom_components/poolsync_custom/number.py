@@ -35,7 +35,7 @@ from .const import (
     # NUMBER_KEY_CHLOR_OUTPUT,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
-from .sensor import _get_value_from_path  # Reuse helper from sensor.py
+from .runtime import ensure_parsed_data, get_number_value
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,25 +121,6 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
 )
 
 
-def _get_detected_device_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Return detected heat pump and chlorinator device IDs."""
-    heatpump_id: str | None = HEATPUMP_ID
-    chlor_id: str | None = CHLORINATOR_ID
-
-    if isinstance(data.get("deviceType"), dict):
-        device_types = cast(dict[str, str], data["deviceType"])
-        heatpump_id = next(
-            (key for key, value in device_types.items() if value == "heatPump"),
-            None,
-        )
-        chlor_id = next(
-            (key for key, value in device_types.items() if value == "chlorSync"),
-            None,
-        )
-
-    return heatpump_id, chlor_id
-
-
 def _build_number_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[NumberDescription],
@@ -148,11 +129,13 @@ def _build_number_entities(
     """Build number entities for a specific PoolSync device."""
     number_entities: list[PoolSyncChlorOutputNumberEntity] = []
 
+    parsed_data = ensure_parsed_data(coordinator)
+
     for description, template_path, value_fn in descriptions:
         data_path = template_path.copy()
         data_path[1] = device_id
 
-        current_value = _get_value_from_path(coordinator.data, data_path)
+        current_value = get_number_value(parsed_data, description.key)
         if current_value is None:
             _LOGGER.warning(
                 "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s at path %s is None. Entity may be unavailable or show an unexpected state initially.",
@@ -212,9 +195,11 @@ async def async_setup_entry(
         "NUMBER_PLATFORM: Coordinator data includes a devices dictionary. Proceeding to create number entities."
     )
 
-    heatpump_id, chlor_id = _get_detected_device_ids(coordinator.data)
+    parsed_data = ensure_parsed_data(coordinator)
+    heatpump_id = parsed_data.heat_pump.device_id
+    chlor_id = parsed_data.chlorinator.device_id
 
-    if chlor_id and isinstance(coordinator.data["devices"].get(chlor_id), dict):
+    if chlor_id and parsed_data.chlorinator.is_present:
         number_entities.extend(
             _build_number_entities(coordinator, NUMBER_DESCRIPTIONS_CHLOR, chlor_id)
         )
@@ -226,7 +211,7 @@ async def async_setup_entry(
         )
 
     is_metric = hass.config.units is METRIC_SYSTEM
-    if heatpump_id and isinstance(coordinator.data["devices"].get(heatpump_id), dict):
+    if heatpump_id and parsed_data.heat_pump.is_present:
         if is_metric:
             number_descriptions_heatpump = NUMBER_DESCRIPTIONS_HEATPUMP_C
         else:
@@ -297,7 +282,9 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
-        value = _get_value_from_path(self.coordinator.data, self._data_path)
+        value = get_number_value(
+            ensure_parsed_data(self.coordinator), self.entity_description.key
+        )
         if value is None:
             self._attr_native_value = None
             self._attr_available = False
@@ -328,8 +315,6 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         new_value = int(value)
-        device_id = cast(str, self._data_path[1])
-        key_id = cast(str, self._data_path[3])
 
         _LOGGER.info(
             "NUMBER_ENTITY %s: Attempting to set native_value to %d (from HA UI float value: %f)",
@@ -346,32 +331,17 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             raise HomeAssistantError("API password not available to set value.")
 
         try:
-            _LOGGER.debug(
-                "NUMBER_ENTITY %s: Calling async_set_device_config_value with value %d",
-                self.entity_description.key,
-                new_value,
-            )
-
-            api_response = (
-                await self.coordinator.api_client.async_set_device_config_value(
-                    device_id=device_id,
-                    key_id=key_id,
-                    value=new_value,
-                    password=self.coordinator.password,
+            if self.entity_description.key == "chlor_output_control":
+                await self.coordinator.async_set_chlorinator_output(new_value)
+            elif self.entity_description.key == "temperature_output_control":
+                await self.coordinator.async_set_heat_pump_setpoint(new_value)
+            elif self.entity_description.key == "heat_mode":
+                await self.coordinator.async_set_heat_pump_mode(new_value)
+            else:
+                raise HomeAssistantError(
+                    f"Unsupported number command: {self.entity_description.key}"
                 )
-            )
-            _LOGGER.info(
-                "NUMBER_ENTITY %s: API call to set value to %d completed. Response: %s",
-                self.entity_description.key,
-                new_value,
-                api_response,
-            )
 
-            _LOGGER.debug(
-                "NUMBER_ENTITY %s: Requesting coordinator refresh after setting value.",
-                self.entity_description.key,
-            )
-            await self.coordinator.async_request_refresh()
             _LOGGER.info(
                 "NUMBER_ENTITY %s: Successfully set value to %d and requested refresh.",
                 self.entity_description.key,
@@ -388,5 +358,5 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
                 e,
             )
             raise HomeAssistantError(
-                f"Failed to set chlorine output to {new_value}%: {e}"
+                f"Failed to set {self.entity_description.name} to {new_value}: {e}"
             ) from e

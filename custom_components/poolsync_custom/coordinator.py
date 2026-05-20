@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -18,6 +18,7 @@ from .api import (
     PoolSyncApiError,
 )
 from .const import DEFAULT_NAME, DOMAIN, MANUFACTURER, MODEL
+from .runtime import PoolSyncParsedData, ensure_parsed_data, parse_poolsync_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.mac_address = mac_address
         self._ip_address = api_client.ip_address
         self._unavailable_logged = False
+        self.parsed_data: PoolSyncParsedData | None = None
 
         logger_name = f"{DOMAIN}({self.mac_address or self._ip_address})"
 
@@ -82,6 +84,69 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the stored PoolSync API password."""
         return self._password
 
+    def get_parsed_data(self, *, refresh: bool = False) -> PoolSyncParsedData:
+        """Return parsed runtime data, deriving it from raw data if needed."""
+        return ensure_parsed_data(self, refresh=refresh)
+
+    async def _async_write_role_config(
+        self,
+        *,
+        role: str,
+        key_id: str,
+        value: int,
+        description: str,
+    ) -> None:
+        """Write a config value for a resolved device role and refresh state."""
+        if not self.password:
+            raise HomeAssistantError("API password not available to set value")
+
+        parsed_data = self.get_parsed_data()
+        role_data = (
+            parsed_data.chlorinator if role == "chlorinator" else parsed_data.heat_pump
+        )
+        if role_data.device_id is None or not role_data.is_present:
+            raise HomeAssistantError(f"PoolSync {description} target is not available")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=role_data.device_id,
+                key_id=key_id,
+                value=value,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to set {description}: {err}") from err
+
+    async def async_set_chlorinator_output(self, value: int) -> None:
+        """Set the chlorinator output level."""
+        await self._async_write_role_config(
+            role="chlorinator",
+            key_id="chlorOutput",
+            value=value,
+            description="chlorinator output",
+        )
+
+    async def async_set_heat_pump_setpoint(self, value: int) -> None:
+        """Set the heat pump setpoint."""
+        await self._async_write_role_config(
+            role="heat_pump",
+            key_id="setpoint",
+            value=value,
+            description="heat pump setpoint",
+        )
+
+    async def async_set_heat_pump_mode(self, value: int) -> None:
+        """Set the heat pump mode."""
+        await self._async_write_role_config(
+            role="heat_pump",
+            key_id="mode",
+            value=value,
+            description="heat pump mode",
+        )
+
     async def _async_update_data(self) -> dict[str, Any]:
         """
         Fetch data from the PoolSync device API.
@@ -108,6 +173,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     f"Malformed data received from {self.name}: essential keys missing or data not a dict."
                 )
 
+            self.parsed_data = parse_poolsync_runtime_data(data)
             self._log_recovered_if_needed()
             return data
 
@@ -160,7 +226,21 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hw_version = None
         config_name_from_api: str | None = None
 
-        if self.data and isinstance(self.data.get("poolSync"), dict):
+        if self.parsed_data is not None:
+            if (system_config := self.parsed_data.system.config) is not None:
+                config_name_from_api = system_config.get("name")
+
+            if (system_info := self.parsed_data.system.system) is not None:
+                sw_version = system_info.get("fwVersion")
+                hw_version = system_info.get("hwVersion")
+
+            if (
+                chlorinator_node_attr := self.parsed_data.chlorinator.node_attr
+            ) is not None:
+                api_model_name = chlorinator_node_attr.get("name")
+                if api_model_name:
+                    model_name = api_model_name
+        elif self.data and isinstance(self.data.get("poolSync"), dict):
             poolsync_main_data = self.data["poolSync"]
             if isinstance(poolsync_main_data.get("config"), dict):
                 config_name_from_api = poolsync_main_data["config"].get("name")
@@ -168,17 +248,6 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 system_info = poolsync_main_data["system"]
                 sw_version = system_info.get("fwVersion")
                 hw_version = system_info.get("hwVersion")
-
-        if (
-            self.data
-            and isinstance(self.data.get("devices"), dict)
-            and isinstance(self.data["devices"].get("0"), dict)
-        ):
-            device0_data = self.data["devices"]["0"]
-            if isinstance(device0_data.get("nodeAttr"), dict):
-                api_model_name = device0_data["nodeAttr"].get("name")
-                if api_model_name:  # Use ChlorSync® as model if available
-                    model_name = api_model_name
 
         if config_name_from_api and config_name_from_api != "PoolSync®":
             device_name = config_name_from_api

@@ -14,6 +14,7 @@ from custom_components.poolsync_custom.number import (
     NUMBER_DESCRIPTIONS_HEATPUMP_F,
     async_setup_entry,
 )
+from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 
 
 def _build_entry(coordinator) -> Mock:
@@ -42,6 +43,7 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
             "7": "heatPump",
         },
     }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
 
     added_entities: list = []
 

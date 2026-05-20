@@ -1,8 +1,10 @@
 """Sensor platform for the PoolSync Custom integration."""
 
+from __future__ import annotations
+
 import dataclasses
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 from homeassistant.components.sensor import (
@@ -16,22 +18,28 @@ from homeassistant.const import (
     CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM
 
 from .const import CHLORINATOR_ID, HEATPUMP_ID
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .runtime import ensure_parsed_data, get_sensor_value
 
 _LOGGER = logging.getLogger(__name__)
+
+type SensorDescription = tuple[
+    SensorEntityDescription,
+    list[str | int],
+    Callable[[Any], Any] | None,
+]
 
 
 def _change_temperature_unit(description, is_metric):
@@ -46,36 +54,8 @@ def _change_temperature_unit(description, is_metric):
     return description
 
 
-def _get_value_from_path(data: dict[str, Any] | None, path: list[str | int]) -> Any:
-    """Safely retrieve a value from a nested dictionary using a path list."""
-    if data is None:
-        return None
-    value = data
-    try:
-        for key_or_index in path:
-            if value is None:
-                return None
-            if isinstance(key_or_index, str):
-                if not isinstance(value, dict):
-                    return None
-                value = value.get(key_or_index)
-            elif isinstance(
-                key_or_index, int
-            ):  # Should not be needed for current paths
-                if not isinstance(value, list) or not (0 <= key_or_index < len(value)):
-                    return None
-                value = value[key_or_index]
-            else:
-                return None  # Invalid path component type
-        return value
-    except (KeyError, IndexError, TypeError):
-        return None
-
-
 # Corrected SENSOR_DESCRIPTIONS paths
-SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
-    tuple[SensorEntityDescription, list[str], Callable[[Any], Any] | None], ...
-] = (
+SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     # --- ChlorSync Device Sensors (data from `devices.0`) ---
     (
         SensorEntityDescription(
@@ -211,9 +191,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
         None,
     ),
 )
-SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
-    tuple[SensorEntityDescription, list[str], Callable[[Any], Any] | None], ...
-] = (
+SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     # --- System Wide Sensors (data from `poolSync`) ---
     (
         SensorEntityDescription(
@@ -293,9 +271,7 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
         None,
     ),
 )
-SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
-    tuple[SensorEntityDescription, list[str], Callable[[Any], Any] | None], ...
-] = (
+SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     # --- HeatPump Device Sensors (data from `devices.0`) ---
     (
         SensorEntityDescription(
@@ -350,55 +326,89 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
 )
 
 
+def _build_sensor_entities(
+    coordinator: PoolSyncDataUpdateCoordinator,
+    descriptions: Sequence[SensorDescription],
+    is_metric: bool,
+    device_id: str | None = None,
+) -> list[PoolSyncSensor]:
+    """Build sensor entities, copying mutable data paths per entity."""
+    sensors: list[PoolSyncSensor] = []
+
+    for description, template_path, value_fn in descriptions:
+        entity_description = _change_temperature_unit(description, is_metric)
+        data_path = template_path.copy()
+        if device_id is not None:
+            data_path[1] = device_id
+        sensors.append(
+            PoolSyncSensor(coordinator, entity_description, data_path, value_fn)
+        )
+
+    return sensors
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     sensors_to_add: list[PoolSyncSensor] = []
+    parsed_data = ensure_parsed_data(coordinator)
+    data = coordinator.data or {}
 
     # Check for the presence of top-level keys to ensure basic data structure
-    if not coordinator.data or not (
-        isinstance(coordinator.data.get("poolSync"), dict)
-        and isinstance(coordinator.data.get("devices"), dict)
-    ):
+    poolsync_data_present = isinstance(data.get("poolSync"), dict)
+    devices = data.get("devices") if isinstance(data.get("devices"), dict) else None
+
+    if not poolsync_data_present or devices is None:
         _LOGGER.warning(
             "Coordinator %s: Initial data is missing 'poolSync' or 'devices' top-level keys. Sensor setup may be incomplete.",
             coordinator.name,
         )
         # Still attempt to add sensors; they will become unavailable if their specific data is missing.
 
-    heatpump_id = HEATPUMP_ID
-    chlor_id = CHLORINATOR_ID
-    if coordinator.data and isinstance(coordinator.data.get("deviceType"), dict):
-        deviceTypes = coordinator.data.get("deviceType")
-        temp = [key for key, value in deviceTypes.items() if value == "heatPump"]
-        heatpump_id = temp[0] if temp else "-1"
-        temp = [key for key, value in deviceTypes.items() if value == "chlorSync"]
-        chlor_id = temp[0] if temp else "-1"
+    heatpump_id = parsed_data.heat_pump.device_id
+    chlor_id = parsed_data.chlorinator.device_id
 
     # change temperature unit
     is_metric = hass.config.units is METRIC_SYSTEM
 
-    for description, data_path, value_fn in SENSOR_DESCRIPTIONS_POOLSYNC:
-        sensors_to_add.append(
-            PoolSyncSensor(coordinator, description, data_path, value_fn)
+    sensors_to_add.extend(
+        _build_sensor_entities(
+            coordinator, SENSOR_DESCRIPTIONS_POOLSYNC, is_metric=is_metric
+        )
+    )
+
+    if chlor_id and parsed_data.chlorinator.is_present:
+        sensors_to_add.extend(
+            _build_sensor_entities(
+                coordinator,
+                SENSOR_DESCRIPTIONS_CHLORSYNC,
+                is_metric=is_metric,
+                device_id=chlor_id,
+            )
+        )
+    elif chlor_id and devices is not None:
+        _LOGGER.warning(
+            "Coordinator %s data is missing chlorinator device %s. Skipping chlorinator sensors.",
+            coordinator.name,
+            chlor_id,
         )
 
-    if chlor_id != "-1":
-        for description, data_path, value_fn in SENSOR_DESCRIPTIONS_CHLORSYNC:
-            description = _change_temperature_unit(description, is_metric)
-            data_path[1] = chlor_id
-            sensors_to_add.append(
-                PoolSyncSensor(coordinator, description, data_path, value_fn)
+    if heatpump_id and parsed_data.heat_pump.is_present:
+        sensors_to_add.extend(
+            _build_sensor_entities(
+                coordinator,
+                SENSOR_DESCRIPTIONS_HEATPUMP,
+                is_metric=is_metric,
+                device_id=heatpump_id,
             )
-
-    if heatpump_id != "-1":
-        for description, data_path, value_fn in SENSOR_DESCRIPTIONS_HEATPUMP:
-            description = _change_temperature_unit(description, is_metric)
-            data_path[1] = heatpump_id
-            sensors_to_add.append(
-                PoolSyncSensor(coordinator, description, data_path, value_fn)
-            )
+        )
+    elif heatpump_id and devices is not None:
+        _LOGGER.warning(
+            "Coordinator %s data is missing heat pump device %s. Skipping heat pump sensors.",
+            coordinator.name,
+            heatpump_id,
+        )
 
     if sensors_to_add:
         async_add_entities(sensors_to_add)
@@ -407,14 +417,16 @@ async def async_setup_entry(
         )
 
 
-class PoolSyncSensor(CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEntity):
+class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEntity
+):
     _attr_has_entity_name = True
 
     def __init__(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: SensorEntityDescription,
-        data_path: list[str],
+        data_path: list[str | int],
         value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
         super().__init__(coordinator)
@@ -423,15 +435,21 @@ class PoolSyncSensor(CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEnt
         self._value_fn = value_fn
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
         self._attr_device_info = coordinator.device_info
+        self._update_attrs()
 
-    @property
-    def native_value(self) -> StateType:
-        value = _get_value_from_path(self.coordinator.data, self._data_path)
+    @callback
+    def _update_attrs(self) -> None:
+        """Update cached entity attributes from coordinator data."""
+        value = get_sensor_value(
+            ensure_parsed_data(self.coordinator), self.entity_description.key
+        )
         if value is None:
-            return None
+            self._attr_native_value = None
+            self._attr_available = False
+            return
         if self._value_fn:
             try:
-                return self._value_fn(value)
+                self._attr_native_value = self._value_fn(value)
             except (AttributeError, TypeError, ValueError) as err:
                 _LOGGER.error(
                     "Sensor %s: Error processing value '%s' with value_fn: %s",
@@ -439,24 +457,19 @@ class PoolSyncSensor(CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEnt
                     value,
                     err,
                 )
-                return None
-        if isinstance(value, (str, int, float)) or value is None:
-            return value
-        return str(value)
+                self._attr_native_value = None
+                self._attr_available = False
+                return
+        elif isinstance(value, (str, int, float)):
+            self._attr_native_value = value
+        else:
+            self._attr_native_value = str(value)
 
-    @property
-    def available(self) -> bool:
-        coordinator_available = super().available
-        val_at_path = _get_value_from_path(self.coordinator.data, self._data_path)
-        value_is_present_and_processable = False
-        if val_at_path is not None:
-            if self._value_fn:
-                try:
-                    value_is_present_and_processable = (
-                        self._value_fn(val_at_path) is not None
-                    )
-                except (AttributeError, TypeError, ValueError):
-                    value_is_present_and_processable = False
-            else:
-                value_is_present_and_processable = True
-        return coordinator_available and value_is_present_and_processable
+        self._attr_available = super().available and self._attr_native_value is not None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        ensure_parsed_data(self.coordinator, refresh=True)
+        self._update_attrs()
+        super()._handle_coordinator_update()

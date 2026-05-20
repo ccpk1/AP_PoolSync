@@ -21,7 +21,10 @@ from .const import (
     HEATPUMP_ID,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
-from .sensor import _get_value_from_path  # Reuse helper
+from .runtime import (
+    ensure_parsed_data,
+    get_binary_sensor_value,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -176,41 +179,47 @@ async def async_setup_entry(
     del hass
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     binary_sensors_to_add: list[PoolSyncBinarySensor] = []
+    parsed_data = ensure_parsed_data(coordinator, refresh=True)
+    data = coordinator.data or {}
+    devices = data.get("devices") if isinstance(data.get("devices"), dict) else None
 
-    if not coordinator.data or not (
-        isinstance(coordinator.data.get("poolSync"), dict)
-        and isinstance(coordinator.data.get("devices"), dict)
-    ):
+    if not isinstance(data.get("poolSync"), dict) or devices is None:
         _LOGGER.warning(
             "Coordinator %s: Initial data is missing 'poolSync' or 'devices' top-level keys. Binary sensor setup may be incomplete.",
             coordinator.name,
         )
 
-    heatpump_id = HEATPUMP_ID
-    chlor_id = CHLORINATOR_ID
-    if coordinator.data and isinstance(coordinator.data.get("deviceType"), dict):
-        device_types = cast(dict[str, str], coordinator.data["deviceType"])
-        temp = [key for key, value in device_types.items() if value == "heatPump"]
-        heatpump_id = temp[0] if temp else "-1"
-        temp = [key for key, value in device_types.items() if value == "chlorSync"]
-        chlor_id = temp[0] if temp else "-1"
+    heatpump_id = parsed_data.heat_pump.device_id
+    chlor_id = parsed_data.chlorinator.device_id
 
     binary_sensors_to_add.extend(
         _build_binary_sensors(coordinator, BINARY_SENSOR_DESCRIPTIONS_POOLSYNC)
     )
 
-    if chlor_id != "-1":
+    if chlor_id and parsed_data.chlorinator.is_present:
         binary_sensors_to_add.extend(
             _build_binary_sensors(
                 coordinator, BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC, chlor_id
             )
         )
+    elif chlor_id and devices is not None:
+        _LOGGER.warning(
+            "Coordinator %s data is missing chlorinator device %s. Skipping chlorinator binary sensors.",
+            coordinator.name,
+            chlor_id,
+        )
 
-    if heatpump_id != "-1":
+    if heatpump_id and parsed_data.heat_pump.is_present:
         binary_sensors_to_add.extend(
             _build_binary_sensors(
                 coordinator, BINARY_SENSOR_DESCRIPTIONS_HEATPUMP, heatpump_id
             )
+        )
+    elif heatpump_id and devices is not None:
+        _LOGGER.warning(
+            "Coordinator %s data is missing heat pump device %s. Skipping heat pump binary sensors.",
+            coordinator.name,
+            heatpump_id,
         )
 
     if binary_sensors_to_add:
@@ -245,7 +254,9 @@ class PoolSyncBinarySensor(
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
-        raw_value = _get_value_from_path(self.coordinator.data, self._data_path)
+        raw_value = get_binary_sensor_value(
+            ensure_parsed_data(self.coordinator), self.entity_description.key
+        )
         if raw_value is None:
             self._attr_is_on = None
             return
@@ -272,6 +283,7 @@ class PoolSyncBinarySensor(
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
+        ensure_parsed_data(self.coordinator, refresh=True)
         self._update_attrs()
         super()._handle_coordinator_update()
 

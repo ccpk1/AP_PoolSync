@@ -97,3 +97,23 @@ async def test_binary_sensor_updates_cached_state() -> None:
 
     assert sensor.is_on is None
     assert sensor.available is False
+
+
+async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
+    """Test setup skips device-specific binary sensors when the payload is missing."""
+    coordinator = _build_coordinator()
+    coordinator.data["devices"] = {}
+    coordinator.data["deviceType"] = {"9": "chlorSync", "11": "heatPump"}
+
+    added_entities: list[PoolSyncBinarySensor] = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    assert {entity.entity_description.key for entity in added_entities} == {
+        "poolsync_online",
+        "service_mode_active",
+        "system_fault",
+    }
