@@ -19,7 +19,6 @@ from .api import PoolSyncApiClient
 from .const import (
     API_RESPONSE_MAC_ADDRESS,
     DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
     OPTION_SCAN_INTERVAL,
     PLATFORMS,
 )

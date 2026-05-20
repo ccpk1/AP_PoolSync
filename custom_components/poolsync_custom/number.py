@@ -1,7 +1,10 @@
 """Number platform for the PoolSync Custom integration."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 from homeassistant.components.number import (
     NumberEntity,
@@ -14,11 +17,10 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError  # For service call errors
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.exceptions import HomeAssistantError  # For service call errors
 from homeassistant.util.unit_system import METRIC_SYSTEM
-
 
 from .const import (
     CHLORINATOR_ID,
@@ -33,9 +35,11 @@ from .sensor import _get_value_from_path  # Reuse helper from sensor.py
 
 _LOGGER = logging.getLogger(__name__)
 
-NUMBER_DESCRIPTIONS_CHLOR: tuple[
-    NumberEntityDescription, List[str], Optional[Callable[[Any], Any]]
-] = (
+type NumberDescription = tuple[
+    NumberEntityDescription, list[str], Callable[[Any], Any] | None
+]
+
+NUMBER_DESCRIPTIONS_CHLOR: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="chlor_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
@@ -52,9 +56,7 @@ NUMBER_DESCRIPTIONS_CHLOR: tuple[
     ),  # Path to get current value
 )
 
-NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[
-    NumberEntityDescription, List[str], Optional[Callable[[Any], Any]]
-] = (
+NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
@@ -84,9 +86,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[
     ),  # Path to get current value
 )
 
-NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[
-    NumberEntityDescription, List[str], Optional[Callable[[Any], Any]]
-] = (
+NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
@@ -115,6 +115,63 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[
         None,
     ),  # Path to get current value
 )
+
+
+def _get_detected_device_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return detected heat pump and chlorinator device IDs."""
+    heatpump_id: str | None = HEATPUMP_ID
+    chlor_id: str | None = CHLORINATOR_ID
+
+    if isinstance(data.get("deviceType"), dict):
+        device_types = cast(dict[str, str], data["deviceType"])
+        heatpump_id = next(
+            (key for key, value in device_types.items() if value == "heatPump"),
+            None,
+        )
+        chlor_id = next(
+            (key for key, value in device_types.items() if value == "chlorSync"),
+            None,
+        )
+
+    return heatpump_id, chlor_id
+
+
+def _build_number_entities(
+    coordinator: PoolSyncDataUpdateCoordinator,
+    descriptions: Sequence[NumberDescription],
+    device_id: str,
+) -> list[PoolSyncChlorOutputNumberEntity]:
+    """Build number entities for a specific PoolSync device."""
+    number_entities: list[PoolSyncChlorOutputNumberEntity] = []
+
+    for description, template_path, value_fn in descriptions:
+        data_path = template_path.copy()
+        data_path[1] = device_id
+
+        current_value = _get_value_from_path(coordinator.data, data_path)
+        if current_value is None:
+            _LOGGER.warning(
+                "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s at path %s is None. Entity may be unavailable or show an unexpected state initially.",
+                coordinator.name,
+                description.key,
+                data_path,
+            )
+        else:
+            _LOGGER.debug(
+                "NUMBER_PLATFORM: Coordinator %s: Initial value for number entity %s at path %s is %s.",
+                coordinator.name,
+                description.key,
+                data_path,
+                current_value,
+            )
+
+        number_entities.append(
+            PoolSyncChlorOutputNumberEntity(
+                coordinator, description, data_path, value_fn
+            )
+        )
+
+    return number_entities
 
 
 async def async_setup_entry(
@@ -147,115 +204,41 @@ async def async_setup_entry(
         )
         return
 
-    if not isinstance(coordinator.data["devices"].get("0"), dict):
-        _LOGGER.warning(
-            "NUMBER_PLATFORM: Coordinator %s data 'devices' dictionary is missing '0' key or it's not a dict. "
-            "Chlorinator Output number entity cannot be set up. devices content: %s",
-            coordinator.name,
-            coordinator.data["devices"],
-        )
-        return
-
     _LOGGER.debug(
-        "NUMBER_PLATFORM: Coordinator data seems valid for device '0'. Proceeding to create number entities."
+        "NUMBER_PLATFORM: Coordinator data includes a devices dictionary. Proceeding to create number entities."
     )
 
-    heatpump_id = HEATPUMP_ID
-    chlor_id = CHLORINATOR_ID
-    if coordinator.data and isinstance(coordinator.data.get("deviceType"), dict):
-        deviceTypes = coordinator.data.get("deviceType")
-        temp = [key for key, value in deviceTypes.items() if value == "heatPump"]
-        heatpump_id = temp[0] if temp else "-1"
-        temp = [key for key, value in deviceTypes.items() if value == "chlorSync"]
-        chlor_id = temp[0] if temp else "-1"
+    heatpump_id, chlor_id = _get_detected_device_ids(coordinator.data)
 
-    if chlor_id != "-1":
-        for description, data_path, value_fn in NUMBER_DESCRIPTIONS_CHLOR:
-            _LOGGER.debug(
-                "NUMBER_PLATFORM: Processing number entity description for key: %s",
-                description.key,
-            )
-            data_path[1] = chlor_id
-            current_value = _get_value_from_path(coordinator.data, data_path)
-            if current_value is None:
-                _LOGGER.warning(
-                    "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s at path %s is None. "
-                    "Entity may be unavailable or show an unexpected state initially.",
-                    coordinator.name,
-                    description.key,
-                    data_path,
-                )
-            else:
-                _LOGGER.debug(
-                    "NUMBER_PLATFORM: Coordinator %s: Initial value for number entity %s at path %s is %s.",
-                    coordinator.name,
-                    description.key,
-                    data_path,
-                    current_value,
-                )
-
-            try:
-                entity_instance = PoolSyncChlorOutputNumberEntity(
-                    coordinator, description, data_path, value_fn
-                )
-                number_entities.append(entity_instance)
-                _LOGGER.debug(
-                    "NUMBER_PLATFORM: Successfully created instance for %s.",
-                    description.key,
-                )
-            except Exception as e:
-                _LOGGER.exception(
-                    "NUMBER_PLATFORM: Error creating instance for %s: %s",
-                    description.key,
-                    e,
-                )
+    if chlor_id and isinstance(coordinator.data["devices"].get(chlor_id), dict):
+        number_entities.extend(
+            _build_number_entities(coordinator, NUMBER_DESCRIPTIONS_CHLOR, chlor_id)
+        )
+    elif chlor_id:
+        _LOGGER.warning(
+            "NUMBER_PLATFORM: Coordinator %s data is missing chlorinator device %s. Skipping chlorinator number entities.",
+            coordinator.name,
+            chlor_id,
+        )
 
     is_metric = hass.config.units is METRIC_SYSTEM
-    if heatpump_id != "-1":
+    if heatpump_id and isinstance(coordinator.data["devices"].get(heatpump_id), dict):
         if is_metric:
             number_descriptions_heatpump = NUMBER_DESCRIPTIONS_HEATPUMP_C
         else:
             number_descriptions_heatpump = NUMBER_DESCRIPTIONS_HEATPUMP_F
 
-        for description, data_path, value_fn in number_descriptions_heatpump:
-            _LOGGER.debug(
-                "NUMBER_PLATFORM: Processing number entity description for key: %s",
-                description.key,
+        number_entities.extend(
+            _build_number_entities(
+                coordinator, number_descriptions_heatpump, heatpump_id
             )
-            data_path[1] = heatpump_id
-            current_value = _get_value_from_path(coordinator.data, data_path)
-            if current_value is None:
-                _LOGGER.warning(
-                    "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s at path %s is None. "
-                    "Entity may be unavailable or show an unexpected state initially.",
-                    coordinator.name,
-                    description.key,
-                    data_path,
-                )
-            else:
-                _LOGGER.debug(
-                    "NUMBER_PLATFORM: Coordinator %s: Initial value for number entity %s at path %s is %s.",
-                    coordinator.name,
-                    description.key,
-                    data_path,
-                    current_value,
-                )
-
-            try:
-                entity_instance = PoolSyncChlorOutputNumberEntity(
-                    coordinator, description, data_path, value_fn
-                )
-                number_entities.append(entity_instance)
-                _LOGGER.debug(
-                    "NUMBER_PLATFORM: Successfully created instance for %s.",
-                    description.key,
-                )
-            except Exception as e:
-                _LOGGER.exception(
-                    "NUMBER_PLATFORM: Error creating instance for %s: %s",
-                    description.key,
-                    e,
-                )
+        )
+    elif heatpump_id:
+        _LOGGER.warning(
+            "NUMBER_PLATFORM: Coordinator %s data is missing heat pump device %s. Skipping heat pump number entities.",
+            coordinator.name,
+            heatpump_id,
+        )
 
     if number_entities:
         _LOGGER.debug(
@@ -285,8 +268,8 @@ class PoolSyncChlorOutputNumberEntity(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: NumberEntityDescription,
-        data_path: List[str],
-        value_fn: Optional[Callable[[Any], Any]] = None,
+        data_path: list[str],
+        value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
@@ -307,7 +290,7 @@ class PoolSyncChlorOutputNumberEntity(
         )
 
     @property
-    def native_value(self) -> Optional[float]:
+    def native_value(self) -> float | None:
         """Return the current value of the number entity."""
         value = _get_value_from_path(self.coordinator.data, self._data_path)
         # _LOGGER.debug("NUMBER_ENTITY %s: native_value raw from path %s: %s", self.entity_description.key, self._data_path, value)
@@ -328,12 +311,9 @@ class PoolSyncChlorOutputNumberEntity(
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
-        new_value = int(value)  # API expects an integer for percentage
-        datapath = self._data_path
-        _LOGGER.info(str(datapath))
-
-        deviceId = datapath[1]
-        keyId = datapath[3]
+        new_value = int(value)
+        device_id = self._data_path[1]
+        key_id = self._data_path[3]
 
         _LOGGER.info(
             "NUMBER_ENTITY %s: Attempting to set native_value to %d (from HA UI float value: %f)",
@@ -342,34 +322,30 @@ class PoolSyncChlorOutputNumberEntity(
             value,
         )
 
-        if not hasattr(self.coordinator, "_password") or not self.coordinator._password:
+        if not self.coordinator.password:
             _LOGGER.error(
                 "NUMBER_ENTITY %s: Password not available on coordinator. Cannot set value.",
                 self.entity_description.key,
             )
             raise HomeAssistantError("API password not available to set value.")
 
-        current_api_password = self.coordinator._password
-        _LOGGER.debug(
-            "NUMBER_ENTITY %s: Using password from coordinator to set value.",
-            self.entity_description.key,
-        )
-
         try:
             _LOGGER.debug(
-                "NUMBER_ENTITY %s: Calling api_client._request_patch with value %d",
+                "NUMBER_ENTITY %s: Calling async_set_device_config_value with value %d",
                 self.entity_description.key,
                 new_value,
             )
 
-            api_response = await self.coordinator.api_client._request_patch(
-                deviceId=deviceId,
-                keyId=keyId,
-                value=new_value,
-                password=current_api_password,
+            api_response = (
+                await self.coordinator.api_client.async_set_device_config_value(
+                    device_id=device_id,
+                    key_id=key_id,
+                    value=new_value,
+                    password=self.coordinator.password,
+                )
             )
             _LOGGER.info(
-                "NUMBER_ENTITY %s: API call to set chlor_output to %d completed. Response: %s",
+                "NUMBER_ENTITY %s: API call to set value to %d completed. Response: %s",
                 self.entity_description.key,
                 new_value,
                 api_response,

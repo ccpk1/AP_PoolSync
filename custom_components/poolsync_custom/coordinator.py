@@ -12,12 +12,12 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
-    PoolSyncApiClient,
     PoolSyncApiAuthError,
+    PoolSyncApiClient,
     PoolSyncApiCommunicationError,
     PoolSyncApiError,
 )
-from .const import DOMAIN, MANUFACTURER, MODEL, DEFAULT_NAME
+from .const import DEFAULT_NAME, DOMAIN, MANUFACTURER, MODEL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +76,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         _LOGGER.info("PoolSync device %s is back online", self.name)
         self._unavailable_logged = False
+
+    @property
+    def password(self) -> str:
+        """Return the stored PoolSync API password."""
+        return self._password
 
     async def _async_update_data(self) -> dict[str, Any]:
         """

@@ -8,7 +8,6 @@ import logging
 from typing import Any, Self
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD
 from homeassistant.core import callback
@@ -25,13 +24,15 @@ from .const import (
     API_RESPONSE_MAC_ADDRESS,
     API_RESPONSE_PASSWORD,
     API_RESPONSE_TIME_REMAINING,
-    CONF_IP_ADDRESS as POOLSYNC_CONF_IP_ADDRESS,
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     OPTION_SCAN_INTERVAL,
     PUSHLINK_CHECK_INTERVAL_S,
     PUSHLINK_TIMEOUT_S,
+)
+from .const import (
+    CONF_IP_ADDRESS as POOLSYNC_CONF_IP_ADDRESS,
 )
 
 _LOGGER = logging.getLogger(__name__)

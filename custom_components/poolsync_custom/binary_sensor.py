@@ -1,7 +1,8 @@
 """Binary sensor platform for the PoolSync Custom integration."""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -17,18 +18,17 @@ from .const import (
     CHLORINATOR_ID,
     HEATPUMP_ID,
 )
-
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .sensor import _get_value_from_path  # Reuse helper
 
 _LOGGER = logging.getLogger(__name__)
 
 # Corrected BINARY_SENSOR_DESCRIPTIONS paths
-BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: Tuple[
-    Tuple[
+BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
+    tuple[
         BinarySensorEntityDescription,
-        List[Union[str, int]],
-        Optional[Callable[[Any], Optional[bool]]],
+        list[str | int],
+        Callable[[Any], bool | None] | None,
     ],
     ...,
 ] = (
@@ -64,11 +64,11 @@ BINARY_SENSOR_DESCRIPTIONS_POOLSYNC: Tuple[
         lambda v: bool(v) if isinstance(v, int) else None,
     ),
 )
-BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: Tuple[
-    Tuple[
+BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
+    tuple[
         BinarySensorEntityDescription,
-        List[Union[str, int]],
-        Optional[Callable[[Any], Optional[bool]]],
+        list[str | int],
+        Callable[[Any], bool | None] | None,
     ],
     ...,
 ] = (
@@ -94,11 +94,11 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: Tuple[
         lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
     ),  # CORRECTED PATH
 )
-BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: Tuple[
-    Tuple[
+BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
+    tuple[
         BinarySensorEntityDescription,
-        List[Union[str, int]],
-        Optional[Callable[[Any], Optional[bool]]],
+        list[str | int],
+        Callable[[Any], bool | None] | None,
     ],
     ...,
 ] = (
@@ -216,8 +216,8 @@ class PoolSyncBinarySensor(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: BinarySensorEntityDescription,
-        data_path: List[Union[str, int]],
-        value_fn: Optional[Callable[[Any], Optional[bool]]] = None,
+        data_path: list[str | int],
+        value_fn: Callable[[Any], bool | None] | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
@@ -227,7 +227,7 @@ class PoolSyncBinarySensor(
         self._attr_device_info = coordinator.device_info
 
     @property
-    def is_on(self) -> Optional[bool]:
+    def is_on(self) -> bool | None:
         raw_value = _get_value_from_path(self.coordinator.data, self._data_path)
         if raw_value is None:
             return None

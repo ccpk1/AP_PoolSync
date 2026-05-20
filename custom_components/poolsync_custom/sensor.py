@@ -1,8 +1,9 @@
 """Sensor platform for the PoolSync Custom integration."""
 
-import logging
 import dataclasses
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast
+import logging
+from collections.abc import Callable
+from typing import Any, cast
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -14,10 +15,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
-    UnitOfTemperature,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
-    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -28,7 +29,6 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM
 
 from .const import CHLORINATOR_ID, HEATPUMP_ID
-
 from .coordinator import PoolSyncDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def _change_temperature_unit(description, is_metric):
 
 
 def _get_value_from_path(
-    data: Optional[Dict[str, Any]], path: List[Union[str, int]]
+    data: dict[str, Any] | None, path: list[str | int]
 ) -> Any:
     """Safely retrieve a value from a nested dictionary using a path list."""
     if data is None:
@@ -75,8 +75,8 @@ def _get_value_from_path(
 
 
 # Corrected SENSOR_DESCRIPTIONS paths
-SENSOR_DESCRIPTIONS_CHLORSYNC: Tuple[
-    Tuple[SensorEntityDescription, List[str], Optional[Callable[[Any], Any]]], ...
+SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
+    tuple[SensorEntityDescription, list[str], Callable[[Any], Any] | None], ...
 ] = (
     # --- ChlorSync Device Sensors (data from `devices.0`) ---
     (
@@ -213,8 +213,8 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: Tuple[
         None,
     ),
 )
-SENSOR_DESCRIPTIONS_POOLSYNC: Tuple[
-    Tuple[SensorEntityDescription, List[str], Optional[Callable[[Any], Any]]], ...
+SENSOR_DESCRIPTIONS_POOLSYNC: tuple[
+    tuple[SensorEntityDescription, list[str], Callable[[Any], Any] | None], ...
 ] = (
     # --- System Wide Sensors (data from `poolSync`) ---
     (
@@ -295,8 +295,8 @@ SENSOR_DESCRIPTIONS_POOLSYNC: Tuple[
         None,
     ),
 )
-SENSOR_DESCRIPTIONS_HEATPUMP: Tuple[
-    Tuple[SensorEntityDescription, List[str], Optional[Callable[[Any], Any]]], ...
+SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
+    tuple[SensorEntityDescription, list[str], Callable[[Any], Any] | None], ...
 ] = (
     # --- HeatPump Device Sensors (data from `devices.0`) ---
     (
@@ -416,8 +416,8 @@ class PoolSyncSensor(CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEnt
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: SensorEntityDescription,
-        data_path: List[str],
-        value_fn: Optional[Callable[[Any], Any]] = None,
+        data_path: list[str],
+        value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description

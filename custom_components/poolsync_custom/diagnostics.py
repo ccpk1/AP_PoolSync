@@ -1,25 +1,25 @@
 """Diagnostics support for the PoolSync Custom integration."""
+# Import PoolSyncDataUpdateCoordinator directly in the function to avoid potential circular imports
+# if coordinator.py were to ever import from diagnostics.py (though unlikely).
+import logging
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
-# Import PoolSyncDataUpdateCoordinator directly in the function to avoid potential circular imports
-# if coordinator.py were to ever import from diagnostics.py (though unlikely).
 
-import logging
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     _LOGGER.debug("Attempting to gather diagnostics for entry ID: %s", entry.entry_id)
-    diagnostics_data: Dict[str, Any] = {
+    diagnostics_data: dict[str, Any] = {
         "config_entry_info": {
             "entry_id": entry.entry_id,
             "title": entry.title,
@@ -39,7 +39,7 @@ async def async_get_config_entry_diagnostics(
     try:
         # Import here to be absolutely sure about avoiding circular dependencies
         from .coordinator import PoolSyncDataUpdateCoordinator
-        coordinator: Optional[PoolSyncDataUpdateCoordinator] = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        coordinator: PoolSyncDataUpdateCoordinator | None = hass.data.get(DOMAIN, {}).get(entry.entry_id)
 
         if coordinator:
             coordinator_status_info = {

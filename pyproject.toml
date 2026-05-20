@@ -15,6 +15,7 @@ dev = [
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
     "pytest-homeassistant-custom-component>=0.13.218",
+    "ruff>=0.11.10",
 ]
 
 [tool.pytest.ini_options]
@@ -25,3 +26,10 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore:Setting custom ClientSession.close attribute is discouraged:DeprecationWarning:homeassistant.helpers.aiohttp_client",
 ]
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
