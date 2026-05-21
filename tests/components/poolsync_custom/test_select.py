@@ -172,3 +172,116 @@ async def test_async_select_option_rejects_unsupported_value(hass) -> None:
 
     with pytest.raises(HomeAssistantError, match="Unsupported heat pump mode"):
         await entity.async_select_option("auto_pool")
+
+
+async def test_async_setup_entry_skips_when_heat_pump_missing(hass) -> None:
+    """Test select setup skips creation when no heat pump is present."""
+    coordinator = Mock()
+    coordinator.data = {"poolSync": {}, "devices": {}, "deviceType": {}}
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    added_entities: list[PoolSyncHeatModeSelect] = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    assert added_entities == []
+
+
+async def test_select_option_uses_add_job_from_sync_context() -> None:
+    """Test sync select_option forwards to async_select_option via add_job."""
+    coordinator = Mock()
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_device_info = Mock(return_value={"identifiers": set()})
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"7": {"config": {"mode": 1, "poolSpaMode": 0}}},
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_set_heat_pump_mode_context = AsyncMock(return_value=None)
+
+    entity = PoolSyncHeatModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="heat_mode",
+            options=["off", "heat_pool"],
+            translation_key="mode",
+        ),
+    )
+    entity.hass = Mock()
+
+    entity.select_option("off")
+
+    entity.hass.add_job.assert_called_once_with(entity.async_select_option, "off")
+
+
+async def test_select_option_requires_hass_for_sync_calls() -> None:
+    """Test sync select_option rejects calls before the entity is added."""
+    coordinator = Mock()
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_device_info = Mock(return_value={"identifiers": set()})
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"7": {"config": {"mode": 1, "poolSpaMode": 0}}},
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncHeatModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="heat_mode",
+            options=["off", "heat_pool"],
+            translation_key="mode",
+        ),
+    )
+    entity.hass = None
+
+    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+        entity.select_option("off")
+
+
+async def test_select_handle_coordinator_update_refreshes_state() -> None:
+    """Test select refreshes current option and availability on coordinator updates."""
+    coordinator = Mock()
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_device_info = Mock(return_value={"identifiers": set()})
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "config": {
+                    "mode": 1,
+                    "poolSpaMode": 0,
+                    "setpoint": 78,
+                    "spaSetpoint": 88,
+                },
+                "system": {"modelNum": "075AHDSBLH"},
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    entity = PoolSyncHeatModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="heat_mode",
+            options=["off", "heat_pool", "heat_spa"],
+            translation_key="mode",
+        ),
+    )
+
+    coordinator.data["devices"]["7"]["config"]["poolSpaMode"] = 1
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    entity.async_write_ha_state = Mock()
+
+    entity._handle_coordinator_update()
+
+    assert entity.current_option == "heat_spa"
+    assert entity.available is True

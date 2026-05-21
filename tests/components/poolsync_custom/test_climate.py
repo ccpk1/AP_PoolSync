@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from homeassistant.components.climate import HVACAction, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.poolsync_custom.climate import (
     PoolSyncHeatPumpClimateEntity,
@@ -129,3 +131,119 @@ async def test_climate_set_temperature_routes_through_active_target_flow() -> No
     coordinator.async_set_heat_pump_active_target.assert_awaited_once_with(
         91, preset_mode="pool"
     )
+
+
+async def test_async_setup_entry_skips_when_heat_pump_missing(hass) -> None:
+    """Test climate setup skips creation when no heat pump is present."""
+    coordinator = Mock()
+    coordinator.data = {"poolSync": {}, "devices": {}, "deviceType": {}}
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    added_entities: list[PoolSyncHeatPumpClimateEntity] = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    assert added_entities == []
+
+
+async def test_climate_rejects_unsupported_hvac_mode() -> None:
+    """Test climate rejects unsupported HVAC modes."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+
+    with pytest.raises(HomeAssistantError, match="Unsupported HVAC mode"):
+        await entity.async_set_hvac_mode(HVACMode.DRY)
+
+
+async def test_climate_rejects_missing_temperature_attribute() -> None:
+    """Test climate target writes require a temperature attribute."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+
+    with pytest.raises(HomeAssistantError, match="Expected attribute temperature"):
+        await entity.async_set_temperature()
+
+
+async def test_climate_sync_wrappers_require_hass() -> None:
+    """Test sync climate wrappers reject calls before the entity is added."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity.hass = None
+
+    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+        entity.set_hvac_mode(HVACMode.HEAT)
+    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+        entity.turn_on()
+    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+        entity.turn_off()
+    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+        entity.set_preset_mode("pool")
+    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+        entity.set_temperature(**{ATTR_TEMPERATURE: 82})
+
+
+async def test_climate_sync_wrappers_use_add_job() -> None:
+    """Test sync climate wrappers delegate to async methods via add_job."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity.hass = Mock()
+
+    entity.set_hvac_mode(HVACMode.HEAT)
+    entity.turn_on()
+    entity.turn_off()
+    entity.set_preset_mode("spa")
+    entity.set_temperature(**{ATTR_TEMPERATURE: 82})
+
+    assert entity.hass.add_job.call_count == 5
+
+
+async def test_climate_toggle_routes_to_turn_on_and_off() -> None:
+    """Test toggle delegates based on the current HVAC mode."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity.turn_on = Mock()
+    entity.turn_off = Mock()
+
+    entity._attr_hvac_mode = HVACMode.OFF
+    entity.toggle()
+    entity.turn_on.assert_called_once()
+
+    entity._attr_hvac_mode = HVACMode.HEAT
+    entity.toggle()
+    entity.turn_off.assert_called_once()
+
+
+async def test_climate_unsupported_sync_methods_raise_not_implemented() -> None:
+    """Test unsupported climate sync methods raise NotImplementedError."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+
+    with pytest.raises(NotImplementedError):
+        entity.set_fan_mode("auto")
+    with pytest.raises(NotImplementedError):
+        entity.set_humidity(40)
+    with pytest.raises(NotImplementedError):
+        entity.set_swing_mode("on")
+    with pytest.raises(NotImplementedError):
+        entity.set_swing_horizontal_mode("on")

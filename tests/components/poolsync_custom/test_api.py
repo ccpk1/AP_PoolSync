@@ -13,7 +13,7 @@ from custom_components.poolsync_custom.api import (
     PoolSyncApiCommunicationError,
     PoolSyncApiError,
 )
-from custom_components.poolsync_custom.const import CONF_PASSWORD
+from custom_components.poolsync_custom.const import CONF_PASSWORD, HEADER_AUTHORIZATION
 
 TEST_IP_ADDRESS = "192.168.50.70"
 TEST_PASSWORD = "test-password"
@@ -133,3 +133,86 @@ async def test_request_raises_non_auth_http_error_with_status_and_body() -> None
 
     assert err.value.status_code == 500
     assert err.value.body == "upstream exploded"
+
+
+async def test_request_returns_json_payload_on_success() -> None:
+    """Test successful requests return parsed JSON payloads."""
+    session = Mock()
+    response = Mock()
+    response.status = 200
+    response.headers = {"Content-Type": "application/json"}
+    response.text = AsyncMock(return_value='{"poolSync": {}}')
+    response.json = AsyncMock(return_value={"poolSync": {}})
+
+    request_context = AsyncMock()
+    request_context.__aenter__.return_value = response
+    request_context.__aexit__.return_value = False
+    session.request.return_value = request_context
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    result = await client._request(
+        "GET", "/api/poolsync?cmd=test", password=TEST_PASSWORD
+    )
+
+    assert result == {"poolSync": {}}
+    _, kwargs = session.request.call_args
+    assert kwargs["headers"][HEADER_AUTHORIZATION] == TEST_PASSWORD
+
+
+async def test_request_raises_invalid_json_when_success_body_is_not_json() -> None:
+    """Test a 200 response with invalid JSON raises a typed API error."""
+    session = Mock()
+    response = Mock()
+    response.status = 200
+    response.headers = {"Content-Type": "text/plain"}
+    response.text = AsyncMock(return_value="not-json")
+    response.json = AsyncMock(side_effect=ValueError("bad json"))
+
+    request_context = AsyncMock()
+    request_context.__aenter__.return_value = response
+    request_context.__aexit__.return_value = False
+    session.request.return_value = request_context
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    with pytest.raises(PoolSyncApiError, match="Invalid JSON response") as err:
+        await client._request("GET", "/api/poolsync?cmd=test")
+
+    assert err.value.body == "not-json"
+
+
+async def test_start_pushlink_delegates_to_request() -> None:
+    """Test push-link start delegates to the shared request path."""
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, Mock())
+
+    with patch.object(
+        client,
+        "_request",
+        new=AsyncMock(return_value={"timeRemaining": 120}),
+    ) as mock_request:
+        result = await client.start_pushlink()
+
+    assert result == {"timeRemaining": 120}
+    mock_request.assert_awaited_once_with("PUT", "/api/poolsync?cmd=pushLink&start")
+
+
+async def test_get_all_data_requires_password() -> None:
+    """Test all-data fetch rejects empty passwords."""
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, Mock())
+
+    with pytest.raises(PoolSyncApiAuthError, match="Password is required"):
+        await client.get_all_data("")
+
+
+async def test_get_all_data_rejects_malformed_payload() -> None:
+    """Test all-data fetch rejects payloads missing the poolSync object."""
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, Mock())
+
+    with patch.object(
+        client,
+        "_request",
+        new=AsyncMock(return_value={"devices": {}}),
+    ):
+        with pytest.raises(PoolSyncApiError, match="Received malformed data"):
+            await client.get_all_data(TEST_PASSWORD)

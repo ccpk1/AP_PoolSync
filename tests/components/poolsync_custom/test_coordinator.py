@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
@@ -21,6 +21,7 @@ from custom_components.poolsync_custom.api import (
     PoolSyncApiError,
 )
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
+from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 
 TEST_IP_ADDRESS = "192.168.50.70"
 TEST_PASSWORD = "test-password"
@@ -124,6 +125,81 @@ async def test_refresh_classifies_auth_failure(hass) -> None:
         "has_response_body": False,
         "retryable": False,
     }
+
+
+async def test_manual_refresh_raises_when_refresh_unsuccessful(hass) -> None:
+    """Test manual refresh raises when the coordinator update fails."""
+    api_client = Mock()
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.async_refresh = AsyncMock(return_value=None)
+    coordinator.last_update_success = False
+
+    with pytest.raises(HomeAssistantError, match="PoolSync refresh failed"):
+        await coordinator.async_manual_refresh()
+
+
+async def test_get_write_role_device_id_requires_password(hass) -> None:
+    """Test write-target resolution requires stored credentials."""
+    api_client = Mock()
+    api_client.ip_address = TEST_IP_ADDRESS
+    coordinator = PoolSyncDataUpdateCoordinator(
+        hass=hass,
+        api_client=api_client,
+        password="",
+        update_interval_seconds=120,
+        config_entry_id="test-entry-id",
+        mac_address=TEST_MAC_ADDRESS,
+    )
+
+    with pytest.raises(HomeAssistantError, match="API password not available"):
+        coordinator._get_write_role_device_id(
+            role="chlorinator", description="chlorinator output"
+        )
+
+
+async def test_get_write_role_device_id_rejects_missing_target(hass) -> None:
+    """Test write-target resolution rejects missing device payloads."""
+    coordinator = _build_coordinator(hass, Mock())
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {},
+        "deviceType": {"5": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    with pytest.raises(
+        HomeAssistantError, match="PoolSync chlorinator output target is not available"
+    ):
+        coordinator._get_write_role_device_id(
+            role="chlorinator", description="chlorinator output"
+        )
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (PoolSyncApiError("boom"), "API error while setting chlorinator output: boom"),
+        (RuntimeError("boom"), "Failed to set chlorinator output: boom"),
+    ],
+)
+async def test_raise_write_error_translates_remaining_error_types(
+    hass, error: Exception, message: str
+) -> None:
+    """Test remaining write-time error types are translated consistently."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    with pytest.raises(HomeAssistantError, match=message):
+        coordinator._raise_write_error("chlorinator output", error)
+
+
+async def test_raise_write_error_reraises_existing_homeassistant_error(hass) -> None:
+    """Test existing HomeAssistantError instances are preserved."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    with pytest.raises(HomeAssistantError, match="existing"):
+        coordinator._raise_write_error(
+            "chlorinator output", HomeAssistantError("existing")
+        )
 
 
 async def test_update_data_preserves_malformed_failure_class(hass) -> None:
@@ -460,6 +536,16 @@ async def test_heat_pump_active_target_uses_preset_override(hass) -> None:
     coordinator.async_set_heat_pump_pool_setpoint.assert_not_awaited()
 
 
+async def test_heat_pump_active_target_rejects_missing_runtime(hass) -> None:
+    """Test active-target writes reject absent heat-pump runtime data."""
+    coordinator = _build_coordinator(hass, Mock())
+    coordinator.data = {"poolSync": {}, "devices": {}, "deviceType": {}}
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    with pytest.raises(HomeAssistantError, match="heat pump target is not available"):
+        await coordinator.async_set_heat_pump_active_target(91)
+
+
 async def test_heat_pump_setpoint_alias_uses_pool_setpoint_writer(hass) -> None:
     """Test legacy heat-pump setpoint writes reuse the pool setpoint path."""
     api_client = Mock()
@@ -515,6 +601,36 @@ async def test_write_role_config_surfaces_communication_errors(hass) -> None:
         match="Communication failed while setting chlorinator output: cannot connect",
     ):
         await coordinator.async_set_chlorinator_output(50)
+
+
+async def test_heat_pump_mode_context_writes_supported_contexts(hass) -> None:
+    """Test contextual heat-pump mode writes map to expected config updates."""
+    coordinator = _build_coordinator(hass, Mock())
+    coordinator._async_write_role_configs = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_mode_context("cool_pool")
+    await coordinator.async_set_heat_pump_mode_context("auto_pool")
+
+    assert coordinator._async_write_role_configs.await_args_list == [
+        call(
+            role="heat_pump",
+            updates={"mode": 2, "poolSpaMode": 0},
+            description="heat pump mode",
+        ),
+        call(
+            role="heat_pump",
+            updates={"mode": 3, "poolSpaMode": 0},
+            description="heat pump mode",
+        ),
+    ]
+
+
+async def test_heat_pump_mode_context_rejects_unknown_context(hass) -> None:
+    """Test contextual heat-pump mode writes reject unknown values."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    with pytest.raises(HomeAssistantError, match="Unsupported heat pump mode"):
+        await coordinator.async_set_heat_pump_mode_context("unknown_mode")
 
 
 async def test_heat_pump_climate_mode_helper_rejects_unsupported_cooling(hass) -> None:
@@ -605,6 +721,50 @@ async def test_heat_pump_climate_mode_helper_rejects_unsupported_auto(hass) -> N
         )
 
 
+async def test_heat_pump_climate_mode_helper_handles_off_and_unknown_modes(
+    hass,
+) -> None:
+    """Test climate helper routes off and rejects unknown HVAC modes."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "7": {
+                    "system": {"modelNum": "075AHDSBLH"},
+                    "config": {
+                        "mode": 1,
+                        "poolSpaMode": 0,
+                        "setpoint": 84,
+                        "spaSetpoint": 99,
+                    },
+                    "status": {"ctrlFlags": 13, "stateFlags": 8},
+                }
+            },
+            "deviceType": {"7": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+    coordinator.async_set_heat_pump_mode_context = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_climate_mode(hvac_mode="off")
+    coordinator.async_set_heat_pump_mode_context.assert_awaited_once_with("off")
+
+    with pytest.raises(HomeAssistantError, match="Unsupported climate HVAC mode"):
+        await coordinator.async_set_heat_pump_climate_mode(hvac_mode="dry")
+
+
+async def test_heat_pump_climate_mode_helper_rejects_missing_runtime(hass) -> None:
+    """Test climate helper rejects absent heat-pump runtime data."""
+    coordinator = _build_coordinator(hass, Mock())
+    coordinator.data = {"poolSync": {}, "devices": {}, "deviceType": {}}
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    with pytest.raises(HomeAssistantError, match="heat pump mode is not available"):
+        await coordinator.async_set_heat_pump_climate_mode(hvac_mode="heat")
+
+
 async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) -> None:
     """Test device info lazily derives parsed runtime state from raw coordinator data."""
     api_client = Mock()
@@ -632,3 +792,19 @@ async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) 
     assert controller_info["hw_version"] == "6.5.4"
     assert chlorinator_info["name"] == "ChlorSync Pro"
     assert chlorinator_info["model"] == "ChlorSync Pro"
+
+
+async def test_device_info_property_returns_controller_info(hass) -> None:
+    """Test device_info property returns controller metadata."""
+    coordinator = _build_coordinator(hass, Mock())
+    coordinator.get_device_info = Mock(return_value={"name": "PoolSync"})
+
+    assert coordinator.device_info == {"name": "PoolSync"}
+    coordinator.get_device_info.assert_called_once_with("controller")
+
+
+async def test_controller_name_falls_back_to_mac_suffix(hass) -> None:
+    """Test controller naming falls back to the MAC suffix when unnamed."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    assert coordinator._get_controller_name(None) == "PoolSync DDEEFF"

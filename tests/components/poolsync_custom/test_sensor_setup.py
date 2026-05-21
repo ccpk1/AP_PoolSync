@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import UnitOfTemperature
@@ -21,6 +21,7 @@ from custom_components.poolsync_custom.sensor import (
     SENSOR_DESCRIPTIONS_HEATPUMP,
     SENSOR_DESCRIPTIONS_POOLSYNC,
     PoolSyncSensor,
+    _parse_poolsync_datetime,
     async_setup_entry,
 )
 
@@ -417,3 +418,120 @@ async def test_heat_pump_sensors_stay_fahrenheit_native() -> None:
     assert (
         board_temp_description.native_unit_of_measurement is UnitOfTemperature.CELSIUS
     )
+
+
+def test_parse_poolsync_datetime_rejects_invalid_values() -> None:
+    """Test PoolSync datetime parsing rejects invalid and non-string values."""
+    assert _parse_poolsync_datetime(None) is None
+    assert _parse_poolsync_datetime("not-a-date") is None
+
+
+async def test_async_setup_entry_warns_on_missing_top_level_keys(hass, caplog) -> None:
+    """Test sensor setup warns when top-level payload keys are missing."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        side_effect=lambda role: {
+            "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
+        }
+    )
+    coordinator.data = {}
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    added_entities: list[PoolSyncSensor] = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    assert (
+        "Initial data is missing 'poolSync' or 'devices' top-level keys" in caplog.text
+    )
+    assert added_entities
+
+
+async def test_sensor_handles_value_fn_errors_and_stringifies_unknown_values() -> None:
+    """Test sensors handle processor failures and stringify unsupported raw values."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {
+            "status": {
+                "boardTemp": {"value": 30},
+                "dateTime": "2026-05-20T12:30:00+00:00",
+            },
+            "system": {"fwVersion": "1.2.3"},
+        },
+        "devices": {},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    failing_sensor = PoolSyncSensor(
+        coordinator,
+        "controller",
+        next(
+            description
+            for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+            if description.key == "system_datetime"
+        ),
+        lambda value: int(value),
+    )
+    board_sensor = PoolSyncSensor(
+        coordinator,
+        "controller",
+        next(
+            description
+            for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+            if description.key == "board_temp"
+        ),
+    )
+
+    assert failing_sensor.native_value is None
+    assert board_sensor.native_value == "{'value': 30}"
+    assert board_sensor.available is True
+
+
+async def test_sensor_handle_coordinator_update_refreshes_and_wifi_attrs() -> None:
+    """Test sensor updates refresh parsed data and Wi-Fi attrs only expose numeric RSSI."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {"status": {"rssi": -74}},
+        "devices": {},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensor = PoolSyncSensor(
+        coordinator,
+        "controller",
+        next(
+            description
+            for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+            if description.key == "wifi_signal_status"
+        ),
+    )
+
+    coordinator.data["poolSync"]["status"]["rssi"] = "bad"
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    sensor.async_write_ha_state = Mock()
+
+    with patch(
+        "custom_components.poolsync_custom.sensor.ensure_parsed_data",
+        side_effect=lambda coord, refresh=False: coord.parsed_data,
+    ) as mock_ensure:
+        sensor._handle_coordinator_update()
+
+    assert any(call.kwargs == {"refresh": True} for call in mock_ensure.call_args_list)
+    assert sensor.extra_state_attributes is None

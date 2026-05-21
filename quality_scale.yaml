@@ -1,0 +1,118 @@
+rules:
+  # Bronze
+  action-setup:
+    status: exempt
+    comment: Integration does not register custom service actions today.
+  appropriate-polling:
+    status: exempt
+    comment: Integration intentionally keeps a user-configurable local polling interval as a design decision for varied pool equipment and network conditions; defaults remain conservative and local-only.
+  brands:
+    status: exempt
+    comment: Brand asset guidance changed after March 2026 and this custom integration does not currently rely on the older Home Assistant core brand packaging expectations.
+  common-modules: done
+  config-flow: done
+  config-flow-test-coverage: done
+  dependency-transparency: done
+  docs-actions:
+    status: exempt
+    comment: No custom actions are exposed.
+  docs-high-level-description:
+    status: done
+    comment: Covered in README, but should be tightened when the user guide is written.
+  docs-installation-instructions:
+    status: todo
+    comment: README exists but still needs cleanup and modernization.
+  docs-removal-instructions:
+    status: todo
+    comment: Removal guidance is not documented yet.
+  entity-event-setup:
+    status: exempt
+    comment: Entities are coordinator-polled and do not subscribe to standalone event streams.
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup: done
+  unique-config-entry: done
+
+  # Silver
+  action-exceptions:
+    status: exempt
+    comment: No custom service actions are registered yet.
+  config-entry-unloading: done
+  docs-configuration-parameters:
+    status: todo
+    comment: Configuration and option guidance needs a later documentation pass.
+  docs-installation-parameters:
+    status: todo
+    comment: Installation parameter guidance needs a later documentation pass.
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable: done
+  parallel-updates: done
+  reauthentication-flow: done
+  test-coverage:
+    status: todo
+    comment: Current automated coverage is 91 percent. Work is intentionally paused here for now, with a later target of 95 percent.
+
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery-update-info:
+    status: exempt
+    comment: No discovery flow is implemented today, so there is no discovered connection info to update.
+  discovery:
+    status: exempt
+    comment: This local integration currently relies on manual IP-based setup rather than network discovery.
+  docs-data-update:
+    status: todo
+    comment: Data update behavior needs to be documented later in the README or a user guide.
+  docs-examples:
+    status: todo
+    comment: Practical examples need a cleanup pass and likely belong in a small user guide.
+  docs-known-limitations:
+    status: todo
+    comment: Known limitations are only partially captured today.
+  docs-supported-devices:
+    status: todo
+    comment: Supported PoolSync, ChlorSync, and heat-pump variants need clearer documentation.
+  docs-supported-functions:
+    status: todo
+    comment: Supported monitoring and control surfaces need clearer documentation.
+  docs-troubleshooting:
+    status: todo
+    comment: Some troubleshooting exists, but it needs a cleaner and more complete pass.
+  docs-use-cases:
+    status: todo
+    comment: Use-case documentation has not been written yet.
+  dynamic-devices:
+    status: todo
+    comment: Current setup detects devices during refresh, but dynamic add and remove flows are not fully implemented.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
+  entity-translations: done
+  exception-translations:
+    status: todo
+    comment: User-facing exceptions are not yet backed by translation keys.
+  icon-translations: done
+  reconfiguration-flow:
+    status: todo
+    comment: Reauthentication exists, but a dedicated reconfigure flow is not implemented.
+  repair-issues:
+    status: todo
+    comment: Repair issues are not implemented yet.
+  stale-devices:
+    status: todo
+    comment: The integration creates role devices but does not yet remove stale ones automatically.
+
+  # Platinum
+  async-dependency:
+    status: done
+    comment: The integration uses async aiohttp-based I/O and does not rely on blocking network libraries.
+  inject-websession:
+    status: done
+    comment: The API client is constructed with a Home Assistant-managed aiohttp session.
+  strict-typing:
+    status: todo
+    comment: Typing is improved, but the repo is not yet at a strict platinum typing standard.

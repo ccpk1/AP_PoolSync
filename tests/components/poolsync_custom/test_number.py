@@ -191,3 +191,110 @@ async def test_number_entity_becomes_unavailable_when_value_missing(hass) -> Non
 
     assert entity.native_value is None
     assert entity.available is False
+
+
+async def test_number_entity_rejects_sync_updates_without_password(hass) -> None:
+    """Test number writes fail clearly when coordinator credentials are missing."""
+    api_client = Mock()
+    api_client.ip_address = TEST_IP_ADDRESS
+    coordinator = PoolSyncDataUpdateCoordinator(
+        hass=hass,
+        api_client=api_client,
+        password="",
+        update_interval_seconds=120,
+        config_entry_id="test-entry-id",
+        mac_address=TEST_MAC_ADDRESS,
+    )
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"1": {"config": {"chlorOutput": 50}}},
+        "deviceType": {"1": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "chlorinator",
+        NumberEntityDescription(
+            key="chlor_output_control",
+            name="Chlorinator Output",
+            native_unit_of_measurement=PERCENTAGE,
+            native_min_value=0,
+            native_max_value=100,
+            native_step=1,
+        ),
+    )
+
+    with pytest.raises(HomeAssistantError, match="API password not available"):
+        await entity.async_set_native_value(42)
+
+
+async def test_number_entity_rejects_unsupported_command_key(hass) -> None:
+    """Test number writes reject unsupported command descriptions."""
+    api_client = Mock()
+    api_client.ip_address = TEST_IP_ADDRESS
+    coordinator = PoolSyncDataUpdateCoordinator(
+        hass=hass,
+        api_client=api_client,
+        password=TEST_PASSWORD,
+        update_interval_seconds=120,
+        config_entry_id="test-entry-id",
+        mac_address=TEST_MAC_ADDRESS,
+    )
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"1": {"config": {"chlorOutput": 50}}},
+        "deviceType": {"1": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "chlorinator",
+        NumberEntityDescription(
+            key="unsupported_number",
+            name="Unsupported Number",
+            native_min_value=0,
+            native_max_value=100,
+            native_step=1,
+        ),
+    )
+
+    with pytest.raises(HomeAssistantError, match="Unsupported number command"):
+        await entity.async_set_native_value(42)
+
+
+async def test_number_entity_becomes_unavailable_on_invalid_value(hass) -> None:
+    """Test invalid parsed values leave the number entity unavailable."""
+    api_client = Mock()
+    api_client.ip_address = TEST_IP_ADDRESS
+    coordinator = PoolSyncDataUpdateCoordinator(
+        hass=hass,
+        api_client=api_client,
+        password=TEST_PASSWORD,
+        update_interval_seconds=120,
+        config_entry_id="test-entry-id",
+        mac_address=TEST_MAC_ADDRESS,
+    )
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"1": {"config": {"chlorOutput": "bad-value"}}},
+        "deviceType": {"1": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "chlorinator",
+        NumberEntityDescription(
+            key="chlor_output_control",
+            name="Chlorinator Output",
+            native_unit_of_measurement=PERCENTAGE,
+            native_min_value=0,
+            native_max_value=100,
+            native_step=1,
+        ),
+    )
+
+    assert entity.native_value is None
+    assert entity.available is False
