@@ -22,6 +22,10 @@ This custom integration monitors and controls AutoPilot PoolSync equipment over 
 - Supports heat-pump climate control, target temperature changes, and mode selection when a compatible heat pump is present.
 - Exposes optional diagnostic entities such as firmware, board temperatures, and Wi-Fi signal details.
 
+<img width="759" height="359" alt="image" src="https://github.com/user-attachments/assets/24feff71-7bdd-430e-97a1-5a9a72f85b6a" />
+<img width="523" height="535" alt="image" src="https://github.com/user-attachments/assets/6b4429bf-370b-4867-97d8-95f2423b19c4" />
+<img width="286" height="545" alt="image" src="https://github.com/user-attachments/assets/5c492cf2-63cb-412c-9333-0a0b0a51b4d8" />
+
 
 ## Requirements
 
@@ -162,14 +166,12 @@ If this integration is useful to you, the two best ways to support it are simple
 
 When reporting a problem, include diagnostics, relevant logs, the PoolSync firmware or hardware details if known, and what equipment is attached.
 
-## Helpful Home Assistant integrations
-
-If you want to publish these entity states elsewhere, Home Assistant's built-in MQTT statestream or eventstream integrations can forward them to MQTT. This integration only creates the local entities inside Home Assistant.
-
 ## Contributing
 
 Bug reports, testing feedback, and pull requests are welcome. When reporting problems, include the device model if known, what equipment is attached, and diagnostics or log details when possible.
 
-## Disclaimer
+## Disclaimers
+
+🤖 AI-Assisted Development: In today’s age, leveraging AI is one of the few ways a maintainer can realistically build, thoroughly test, and actively support a truly complex, high-quality open-source project. But to be clear, this integration isn't just blindly "vibe coded." While AI acts as a significant force multiplier for the workflow, human oversight dictates the architecture. Every commit is strictly audited, backed by extensive tests, and measured against rigorous Home Assistant development standards to ensure long-term stability.
 
 This integration is not affiliated with or endorsed by AutoPilot Pool Systems. Use it at your own risk.
