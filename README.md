@@ -68,9 +68,33 @@ Manual code edits should not be required for normal installation.
 3. Search for PoolSync Custom.
 4. Enter the local IP address of the PoolSync device.
 5. When prompted, press the Auth or Service button on the physical PoolSync device.
+
+<table>
+     <tr>
+       <td align="center" valign="top">
+         <strong>Prompt:</strong><br />
+         <img width="460" alt="link device" src="https://github.com/user-attachments/assets/86c394cd-9d7c-4675-9bcc-9500b157da5f" />
+       </td>
+       <td align="center" valign="top">
+         <strong>Auth Button:</strong><br />
+         <img width="487" alt="press auth" src="https://github.com/user-attachments/assets/b957b170-7b41-475a-a700-7836676b4801" />
+       </td>
+     </tr>
+   </table>
+
 6. Wait for Home Assistant to complete local linking and create the config entry.
 
 If linking fails, the flow offers a retry path. If repeated attempts fail, restart the PoolSync device and try again.
+<table>
+     <tr>
+       <td align="center" valign="top">
+         <strong>Retry:</strong><br />
+         <img width="456" height="270" alt="image" src="https://github.com/user-attachments/assets/7abc8ce0-0421-45ce-8d95-deaff0efaf06" />
+       </td>
+     </tr>
+   </table>
+
+
 
 ## Supported equipment
 
