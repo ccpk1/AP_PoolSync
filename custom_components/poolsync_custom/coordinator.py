@@ -112,6 +112,13 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return parsed runtime data, deriving it from raw data if needed."""
         return ensure_parsed_data(self, refresh=refresh)
 
+    async def async_manual_refresh(self) -> None:
+        """Run an immediate refresh using the normal coordinator update path."""
+        await self.async_refresh()
+
+        if not self.last_update_success:
+            raise HomeAssistantError("PoolSync refresh failed")
+
     async def _async_write_role_config(
         self,
         *,

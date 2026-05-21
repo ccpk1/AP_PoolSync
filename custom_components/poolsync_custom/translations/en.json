@@ -52,6 +52,11 @@
     "abort": {}
   },
   "entity": {
+    "button": {
+      "manual_refresh": {
+        "name": "Manual refresh"
+      }
+    },
     "binary_sensor": {
       "compressor": {
         "name": "Compressor"
