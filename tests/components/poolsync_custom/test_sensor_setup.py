@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import Mock
 
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import UnitOfTemperature
 from homeassistant.util import dt as dt_util
 
@@ -74,6 +75,11 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
 
     assert added_entities
+    wifi_status_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "wifi_signal_status"
+    )
     chlor_sensor = next(
         entity
         for entity in added_entities
@@ -109,6 +115,8 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
         for entity in added_entities
         if entity.entity_description.key == "hp_spa_setpoint_temp"
     )
+    assert wifi_status_sensor.native_value == "good"
+    assert wifi_status_sensor.extra_state_attributes == {"rssi_dbm": -67}
     assert chlor_sensor.native_value == 24.5
     assert chlor_board_sensor.native_value == 94.63
     assert heat_mode_sensor.native_value == "heat_pool"
@@ -163,6 +171,7 @@ async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
     assert {entity.entity_description.key for entity in added_entities} == {
         "board_temp",
         "wifi_rssi",
+        "wifi_signal_status",
         "system_datetime",
         "firmware_version",
         "hardware_version",
@@ -209,6 +218,52 @@ async def test_sensor_uses_parsed_runtime_values() -> None:
 
     assert sensor.native_value == "2026-05-20T12:30:00+00:00"
     assert sensor.available is True
+
+
+async def test_wifi_signal_status_sensor_uses_enum_state_and_rssi_attribute() -> None:
+    """Test Wi-Fi signal status uses enum states and exposes raw RSSI."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {"status": {"rssi": -74}},
+        "devices": {},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensor = PoolSyncSensor(
+        coordinator,
+        "controller",
+        next(
+            description
+            for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+            if description.key == "wifi_signal_status"
+        ),
+    )
+
+    assert sensor.native_value == "fair"
+    assert sensor.available is True
+    assert sensor.extra_state_attributes == {"rssi_dbm": -74}
+
+    description = sensor.entity_description
+    assert description.device_class is SensorDeviceClass.ENUM
+    assert description.options == ["good", "fair", "poor"]
+    assert description.entity_registry_enabled_default is True
+
+
+async def test_wifi_rssi_sensor_remains_disabled_diagnostic() -> None:
+    """Test the raw Wi-Fi RSSI sensor remains a disabled diagnostic sensor."""
+    description = next(
+        description
+        for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+        if description.key == "wifi_rssi"
+    )
+
+    assert description.entity_registry_enabled_default is False
 
 
 async def test_system_datetime_sensor_parses_poolsync_datetime_format() -> None:

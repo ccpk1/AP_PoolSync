@@ -14,6 +14,7 @@ type PoolSyncDeviceRole = Literal["chlorinator", "heat_pump"]
 type PoolSyncHeatPumpModeContext = Literal[
     "off", "heat_pool", "heat_spa", "cool_pool", "auto_pool"
 ]
+type PoolSyncWifiSignalStatus = Literal["good", "fair", "poor"]
 type PoolSyncHeatPumpClimatePresetMode = Literal["pool", "spa"]
 type PoolSyncHeatPumpClimateHvacMode = Literal["off", "heat", "cool", "auto"]
 type PoolSyncHeatPumpClimateHvacAction = Literal["off", "idle", "heating", "cooling"]
@@ -535,6 +536,24 @@ def get_heat_pump_climate_target_temperature(
     return runtime.pool_setpoint
 
 
+def get_wifi_signal_status(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncWifiSignalStatus | None:
+    """Return a qualitative Wi-Fi signal status from the controller RSSI."""
+    rssi = _get_dict_value(parsed_data.system.status, "rssi")
+
+    if not isinstance(rssi, (int, float)):
+        return None
+
+    if rssi >= -67:
+        return "good"
+
+    if rssi >= -75:
+        return "fair"
+
+    return "poor"
+
+
 _NUMBER_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "chlor_output_control": lambda parsed_data: _get_dict_value(
         parsed_data.chlorinator.config, "chlorOutput"
@@ -598,6 +617,7 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
         parsed_data.system.status, "boardTemp"
     ),
     "wifi_rssi": lambda parsed_data: _get_dict_value(parsed_data.system.status, "rssi"),
+    "wifi_signal_status": get_wifi_signal_status,
     "system_datetime": lambda parsed_data: _get_dict_value(
         parsed_data.system.status, "dateTime"
     ),

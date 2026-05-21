@@ -172,6 +172,14 @@
       "water_temperature": {
         "name": "Water temperature"
       },
+      "wifi_signal_status": {
+        "name": "Wi-Fi signal status",
+        "state": {
+          "good": "Good",
+          "fair": "Fair",
+          "poor": "Poor"
+        }
+      },
       "wifi_signal_strength": {
         "name": "Wi-Fi signal strength"
       }

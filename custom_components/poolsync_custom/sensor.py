@@ -209,6 +209,16 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     ),
     (
         SensorEntityDescription(
+            key="wifi_signal_status",
+            translation_key="wifi_signal_status",
+            device_class=SensorDeviceClass.ENUM,
+            options=["good", "fair", "poor"],
+            entity_registry_enabled_default=True,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
             key="system_datetime",
             translation_key="date_time",
             device_class=SensorDeviceClass.TIMESTAMP,
@@ -459,3 +469,15 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         ensure_parsed_data(self.coordinator, refresh=True)
         self._update_attrs()
         super()._handle_coordinator_update()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes for support-focused sensors."""
+        if self.entity_description.key != "wifi_signal_status":
+            return None
+
+        rssi = get_sensor_value(ensure_parsed_data(self.coordinator), "wifi_rssi")
+        if not isinstance(rssi, (int, float)):
+            return None
+
+        return {"rssi_dbm": rssi}

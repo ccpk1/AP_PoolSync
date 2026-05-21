@@ -127,6 +127,14 @@
       "water_temperature": {
         "default": "mdi:coolant-temperature"
       },
+      "wifi_signal_status": {
+        "default": "mdi:wifi-strength-outline",
+        "state": {
+          "good": "mdi:wifi-strength-4",
+          "fair": "mdi:wifi-strength-2",
+          "poor": "mdi:wifi-strength-1"
+        }
+      },
       "wifi_signal_strength": {
         "default": "mdi:wifi-strength-2"
       }

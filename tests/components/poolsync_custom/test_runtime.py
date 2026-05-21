@@ -19,6 +19,7 @@ from custom_components.poolsync_custom.runtime import (
     get_heat_pump_climate_preset_modes,
     get_heat_pump_climate_target_temperature,
     get_heat_pump_runtime,
+    get_wifi_signal_status,
     parse_poolsync_runtime_data,
 )
 
@@ -152,3 +153,29 @@ def test_heat_pump_runtime_supports_forum_reported_modes(
     assert runtime is not None
     assert runtime.mode_context == expected_mode_context
     assert runtime.active_target_temperature == expected_active_target
+
+
+@pytest.mark.parametrize(
+    ("rssi", "expected_status"),
+    [
+        (-60, "good"),
+        (-67, "good"),
+        (-70, "fair"),
+        (-75, "fair"),
+        (-76, "poor"),
+        (None, None),
+    ],
+)
+def test_wifi_signal_status_uses_conservative_rssi_bands(
+    rssi: int | None,
+    expected_status: str | None,
+) -> None:
+    """Test Wi-Fi signal status maps from controller RSSI values."""
+    parsed_data = parse_poolsync_runtime_data(
+        {
+            "poolSync": {"status": ({"rssi": rssi} if rssi is not None else {})},
+            "devices": {},
+        }
+    )
+
+    assert get_wifi_signal_status(parsed_data) == expected_status
