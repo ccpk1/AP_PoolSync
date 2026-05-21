@@ -50,6 +50,14 @@ _DEFAULT_CHLORINATOR_NAME_PATTERN = re.compile(
 )
 
 type PoolSyncDeviceInfoRole = Literal["controller", "chlorinator", "heat_pump"]
+type PoolSyncFailureClass = Literal[
+    "auth_error",
+    "transport_error",
+    "malformed_response",
+    "api_error",
+    "unexpected_error",
+]
+type PoolSyncFailureContext = dict[str, Any]
 
 
 class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -74,6 +82,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ip_address = api_client.ip_address
         self._unavailable_logged = False
         self.parsed_data: PoolSyncParsedData | None = None
+        self.last_failure_class: PoolSyncFailureClass | None = None
+        self.last_failure_detail: str | None = None
+        self.last_failure_context: PoolSyncFailureContext | None = None
 
         logger_name = f"{DOMAIN}({self.mac_address or self._ip_address})"
 
@@ -107,6 +118,23 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         _LOGGER.info("PoolSync device %s is back online", self.name)
         self._unavailable_logged = False
+
+    def _set_last_failure(
+        self,
+        failure_class: PoolSyncFailureClass,
+        detail: str,
+        context: PoolSyncFailureContext | None = None,
+    ) -> None:
+        """Record the most recent classified refresh failure."""
+        self.last_failure_class = failure_class
+        self.last_failure_detail = detail
+        self.last_failure_context = context
+
+    def _clear_last_failure(self) -> None:
+        """Clear any previously recorded refresh failure."""
+        self.last_failure_class = None
+        self.last_failure_detail = None
+        self.last_failure_context = None
 
     @property
     def password(self) -> str:
@@ -338,6 +366,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not isinstance(data, dict) or not all(
                 k in data for k in ["poolSync", "devices"]
             ):
+                self._set_last_failure(
+                    "malformed_response",
+                    "malformed data received",
+                    {
+                        "status_code": None,
+                        "has_response_body": False,
+                        "retryable": True,
+                    },
+                )
                 self._log_unavailable_once("malformed data received")
                 _LOGGER.error(
                     "Coordinator %s: Fetched data is not a dict or essential keys ('poolSync', 'devices') are missing. Data: %s",
@@ -349,10 +386,23 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             self.parsed_data = parse_poolsync_runtime_data(data)
+            self._clear_last_failure()
             self._log_recovered_if_needed()
             return data
 
+        except UpdateFailed:
+            raise
+
         except PoolSyncApiAuthError as err:
+            self._set_last_failure(
+                "auth_error",
+                str(err),
+                {
+                    "status_code": err.status_code,
+                    "has_response_body": bool(err.body),
+                    "retryable": False,
+                },
+            )
             _LOGGER.error(
                 "Coordinator %s: Authentication error fetching data: %s (Status: %s)",
                 self.name,
@@ -364,6 +414,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) from err
 
         except PoolSyncApiCommunicationError as err:
+            self._set_last_failure(
+                "transport_error",
+                str(err),
+                {
+                    "status_code": err.status_code,
+                    "has_response_body": bool(err.body),
+                    "retryable": True,
+                },
+            )
             self._log_unavailable_once(str(err))
             _LOGGER.warning(
                 "Coordinator %s: Communication error fetching data: %s. Will retry.",
@@ -375,6 +434,17 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) from err
 
         except PoolSyncApiError as err:
+            failure_class: PoolSyncFailureClass = (
+                "malformed_response"
+                if "Invalid JSON response" in str(err)
+                else "api_error"
+            )
+            self._set_last_failure(failure_class, str(err))
+            self.last_failure_context = {
+                "status_code": err.status_code,
+                "has_response_body": bool(err.body),
+                "retryable": failure_class != "malformed_response",
+            }
             self._log_unavailable_once(str(err))
             _LOGGER.error(
                 "Coordinator %s: API error fetching data: %s (Status: %s, Body: %s)",
@@ -386,6 +456,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"API error for {self.name}: {err}") from err
 
         except Exception as err:
+            self._set_last_failure(
+                "unexpected_error",
+                str(err),
+                {
+                    "status_code": None,
+                    "has_response_body": False,
+                    "retryable": False,
+                },
+            )
             self._log_unavailable_once(type(err).__name__)
             _LOGGER.exception(
                 "Coordinator %s: Unexpected error fetching data: %s", self.name, err

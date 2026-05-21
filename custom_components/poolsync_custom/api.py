@@ -306,6 +306,8 @@ class PoolSyncApiClient:
             raise PoolSyncApiCommunicationError(
                 f"Request to {url} timed out after {HTTP_TIMEOUT}s"
             ) from e
+        except PoolSyncApiError:
+            raise
         # ClientResponseError is a base for many client-side errors, already caught by status checks.
         # Catching broader Exception for any other unexpected aiohttp or network issues.
         except Exception as e:

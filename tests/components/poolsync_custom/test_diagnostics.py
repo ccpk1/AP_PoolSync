@@ -59,6 +59,13 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
                 }
             },
         },
+        last_failure_class="transport_error",
+        last_failure_context={
+            "status_code": None,
+            "has_response_body": False,
+            "retryable": True,
+        },
+        last_failure_detail="Cannot connect to PoolSync device at 192.168.50.70",
         last_exception=RuntimeError("boom"),
         last_update_success=False,
         mac_address=TEST_MAC_ADDRESS,
@@ -82,6 +89,16 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     assert diagnostics["config_entry"]["data"][API_RESPONSE_MAC_ADDRESS] == REDACTED
 
     assert diagnostics["coordinator"]["name"] == "runtime-owner"
+    assert diagnostics["coordinator"]["last_failure_class"] == "transport_error"
+    assert diagnostics["coordinator"]["last_failure_context"] == {
+        "status_code": None,
+        "has_response_body": False,
+        "retryable": True,
+    }
+    assert (
+        diagnostics["coordinator"]["last_failure_detail"]
+        == "Cannot connect to PoolSync device at 192.168.50.70"
+    )
     assert diagnostics["coordinator"]["last_update_success"] is False
     assert diagnostics["coordinator"]["last_exception"] == "boom"
     assert diagnostics["coordinator"]["update_interval_seconds"] == 120

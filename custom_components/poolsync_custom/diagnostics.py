@@ -40,6 +40,9 @@ async def async_get_config_entry_diagnostics(
         return result
 
     result["coordinator"] = {
+        "last_failure_class": coordinator.last_failure_class,
+        "last_failure_context": coordinator.last_failure_context,
+        "last_failure_detail": coordinator.last_failure_detail,
         "last_update_success": coordinator.last_update_success,
         "last_exception": (
             str(coordinator.last_exception) if coordinator.last_exception else None

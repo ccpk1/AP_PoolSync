@@ -13,8 +13,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.poolsync_custom.api import PoolSyncApiCommunicationError
+from custom_components.poolsync_custom.api import (
+    PoolSyncApiAuthError,
+    PoolSyncApiCommunicationError,
+    PoolSyncApiError,
+)
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
 
 TEST_IP_ADDRESS = "192.168.50.70"
@@ -79,6 +84,132 @@ async def test_logs_recovery_after_failure(hass, caplog) -> None:
         in caplog.messages
     )
     assert f"PoolSync device {coordinator.name} is back online" in caplog.messages
+
+
+async def test_refresh_classifies_transport_failure(hass) -> None:
+    """Test communication failures are recorded as transport errors."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        side_effect=PoolSyncApiCommunicationError("cannot connect")
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert coordinator.last_failure_class == "transport_error"
+    assert coordinator.last_failure_detail == "cannot connect"
+    assert coordinator.last_failure_context == {
+        "status_code": None,
+        "has_response_body": False,
+        "retryable": True,
+    }
+
+
+async def test_refresh_classifies_auth_failure(hass) -> None:
+    """Test auth failures are recorded as auth errors."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        side_effect=PoolSyncApiAuthError("Authentication failed: 401")
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert coordinator.last_failure_class == "auth_error"
+    assert coordinator.last_failure_detail == "Authentication failed: 401"
+    assert coordinator.last_failure_context == {
+        "status_code": None,
+        "has_response_body": False,
+        "retryable": False,
+    }
+
+
+async def test_update_data_preserves_malformed_failure_class(hass) -> None:
+    """Test malformed payloads are classified explicitly."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(return_value={"poolSync": {}})
+    coordinator = _build_coordinator(hass, api_client)
+
+    coordinator._set_last_failure("transport_error", "previous failure")
+
+    with pytest.raises(UpdateFailed, match="Malformed data received"):
+        await coordinator._async_update_data()
+
+    assert coordinator.last_failure_class == "malformed_response"
+    assert coordinator.last_failure_detail == "malformed data received"
+    assert coordinator.last_failure_context == {
+        "status_code": None,
+        "has_response_body": False,
+        "retryable": True,
+    }
+
+
+async def test_refresh_classifies_invalid_json_api_error_as_malformed(hass) -> None:
+    """Test invalid JSON API errors are exposed as malformed responses."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        side_effect=PoolSyncApiError("Invalid JSON response: bad payload")
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert coordinator.last_failure_class == "malformed_response"
+    assert coordinator.last_failure_detail == "Invalid JSON response: bad payload"
+    assert coordinator.last_failure_context == {
+        "status_code": None,
+        "has_response_body": False,
+        "retryable": False,
+    }
+
+
+async def test_refresh_classifies_non_auth_http_api_error(hass) -> None:
+    """Test non-auth HTTP API failures are recorded as API errors."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        side_effect=PoolSyncApiError(
+            "HTTP error 500: Internal Server Error",
+            status_code=500,
+            body="upstream exploded",
+        )
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert coordinator.last_failure_class == "api_error"
+    assert coordinator.last_failure_detail == "HTTP error 500: Internal Server Error"
+    assert coordinator.last_failure_context == {
+        "status_code": 500,
+        "has_response_body": True,
+        "retryable": True,
+    }
+
+
+async def test_successful_refresh_clears_last_failure(hass) -> None:
+    """Test successful refresh clears prior failure classification."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        side_effect=[
+            PoolSyncApiCommunicationError("cannot connect"),
+            {"poolSync": {}, "devices": {}},
+        ]
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+    assert coordinator.last_failure_class == "transport_error"
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.last_failure_class is None
+    assert coordinator.last_failure_detail is None
+    assert coordinator.last_failure_context is None
 
 
 async def test_refresh_populates_parsed_data_with_remapped_roles(hass) -> None:
