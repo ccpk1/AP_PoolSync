@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ha-poolsync-custom"
-version = "0.1.0"
+version = "1.0.0"
 description = "Custom Home Assistant integration for AutoPilot PoolSync"
 readme = "README.md"
 requires-python = ">=3.13"

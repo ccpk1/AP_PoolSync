@@ -6,9 +6,7 @@ rules:
   appropriate-polling:
     status: exempt
     comment: Integration intentionally keeps a user-configurable local polling interval as a design decision for varied pool equipment and network conditions; defaults remain conservative and local-only.
-  brands:
-    status: exempt
-    comment: Brand asset guidance changed after March 2026 and this custom integration does not currently rely on the older Home Assistant core brand packaging expectations.
+  brands: done
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done
@@ -20,11 +18,11 @@ rules:
     status: done
     comment: Covered in README, but should be tightened when the user guide is written.
   docs-installation-instructions:
-    status: todo
-    comment: README exists but still needs cleanup and modernization.
+    status: done
+    comment: README now documents HACS installation and the initial local linking flow.
   docs-removal-instructions:
-    status: todo
-    comment: Removal guidance is not documented yet.
+    status: done
+    comment: README now documents how to remove the integration from Home Assistant.
   entity-event-setup:
     status: exempt
     comment: Entities are coordinator-polled and do not subscribe to standalone event streams.
@@ -41,11 +39,11 @@ rules:
     comment: No custom service actions are registered yet.
   config-entry-unloading: done
   docs-configuration-parameters:
-    status: todo
-    comment: Configuration and option guidance needs a later documentation pass.
+    status: done
+    comment: README documents the configurable polling interval and where to change it in Home Assistant.
   docs-installation-parameters:
-    status: todo
-    comment: Installation parameter guidance needs a later documentation pass.
+    status: done
+    comment: README documents the required setup input of the PoolSync device IP address.
   entity-unavailable: done
   integration-owner: done
   log-when-unavailable: done
@@ -71,17 +69,17 @@ rules:
     status: todo
     comment: Practical examples need a cleanup pass and likely belong in a small user guide.
   docs-known-limitations:
-    status: todo
-    comment: Known limitations are only partially captured today.
+    status: done
+    comment: README now includes a dedicated known limitations section for discovery, linking, reported equipment, and dynamic device handling.
   docs-supported-devices:
-    status: todo
-    comment: Supported PoolSync, ChlorSync, and heat-pump variants need clearer documentation.
+    status: done
+    comment: README now describes the supported PoolSync controller, ChlorSync, and supported heat-pump surfaces at a high level.
   docs-supported-functions:
-    status: todo
-    comment: Supported monitoring and control surfaces need clearer documentation.
+    status: done
+    comment: README now summarizes the main monitoring, control, and diagnostics surfaces exposed by the integration.
   docs-troubleshooting:
-    status: todo
-    comment: Some troubleshooting exists, but it needs a cleaner and more complete pass.
+    status: done
+    comment: README now includes a focused troubleshooting section covering setup, connectivity, Wi-Fi quality, diagnostics, and logs.
   docs-use-cases:
     status: todo
     comment: Use-case documentation has not been written yet.

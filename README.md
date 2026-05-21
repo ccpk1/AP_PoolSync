@@ -1,150 +1,175 @@
 # PoolSync Custom Integration for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
+[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-approaching%20silver-7CB342)](https://github.com/ccpk1/AP_PoolSync/blob/main/quality_scale.yaml)
+[![Version](https://img.shields.io/github/v/release/ccpk1/AP_PoolSync?include_prereleases&label=Version)](https://github.com/ccpk1/AP_PoolSync/releases)
+[![Stars](https://img.shields.io/github/stars/ccpk1/AP_PoolSync?label=Stars)](https://github.com/ccpk1/AP_PoolSync/stargazers)
 
-This is a custom integration for Home Assistant to monitor and control AutoPilot PoolSync pool chlorinators and heat pumps over the local network. It does not rely on any cloud services.
+> This repository continues the original [socbrian/AP_PoolSync](https://github.com/socbrian/AP_PoolSync) integration and is now the active home for development, bug fixes, and feature work.
+>
+> Since the fork, the integration has been substantially reworked and modernized toward Home Assistant Silver/Gold quality-scale standards.
+>
+> Special thanks to @socbrian for the reverse-engineering work that made the original linking procedure possible.
 
-## Features
+This custom integration monitors and controls AutoPilot PoolSync equipment over your local network with no cloud dependency. It supports the PoolSync controller, ChlorSync chlorinator reporting and control, and supported heat-pump monitoring and control surfaces exposed by the device.
 
-* Local push-button linking to obtain an access password from the PoolSync device.
-* Retrieves comprehensive status and configuration data.
-* Creates sensors in Home Assistant for key metrics (e.g., water temperature, salt PPM, flow rate, device status).
-* Creates binary sensors for online status and other states like faults or service mode.
-* **Control Chlorinator Output:** Allows setting the chlorine output percentage via a number entity.
-* **Control Heatpump Output:** Allows setting the temperature and mode via a number entity.
-* Configurable update interval via an options flow.
+## What it does
 
-## Prerequisites
+- Guides you through local push-button linking to obtain the device access password.
+- Polls PoolSync locally for status, configuration, and diagnostics.
+- Creates devices and entities for the controller and any detected attached equipment.
+- Supports chlorinator output control.
+- Supports heat-pump climate control, target temperature changes, and mode selection when a compatible heat pump is present.
+- Exposes optional diagnostic entities such as firmware, board temperatures, and Wi-Fi signal details.
 
-1.  Your PoolSync device must be connected to your local Wi-Fi network.
-2.  You need to know the local IP address of your PoolSync device.
-3.  Home Assistant instance (version 2023.1.0 or newer recommended) with HACS (Home Assistant Community Store) installed.
 
-## Installation via HACS
+## Requirements
 
-1.  **Ensure HACS is installed.** If not, follow the [HACS installation guide](https://hacs.xyz/docs/setup/download).
-2.  **Add Custom Repository:**
-    * Open HACS in your Home Assistant.
-    * Go to "Integrations".
-    * Click the three dots in the top right corner and select "Custom repositories".
-    * In the "Repository" field, paste the URL of this GitHub repository (e.g., `https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPOSITORY_NAME`).
-    * In the "Category" field, select "Integration".
-    * Click "Add".
-3.  **Edit Code:** (Should no loger be needed!!)
-    * If the code does not find your Heatpump/Chloronator, you must edit const.py to help
-    * You will see `CHLORINATOR_ID = "-1"` and `HEATPUMP_ID = "0"`
-    * Above settings will work if you only have a HeatPump
-    * If you do not have a chlorinator or heatpump, set the corresponding id to "-1"
-    * If you only have one, the one you have will be "0"
-    * If you have both, try clorinator "0" and heatpump "1", or try clorinator "1" and heatpump "0"
-    * After editing code, you must restart home assistant
-    * This should no longer be needed, but I leave it just in case.
-5.  **Install Integration:**
-    * Search for "PoolSync Custom" in HACS (it might take a moment to appear after adding the custom repository).
-    * Click "Install".
-    * Restart Home Assistant when prompted.
-    * If you already done the push-button linking, you can edit the IDs and restart home assistant and do not need to redo the linking procedure
+Before setup, make sure:
 
-## Configuration
+1. Your PoolSync device is powered on and connected to your local Wi-Fi network.
+2. Home Assistant can reach the device on your local network.
+3. You know the device IP address.
+4. You are running Home Assistant 2023.1.0 or newer.
+5. HACS is installed if you plan to install this as a custom repository.
 
-1.  **Go to Settings > Devices & Services.**
-2.  Click the **+ ADD INTEGRATION** button in the bottom right.
-3.  Search for "PoolSync Custom" and click on it.
-4.  **Enter IP Address:**
-    * You will be prompted to enter the local IP address of your PoolSync device. Click "Submit".
-5.  **Push-Button Linking:**
-    * The integration will attempt to initiate the linking process by sending a command to your PoolSync device.
-    * Home Assistant will show a progress screen telling you to **press the "Auth" or "Service" button on your PoolSync device**.
-    * The configuration flow will show the approximate time remaining to complete the link attempt.
-    * Once the button is pressed and the device responds, the integration will retrieve an access password and the device's MAC address.
-6.  **Setup Complete:**
-    * If successful, the integration will be added, and entities for your PoolSync device will be created.
-    * If there's an error (for example, the device is unreachable or the button was not pressed in time), you'll see a retry screen and can try again. You may need to restart your PoolSync device if linking repeatedly fails.
+## Compatibility at a glance
 
-## Entities
+- Home Assistant Core 2023.1.0 or newer
+- Local network access to the PoolSync device is required
+- Confirmed scope today: PoolSync controller data, ChlorSync data and output control, and supported heat-pump data and control surfaces exposed through PoolSync
+- If you validate additional equipment or firmware combinations, please share results in the community thread or GitHub Discussions so the support list can be tightened over time
 
-This integration will create several entities, including (but not limited to):
+## Installation with HACS
 
-* **Sensors (ChlorSync):**
-    * Water Temperature
-    * Salt Level (PPM)
-    * Flow Rate
-    * Chlorinator Output Setting (current setting read from device)
-    * Boost Time Remaining
-    * Various diagnostic sensors (Wi-Fi RSSI, board temperature, cell currents/voltages, firmware versions - some may be disabled by default).
-* **Sensors (HeatPump):** Thanks to @ccpk1 and others on home assistant forum
-    * Water Temperature
-    * Setpoint Temperature
-    * Output Temperature
-    * Air Temperature
-    * Mode (0-off, 1-heat, 2-cool)
-* **Binary Sensors:**
-    * PoolSync Online Status
-    * ChlorSync Module Online Status
-    * System Fault Status
-    * ChlorSync Fault Status
-    * Service Mode Active
-    * HeatPump Module Online Status
-    * Heat Pump Fan
-    * Heat Pump Compressor
-    * Heat Pump Flow
-* **Number Controls:**
-    * Chlorinator Output (allows setting the output percentage, typically 0-100%)
-    * HeatPump Temperature Set Point (allows setting the output percentage, typically 40-104 F)
-    * HeatPump Mode (0-off, 1-on, 2-cool)
+### One-click install
 
-The exact entities will depend on the data reported by your specific PoolSync model and firmware. Some diagnostic entities may be disabled by default and can be enabled via the entity settings in Home Assistant.
-## Templates
-If you want a simple switch to turn heater on/off:
-   * Make a switch template (Settings->Devices & Servies-> Helpers Tab). type template, then select switch template
-   * Set value template to `{{is_state('sensor.poolsync_XXXXX_mode', '1')}}` where XXXX is the MAC of your poolsync (should come up if type poolsync)
-   * Change `on action` to number, entity number.poolsync_heat_mode to 1
-   * Change `off action` to number, entity number.poolsync_heat_mode to 0
-   * Associate with the poolsync device under Device (optional: this will make it show in the integration's list of entities)
-   * You can make another swtich with on action to 2 if you want cool mode
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ccpk1&repository=AP_PoolSync&category=integration)
 
-If you want a sensor that shows if set to Off/Heat/Cool
-   * Make a switch template (Settings->Devices & Servies-> Helpers Tab). type template, then select sensor template
-   * Set value template to below where XXXX is the MAC of your poolsync (should come up if type poolsync)
-   ```
-      {% set t = states('sensor.poolsync_XXX_mode') | int(0) %}
-          {% if t == 0 %} Off
-          {% elif t == 1 %} Heat
-          {% elif t == 2 %} Cool
-          {% else %} Unknown
-          {% endif %}
-   ```
-   * Associate with the poolsync device under Device (optional: this will make it show in the integration's list of entities)
+### Manual HACS setup
+
+1. Open HACS in Home Assistant.
+2. Go to Integrations.
+3. Open the menu in the top-right corner and select Custom repositories.
+4. Add `https://github.com/ccpk1/AP_PoolSync` as an Integration repository.
+5. Search for PoolSync Custom in HACS and install it.
+6. Restart Home Assistant.
+
+Manual code edits should not be required for normal installation.
+
+## Initial setup
+
+1. In Home Assistant, go to Settings > Devices & Services.
+2. Select Add Integration.
+3. Search for PoolSync Custom.
+4. Enter the local IP address of the PoolSync device.
+5. When prompted, press the Auth or Service button on the physical PoolSync device.
+6. Wait for Home Assistant to complete local linking and create the config entry.
+
+If linking fails, the flow offers a retry path. If repeated attempts fail, restart the PoolSync device and try again.
+
+## Supported equipment
+
+This integration is intended for:
+
+- AutoPilot PoolSync controllers
+- ChlorSync chlorinator data and output control exposed through PoolSync
+- Supported heat-pump data and control surfaces exposed through PoolSync
+
+Support depends on what your specific firmware and attached equipment report through the local API.
+
+## What gets created
+
+The exact entity set depends on the device data exposed by your PoolSync installation, but the integration typically creates the following:
+
+### Controller sensors
+
+- Wi-Fi signal strength and Wi-Fi signal status
+- Controller board temperature
+- Controller date and time
+- Firmware and hardware version
+
+### Chlorinator entities
+
+- Water temperature
+- Salt level
+- Flow rate
+- Output setting
+- Boost time remaining
+- Optional diagnostic sensors such as cell current, voltage, serial number, and firmware details
+- A number entity to set chlorinator output percentage
+
+### Heat-pump entities
+
+- A climate entity for the water thermostat
+- Active target temperature control
+- Mode selection for supported operating modes
+- Water and air temperature sensors
+- Pool and spa setpoint sensors when reported by the device
+- Binary sensors for heat-pump flow, fan, compressor, online state, and fault state
+
+Some diagnostic entities are disabled by default to keep the default dashboard cleaner.
 
 ## Options
 
-After setting up the integration, you can adjust the polling interval:
-1. Go to **Settings > Devices & Services**.
-2. Find the PoolSync integration card and click **Configure**.
-3. Adjust the "Update interval (seconds)" (e.g., 30, 60, 120; minimum 10 seconds) and click **Submit**. The integration will reload with the new interval.
+After setup, you can adjust the polling interval:
 
-## MQTT Integration (Optional)
+1. Go to Settings > Devices & Services.
+2. Open the PoolSync integration card.
+3. Select Configure.
+4. Set Update interval in seconds and submit.
 
-If you wish to publish the state of these entities to an MQTT broker, you can use Home Assistant's built-in MQTT features:
+The minimum supported interval is 10 seconds.
 
-* **MQTT Statestream:** Publishes state changes of entities to an MQTT broker.
-* **MQTT Eventstream:** Publishes all events (including state changes) to an MQTT broker.
+## Removal
 
-Configure these in your `configuration.yaml` as per the Home Assistant documentation. This custom integration creates the entities within Home Assistant; you can then decide how to share their states.
+To remove the integration:
+
+1. Go to Settings > Devices & Services.
+2. Open the PoolSync integration.
+3. Select the menu for the config entry.
+4. Choose Delete.
+
+This removes the Home Assistant config entry and its entities. It does not change configuration on the physical PoolSync device.
+
+## Known limitations
+
+- Setup is currently manual and IP-based. The integration does not support automatic network discovery.
+- Linking requires physical access to the PoolSync device to press the Auth or Service button.
+- Entity availability depends on what your controller and attached equipment actually report.
+- Dynamic device add and remove handling is still limited. A restart or reload may be needed after some equipment changes.
 
 ## Troubleshooting
 
-* Ensure your PoolSync device is powered on and connected to the same network as your Home Assistant instance.
-* Double-check the IP address of the PoolSync device.
-* If linking fails, try restarting the PoolSync device and then attempt the configuration again.
-* Check Home Assistant logs (Settings > System > Logs) for any error messages related to `poolsync_custom`. Enable debug logging for `custom_components.poolsync_custom` if needed (see Home Assistant documentation on how to set logger levels).
-* Use the Diagnostics feature (on the device page in HA, click the three dots, then "Download diagnostics") to download raw data from the integration, which can be helpful for debugging.
-* If your connection drops out (connection reset by peer error), a stronger WiFi signal is needed. Get an extender/mesh network. Ensure it is connected to the closest node in your mesh.  Hitting the reboot button on the PoolSync will fix it temporarily until you can get a better signal.
+- Confirm the PoolSync device and Home Assistant are on the same local network and that the configured IP address is correct.
+- If the device does not finish linking, restart the PoolSync device and retry the setup flow.
+- If the integration becomes unavailable or reports connection reset errors, check Wi-Fi quality at the controller. Weak signal is a common cause of intermittent failures.
+- Download diagnostics from the device page in Home Assistant when reporting issues.
+- Check Home Assistant logs for `custom_components.poolsync_custom` entries if setup or updates fail.
+
+## Support this project
+
+If this integration is useful to you, the two best ways to support it are simple:
+
+- Star the repository so other Home Assistant users can find it more easily
+- If you want to help support ongoing development and testing time, consider [GitHub Sponsors](https://github.com/sponsors/ccpk1) or [Buy Me a Coffee](https://buymeacoffee.com/ccpk1)
+
+## Get help or report issues
+
+- Community thread: [PoolSync Pool / Heat Pump Integration](https://community.home-assistant.io/t/poolsync-pool-heat-pump-integration/682888)
+- GitHub issues: [ccpk1/AP_PoolSync/issues](https://github.com/ccpk1/AP_PoolSync/issues)
+- GitHub discussions: [ccpk1/AP_PoolSync/discussions](https://github.com/ccpk1/AP_PoolSync/discussions)
+
+When reporting a problem, include diagnostics, relevant logs, the PoolSync firmware or hardware details if known, and what equipment is attached.
+
+## Helpful Home Assistant integrations
+
+If you want to publish these entity states elsewhere, Home Assistant's built-in MQTT statestream or eventstream integrations can forward them to MQTT. This integration only creates the local entities inside Home Assistant.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request if you have ideas for improvements or bug fixes. Remember to replace placeholder GitHub usernames/repository names in the documentation if you fork this project.
+Bug reports, testing feedback, and pull requests are welcome. When reporting problems, include the device model if known, what equipment is attached, and diagnostics or log details when possible.
 
 ## Disclaimer
 
-This integration is not affiliated with or endorsed by AutoPilot Pool Systems. Use at your own risk.
+This integration is not affiliated with or endorsed by AutoPilot Pool Systems. Use it at your own risk.

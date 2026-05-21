@@ -1,12 +1,12 @@
 {
   "domain": "poolsync_custom",
   "name": "PoolSync Custom",
-  "documentation": "https://github.com/socbrian/AP_PoolSync",
+  "documentation": "https://github.com/ccpk1/AP_PoolSync",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/socbrian/AP_PoolSync/issues",
-  "codeowners": ["@socbrian"],
+  "issue_tracker": "https://github.com/ccpk1/AP_PoolSync/issues",
+  "codeowners": ["@ccpk1"],
   "config_flow": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "dependencies": [],
   "loggers": ["custom_components.poolsync_custom"]
 }
