@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from unittest.mock import AsyncMock, Mock
 
+import pytest
+
 from custom_components.poolsync_custom.api import PoolSyncApiCommunicationError
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
 
@@ -128,7 +130,7 @@ async def test_refresh_parsed_data_marks_missing_resolved_device(hass) -> None:
 
 
 async def test_device_info_uses_parsed_role_metadata(hass) -> None:
-    """Test device info uses parsed system and chlorinator role metadata."""
+    """Test controller and attached device info use parsed role metadata."""
     api_client = Mock()
     api_client.get_all_data = AsyncMock(
         return_value={
@@ -137,8 +139,18 @@ async def test_device_info_uses_parsed_role_metadata(hass) -> None:
                 "system": {"fwVersion": "1.2.3", "hwVersion": "4.5.6"},
             },
             "devices": {
-                "5": {"nodeAttr": {"name": "ChlorSync Elite"}},
-                "7": {},
+                "5": {
+                    "nodeAttr": {"name": "ChlorSync Elite"},
+                    "system": {"drvFwVersion": "8.7.6", "drvHwVersion": "2.1"},
+                },
+                "7": {
+                    "nodeAttr": {"name": "T75 Heat Pump"},
+                    "system": {
+                        "modelNum": "075AHDSBLH",
+                        "appFwVersion": 270,
+                        "hwVersion": "F",
+                    },
+                },
             },
             "deviceType": {"5": "chlorSync", "7": "heatPump"},
         }
@@ -147,11 +159,55 @@ async def test_device_info_uses_parsed_role_metadata(hass) -> None:
 
     await coordinator.async_refresh()
 
-    device_info = coordinator.device_info
-    assert device_info["name"] == "Pool Deck"
-    assert device_info["model"] == "ChlorSync Elite"
-    assert device_info["sw_version"] == "1.2.3"
-    assert device_info["hw_version"] == "4.5.6"
+    controller_info = coordinator.get_device_info("controller")
+    chlorinator_info = coordinator.get_device_info("chlorinator")
+    heat_pump_info = coordinator.get_device_info("heat_pump")
+
+    assert controller_info["name"] == "Pool Deck"
+    assert controller_info["model"] == "PoolSync"
+    assert controller_info["sw_version"] == "1.2.3"
+    assert controller_info["hw_version"] == "4.5.6"
+
+    assert chlorinator_info["name"] == "ChlorSync Elite"
+    assert chlorinator_info["model"] == "ChlorSync Elite"
+    assert chlorinator_info["sw_version"] == "8.7.6"
+    assert chlorinator_info["hw_version"] == "2.1"
+    assert chlorinator_info["via_device"] == ("poolsync_custom", TEST_MAC_ADDRESS)
+
+    assert heat_pump_info["name"] == "T75 Heat Pump"
+    assert heat_pump_info["model"] == "075AHDSBLH"
+    assert heat_pump_info["sw_version"] == "270"
+    assert heat_pump_info["hw_version"] == "F"
+    assert heat_pump_info["via_device"] == ("poolsync_custom", TEST_MAC_ADDRESS)
+
+
+async def test_device_info_normalizes_default_chlorinator_name_and_versions(
+    hass,
+) -> None:
+    """Test default ChlorSync naming and device versions use known payload fields."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "5": {
+                    "nodeAttr": {"name": "ChlorSync®"},
+                    "system": {"drvFwVersion": 520, "drvHwVersion": "A"},
+                },
+            },
+            "deviceType": {"5": "chlorSync"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    chlorinator_info = coordinator.get_device_info("chlorinator")
+
+    assert chlorinator_info["name"] == "ChlorSync"
+    assert chlorinator_info["model"] == "ChlorSync"
+    assert chlorinator_info["sw_version"] == "520"
+    assert chlorinator_info["hw_version"] == "A"
 
 
 async def test_device_info_gracefully_handles_missing_parsed_role_metadata(
@@ -173,9 +229,38 @@ async def test_device_info_gracefully_handles_missing_parsed_role_metadata(
 
     await coordinator.async_refresh()
 
-    device_info = coordinator.device_info
-    assert device_info["name"] == f"PoolSync {TEST_MAC_ADDRESS[-6:]}"
-    assert device_info["model"] == "PoolSync"
+    controller_info = coordinator.get_device_info("controller")
+    heat_pump_info = coordinator.get_device_info("heat_pump")
+
+    assert controller_info["name"] == "PoolSync"
+    assert controller_info["model"] == "PoolSync"
+    assert heat_pump_info["name"] == "Heat Pump"
+    assert heat_pump_info["model"] == "Heat Pump"
+
+
+@pytest.mark.parametrize("default_name", ["PoolSync®", "PoolSync™", "PoolSyncTM"])
+async def test_device_info_normalizes_default_controller_name_variants(
+    hass,
+    default_name: str,
+) -> None:
+    """Test default vendor controller names are normalized to PoolSync."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {
+                "config": {"name": default_name},
+                "system": {},
+            },
+            "devices": {},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    controller_info = coordinator.get_device_info("controller")
+
+    assert controller_info["name"] == "PoolSync"
 
 
 async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) -> None:
@@ -195,10 +280,13 @@ async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) 
     }
     coordinator.parsed_data = None
 
-    device_info = coordinator.device_info
+    controller_info = coordinator.get_device_info("controller")
+    chlorinator_info = coordinator.get_device_info("chlorinator")
 
     assert coordinator.parsed_data is not None
-    assert device_info["name"] == "Pool House"
-    assert device_info["model"] == "ChlorSync Pro"
-    assert device_info["sw_version"] == "9.8.7"
-    assert device_info["hw_version"] == "6.5.4"
+    assert controller_info["name"] == "Pool House"
+    assert controller_info["model"] == "PoolSync"
+    assert controller_info["sw_version"] == "9.8.7"
+    assert controller_info["hw_version"] == "6.5.4"
+    assert chlorinator_info["name"] == "ChlorSync Pro"
+    assert chlorinator_info["model"] == "ChlorSync Pro"

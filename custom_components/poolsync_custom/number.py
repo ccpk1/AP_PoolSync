@@ -24,9 +24,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError  # For service call errors
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util.unit_system import METRIC_SYSTEM
 
-from .coordinator import PoolSyncDataUpdateCoordinator
+from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
 from .runtime import ensure_parsed_data, get_number_value
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,8 +34,7 @@ PARALLEL_UPDATES = 0  # Coordinator-based updates
 
 _WRITE_METHODS: dict[str, str] = {
     "chlor_output_control": "async_set_chlorinator_output",
-    "temperature_output_control": "async_set_heat_pump_setpoint",
-    "heat_mode": "async_set_heat_pump_mode",
+    "temperature_output_control": "async_set_heat_pump_active_target",
 }
 
 type NumberDescription = tuple[NumberEntityDescription, Callable[[Any], Any] | None]
@@ -45,8 +43,7 @@ NUMBER_DESCRIPTIONS_CHLOR: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="chlor_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Chlorinator Output",  # This will be the entity name
-            icon="mdi:knob",  # Using a knob icon for control
+            translation_key="output",
             native_unit_of_measurement=PERCENTAGE,
             native_min_value=0,  # DEFAULT_CHLOR_OUTPUT_MIN, # e.g., 0
             native_max_value=100,  # DEFAULT_CHLOR_OUTPUT_MAX, # e.g., 100
@@ -61,51 +58,10 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
     (
         NumberEntityDescription(
             key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Target Temperature",  # This will be the entity name
-            icon="mdi:knob",  # Using a knob icon for control
+            translation_key="active_target_temperature",
             native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             native_min_value=40,  # e.g., 0
             native_max_value=104,  # e.g., 100
-            native_step=1,  # e.g., 1 or 5
-            mode=NumberMode.BOX,  # Or NumberMode.BOX
-        ),
-        None,
-    ),
-    (
-        NumberEntityDescription(
-            key="heat_mode",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Heat Mode",  # This will be the entity name
-            icon="mdi:knob",  # Using a knob icon for control
-            native_min_value=0,  # e.g., 0
-            native_max_value=2,  # e.g., 100
-            native_step=1,  # e.g., 1 or 5
-            mode=NumberMode.BOX,  # Or NumberMode.BOX
-        ),
-        None,
-    ),
-)
-
-NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
-    (
-        NumberEntityDescription(
-            key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Target Temperature",  # This will be the entity name
-            icon="mdi:knob",  # Using a knob icon for control
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-            native_min_value=5,  # e.g., 0
-            native_max_value=40,  # e.g., 100
-            native_step=0.5,  # e.g., 1 or 5
-            mode=NumberMode.SLIDER,  # Or NumberMode.BOX
-        ),
-        None,
-    ),
-    (
-        NumberEntityDescription(
-            key="heat_mode",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
-            name="Heat Mode",  # This will be the entity name
-            icon="mdi:knob",  # Using a knob icon for control
-            native_min_value=0,  # e.g., 0
-            native_max_value=2,  # e.g., 100
             native_step=1,  # e.g., 1 or 5
             mode=NumberMode.BOX,  # Or NumberMode.BOX
         ),
@@ -117,6 +73,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_C: tuple[NumberDescription, ...] = (
 def _build_number_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[NumberDescription],
+    role: PoolSyncDeviceInfoRole,
 ) -> list[PoolSyncChlorOutputNumberEntity]:
     """Build number entities for a specific PoolSync device."""
     number_entities: list[PoolSyncChlorOutputNumberEntity] = []
@@ -140,7 +97,7 @@ def _build_number_entities(
             )
 
         number_entities.append(
-            PoolSyncChlorOutputNumberEntity(coordinator, description, value_fn)
+            PoolSyncChlorOutputNumberEntity(coordinator, role, description, value_fn)
         )
 
     return number_entities
@@ -152,6 +109,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up PoolSync number entities based on a config entry."""
+    del hass
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     _LOGGER.debug(
         "NUMBER_PLATFORM: Starting async_setup_entry for %s.", coordinator.name
@@ -186,7 +144,9 @@ async def async_setup_entry(
 
     if chlor_id and parsed_data.chlorinator.is_present:
         number_entities.extend(
-            _build_number_entities(coordinator, NUMBER_DESCRIPTIONS_CHLOR)
+            _build_number_entities(
+                coordinator, NUMBER_DESCRIPTIONS_CHLOR, "chlorinator"
+            )
         )
     elif chlor_id:
         _LOGGER.warning(
@@ -195,15 +155,11 @@ async def async_setup_entry(
             chlor_id,
         )
 
-    is_metric = hass.config.units is METRIC_SYSTEM
     if heatpump_id and parsed_data.heat_pump.is_present:
-        if is_metric:
-            number_descriptions_heatpump = NUMBER_DESCRIPTIONS_HEATPUMP_C
-        else:
-            number_descriptions_heatpump = NUMBER_DESCRIPTIONS_HEATPUMP_F
-
         number_entities.extend(
-            _build_number_entities(coordinator, number_descriptions_heatpump)
+            _build_number_entities(
+                coordinator, NUMBER_DESCRIPTIONS_HEATPUMP_F, "heat_pump"
+            )
         )
     elif heatpump_id:
         _LOGGER.warning(
@@ -239,6 +195,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     def __init__(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
+        role: PoolSyncDeviceInfoRole,
         description: NumberEntityDescription,
         value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
@@ -250,7 +207,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         )
 
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.device_info
+        self._attr_device_info = coordinator.get_device_info(role)
         self._update_attrs()
 
         _LOGGER.debug(

@@ -42,7 +42,7 @@ PUSHLINK_TIMEOUT_S = 120  # How long to wait for the user to press the button (s
 HTTP_TIMEOUT = 30  # <<< Increased timeout for HTTP requests (seconds)
 
 # Platform
-PLATFORMS = ["sensor", "binary_sensor", "number"]
+PLATFORMS = ["sensor", "binary_sensor", "number", "select"]
 
 # Option keys
 OPTION_SCAN_INTERVAL = "scan_interval"

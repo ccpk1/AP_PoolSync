@@ -11,6 +11,17 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import CHLORINATOR_ID, HEATPUMP_ID
 
 type PoolSyncDeviceRole = Literal["chlorinator", "heat_pump"]
+type PoolSyncHeatPumpModeContext = Literal[
+    "off", "heat_pool", "heat_spa", "cool_pool", "auto_pool"
+]
+
+HEAT_PUMP_MODE_OFF = "off"
+HEAT_PUMP_MODE_HEAT_POOL = "heat_pool"
+HEAT_PUMP_MODE_HEAT_SPA = "heat_spa"
+HEAT_PUMP_MODE_COOL_POOL = "cool_pool"
+HEAT_PUMP_MODE_AUTO_POOL = "auto_pool"
+
+T75_MODEL_NUMBER = "075AHDSBLH"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +128,45 @@ class PoolSyncParsedData:
     heat_pump: PoolSyncDeviceRoleData
 
 
+@dataclass(frozen=True, slots=True)
+class PoolSyncHeatPumpCapabilities:
+    """Capability profile for a parsed heat-pump model."""
+
+    model_number: str | None
+    profile: str
+    supports_pool_spa_mode: bool
+    supports_separate_spa_setpoint: bool
+    supports_cooling: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSyncHeatPumpRuntime:
+    """Derived runtime state for a parsed heat pump."""
+
+    capabilities: PoolSyncHeatPumpCapabilities
+    ctrl_flags_raw: int | None
+    state_flags_raw: int | None
+    has_flow: bool | None
+    compressor_running: bool | None
+    fan_running: bool | None
+    mode_value: int | None
+    pool_spa_mode: int | None
+    mode_context: PoolSyncHeatPumpModeContext | None
+    pool_setpoint: int | float | None
+    spa_setpoint: int | float | None
+    active_target_temperature: int | float | None
+
+
+_KNOWN_HEAT_PUMP_CAPABILITIES: dict[str, dict[str, Any]] = {
+    T75_MODEL_NUMBER: {
+        "profile": "t75_base_heat_pump",
+        "supports_pool_spa_mode": True,
+        "supports_separate_spa_setpoint": True,
+        "supports_cooling": False,
+    }
+}
+
+
 def ensure_parsed_data(
     coordinator: Any, *, refresh: bool = False
 ) -> PoolSyncParsedData:
@@ -144,6 +194,22 @@ def get_role_data(
 def _get_dict_value(section: dict[str, Any] | None, key: str) -> Any:
     """Return a value from a parsed section when available."""
     return section.get(key) if section is not None else None
+
+
+def _get_int_value(section: dict[str, Any] | None, key: str) -> int | None:
+    """Return an integer value from a parsed section when available."""
+    value = _get_dict_value(section, key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _get_number_value(section: dict[str, Any] | None, key: str) -> int | float | None:
+    """Return a numeric value from a parsed section when available."""
+    value = _get_dict_value(section, key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
 
 
 def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -213,15 +279,140 @@ def parse_poolsync_runtime_data(data: dict[str, Any]) -> PoolSyncParsedData:
     )
 
 
+def get_heat_pump_capabilities(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncHeatPumpCapabilities | None:
+    """Return the capability profile for the parsed heat pump."""
+    if not parsed_data.heat_pump.is_present:
+        return None
+
+    model_number = _get_dict_value(parsed_data.heat_pump.system, "modelNum")
+    if not isinstance(model_number, str):
+        model_number = None
+
+    if model_number in _KNOWN_HEAT_PUMP_CAPABILITIES:
+        known = _KNOWN_HEAT_PUMP_CAPABILITIES[model_number]
+        return PoolSyncHeatPumpCapabilities(
+            model_number=model_number,
+            profile=known["profile"],
+            supports_pool_spa_mode=known["supports_pool_spa_mode"],
+            supports_separate_spa_setpoint=known["supports_separate_spa_setpoint"],
+            supports_cooling=known["supports_cooling"],
+        )
+
+    config = parsed_data.heat_pump.config
+    return PoolSyncHeatPumpCapabilities(
+        model_number=model_number,
+        profile="unknown_heat_pump",
+        supports_pool_spa_mode=(
+            _get_dict_value(config, "poolSpaMode") is not None
+            or _get_dict_value(config, "spaSetpoint") is not None
+        ),
+        supports_separate_spa_setpoint=_get_dict_value(config, "spaSetpoint")
+        is not None,
+        supports_cooling=False,
+    )
+
+
+def get_heat_pump_runtime(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncHeatPumpRuntime | None:
+    """Return derived runtime state for the parsed heat pump."""
+    if not parsed_data.heat_pump.is_present:
+        return None
+
+    capabilities = get_heat_pump_capabilities(parsed_data)
+    if capabilities is None:
+        return None
+
+    ctrl_flags_raw = _get_int_value(parsed_data.heat_pump.status, "ctrlFlags")
+    state_flags_raw = _get_int_value(parsed_data.heat_pump.status, "stateFlags")
+    mode_value = _get_int_value(parsed_data.heat_pump.config, "mode")
+    pool_spa_mode = _get_int_value(parsed_data.heat_pump.config, "poolSpaMode")
+    pool_setpoint = _get_number_value(parsed_data.heat_pump.config, "setpoint")
+    spa_setpoint = _get_number_value(parsed_data.heat_pump.config, "spaSetpoint")
+
+    if mode_value is None:
+        mode_context = None
+    elif mode_value == 1:
+        if capabilities.supports_pool_spa_mode and pool_spa_mode == 1:
+            mode_context = HEAT_PUMP_MODE_HEAT_SPA
+        else:
+            mode_context = HEAT_PUMP_MODE_HEAT_POOL
+    elif mode_value == 2 and pool_spa_mode != 1:
+        mode_context = HEAT_PUMP_MODE_COOL_POOL
+    elif mode_value == 3 and pool_spa_mode != 1:
+        mode_context = HEAT_PUMP_MODE_AUTO_POOL
+    else:
+        mode_context = HEAT_PUMP_MODE_OFF
+
+    if mode_context in {
+        HEAT_PUMP_MODE_HEAT_POOL,
+        HEAT_PUMP_MODE_COOL_POOL,
+        HEAT_PUMP_MODE_AUTO_POOL,
+    }:
+        active_target_temperature = pool_setpoint
+    elif mode_context == HEAT_PUMP_MODE_HEAT_SPA:
+        active_target_temperature = spa_setpoint
+    else:
+        active_target_temperature = None
+
+    return PoolSyncHeatPumpRuntime(
+        capabilities=capabilities,
+        ctrl_flags_raw=ctrl_flags_raw,
+        state_flags_raw=state_flags_raw,
+        has_flow=(ctrl_flags_raw != 0) if ctrl_flags_raw is not None else None,
+        compressor_running=(state_flags_raw == 8)
+        if state_flags_raw is not None
+        else None,
+        fan_running=(state_flags_raw >= 8) if state_flags_raw is not None else None,
+        mode_value=mode_value,
+        pool_spa_mode=pool_spa_mode,
+        mode_context=mode_context,
+        pool_setpoint=pool_setpoint,
+        spa_setpoint=spa_setpoint,
+        active_target_temperature=active_target_temperature,
+    )
+
+
+def get_heat_pump_mode_options(parsed_data: PoolSyncParsedData) -> list[str]:
+    """Return supported heat-pump mode options for the current device."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None:
+        return []
+
+    options = [HEAT_PUMP_MODE_OFF, HEAT_PUMP_MODE_HEAT_POOL]
+
+    if runtime.capabilities.supports_cooling or runtime.mode_context in {
+        HEAT_PUMP_MODE_COOL_POOL,
+        HEAT_PUMP_MODE_AUTO_POOL,
+    }:
+        options.extend([HEAT_PUMP_MODE_COOL_POOL, HEAT_PUMP_MODE_AUTO_POOL])
+
+    if runtime.capabilities.supports_pool_spa_mode:
+        options.append(HEAT_PUMP_MODE_HEAT_SPA)
+
+    return options
+
+
 _NUMBER_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "chlor_output_control": lambda parsed_data: _get_dict_value(
         parsed_data.chlorinator.config, "chlorOutput"
     ),
-    "temperature_output_control": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.config, "setpoint"
+    "temperature_output_control": lambda parsed_data: (
+        runtime.active_target_temperature
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
     ),
-    "heat_mode": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.config, "mode"
+    "pool_temperature_output_control": lambda parsed_data: (
+        runtime.pool_setpoint
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
+    ),
+    "spa_temperature_output_control": lambda parsed_data: (
+        runtime.spa_setpoint
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
     ),
 }
 
@@ -248,14 +439,16 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "heatpump_fault": lambda parsed_data: _get_dict_value(
         parsed_data.heat_pump.data, "faults"
     ),
-    "heatpump_flow": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.status, "ctrlFlags"
+    "heatpump_flow": lambda parsed_data: (
+        runtime.has_flow if (runtime := get_heat_pump_runtime(parsed_data)) else None
     ),
-    "heatpump_compressor": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.status, "stateFlags"
+    "heatpump_compressor": lambda parsed_data: (
+        runtime.compressor_running
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
     ),
-    "heatpump_fan": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.status, "stateFlags"
+    "heatpump_fan": lambda parsed_data: (
+        runtime.fan_running if (runtime := get_heat_pump_runtime(parsed_data)) else None
     ),
 }
 
@@ -282,6 +475,9 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     ),
     "salt_ppm": lambda parsed_data: _get_dict_value(
         parsed_data.chlorinator.status, "saltPPM"
+    ),
+    "chlor_board_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.chlorinator.status, "boardTemp"
     ),
     "flow_rate": lambda parsed_data: _get_dict_value(
         parsed_data.chlorinator.status, "flowRate"
@@ -316,11 +512,28 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "hp_air_temp": lambda parsed_data: _get_dict_value(
         parsed_data.heat_pump.status, "airTemp"
     ),
-    "hp_mode": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.config, "mode"
+    "hp_board_temp": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.status, "boardTemp"
     ),
-    "hp_setpoint_temp": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.config, "setpoint"
+    "hp_mode": lambda parsed_data: (
+        runtime.mode_context
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
+    ),
+    "hp_setpoint_temp": lambda parsed_data: (
+        runtime.active_target_temperature
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
+    ),
+    "hp_pool_setpoint_temp": lambda parsed_data: (
+        runtime.pool_setpoint
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
+    ),
+    "hp_spa_setpoint_temp": lambda parsed_data: (
+        runtime.spa_setpoint
+        if (runtime := get_heat_pump_runtime(parsed_data))
+        else None
     ),
 }
 
@@ -341,3 +554,12 @@ def get_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
     """Return a sensor source value from parsed runtime data."""
     getter = _SENSOR_VALUE_GETTERS.get(key)
     return getter(parsed_data) if getter is not None else None
+
+
+def get_select_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
+    """Return a select value from parsed runtime data."""
+    if key != "heat_mode":
+        return None
+
+    runtime = get_heat_pump_runtime(parsed_data)
+    return runtime.mode_context if runtime is not None else None

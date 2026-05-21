@@ -48,8 +48,14 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
             },
             "devices": {
                 "0": {
-                    "system": {"serialNum": "serial-123"},
-                    "config": {"setpoint": 88},
+                    "system": {"serialNum": "serial-123", "modelNum": "075AHDSBLH"},
+                    "config": {
+                        "mode": 1,
+                        "poolSpaMode": 1,
+                        "setpoint": 78,
+                        "spaSetpoint": 88,
+                    },
+                    "status": {"ctrlFlags": 13, "stateFlags": 8},
                 }
             },
         },
@@ -87,6 +93,26 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     assert (
         diagnostics["runtime_data"]["devices"]["0"]["system"]["serialNum"] == REDACTED
     )
+    assert diagnostics["heat_pump_debug"] == {
+        "active_target_temperature": 88,
+        "capabilities": {
+            "model_number": "075AHDSBLH",
+            "profile": "t75_base_heat_pump",
+            "supports_cooling": False,
+            "supports_pool_spa_mode": True,
+            "supports_separate_spa_setpoint": True,
+        },
+        "compressor_running": True,
+        "ctrl_flags_raw": 13,
+        "fan_running": True,
+        "has_flow": True,
+        "mode_context": "heat_spa",
+        "mode_value": 1,
+        "pool_setpoint": 78,
+        "pool_spa_mode": 1,
+        "spa_setpoint": 88,
+        "state_flags_raw": 8,
+    }
 
     assert "error_in_diagnostics" not in diagnostics
     assert diagnostics["runtime_data"]["poolSync"]["config"]["name"] != "stale-owner"

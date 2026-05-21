@@ -12,6 +12,8 @@ from homeassistant.exceptions import (
     ConfigEntryError,
     ConfigEntryNotReady,
 )
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .api import PoolSyncApiClient, async_create_poolsync_session
@@ -26,6 +28,103 @@ from .coordinator import PoolSyncDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 type PoolSyncConfigEntry = ConfigEntry[PoolSyncDataUpdateCoordinator]
+
+_ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
+    "chlorinator": frozenset(
+        {
+            "water_temp",
+            "salt_ppm",
+            "flow_rate",
+            "chlor_output_setting",
+            "boost_remaining",
+            "cell_fwd_current",
+            "cell_rev_current",
+            "cell_output_voltage",
+            "cell_serial_number",
+            "cell_firmware_version",
+            "cell_hardware_version",
+            "chlorsync_online",
+            "chlorsync_fault",
+            "chlor_output_control",
+        }
+    ),
+    "heat_pump": frozenset(
+        {
+            "hp_water_temp",
+            "hp_air_temp",
+            "hp_mode",
+            "hp_setpoint_temp",
+            "hp_pool_setpoint_temp",
+            "hp_spa_setpoint_temp",
+            "heatpump_online",
+            "heatpump_fault",
+            "heatpump_flow",
+            "heatpump_compressor",
+            "heatpump_fan",
+            "temperature_output_control",
+            "heat_mode",
+        }
+    ),
+}
+
+
+def _async_migrate_entity_device_assignments(
+    hass: HomeAssistant,
+    entry: PoolSyncConfigEntry,
+    coordinator: PoolSyncDataUpdateCoordinator,
+) -> None:
+    """Move existing entities to their role-specific devices."""
+    parsed_data = coordinator.parsed_data
+    if parsed_data is None and not isinstance(coordinator.data, dict):
+        return
+
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+    unique_id_prefix = f"{coordinator.mac_address}_"
+
+    role_device_ids: dict[str, str] = {}
+    for role in ("chlorinator", "heat_pump"):
+        role_data = getattr(coordinator.get_parsed_data(), role)
+        if role_data.device_id is None:
+            continue
+
+        role_device = device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            **coordinator.get_device_info(role),
+        )
+        role_device_ids[role] = role_device.id
+
+    if not role_device_ids:
+        return
+
+    for entity_entry in er.async_entries_for_config_entry(
+        entity_registry, entry.entry_id
+    ):
+        if entity_entry.unique_id is None or not entity_entry.unique_id.startswith(
+            unique_id_prefix
+        ):
+            continue
+
+        entity_key = entity_entry.unique_id.removeprefix(unique_id_prefix)
+        target_role = next(
+            (
+                role
+                for role, entity_keys in _ROLE_ENTITY_KEYS.items()
+                if entity_key in entity_keys
+            ),
+            None,
+        )
+        if target_role is None:
+            continue
+
+        target_device_id = role_device_ids.get(target_role)
+        if target_device_id is None or entity_entry.device_id == target_device_id:
+            continue
+
+        entity_registry.async_update_entity(
+            entity_entry.entity_id,
+            device_id=target_device_id,
+        )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> bool:
@@ -83,6 +182,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> 
         ) from err
 
     entry.runtime_data = coordinator
+    _async_migrate_entity_device_assignments(hass, entry, coordinator)
 
     entry.async_on_unload(entry.add_update_listener(async_update_options_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

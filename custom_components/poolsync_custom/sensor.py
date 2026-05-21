@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from typing import Any, cast
 
 from homeassistant.components.sensor import (
@@ -27,9 +27,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
-from homeassistant.util.unit_system import METRIC_SYSTEM
 
-from .coordinator import PoolSyncDataUpdateCoordinator
+from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
 from .runtime import ensure_parsed_data, get_sensor_value
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,25 +37,30 @@ PARALLEL_UPDATES = 0  # Coordinator-based updates
 
 type SensorDescription = tuple[SensorEntityDescription, Callable[[Any], Any] | None]
 
+_POOLSYNC_DATETIME_FORMAT = "%a %b %d %H:%M:%S %Y"
 
-def _change_temperature_unit(description, is_metric):
-    if is_metric:
-        return description
 
-    if description.native_unit_of_measurement is UnitOfTemperature.CELSIUS:
-        description = dataclasses.replace(
-            description, native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT
-        )
+def _parse_poolsync_datetime(value: Any) -> datetime | None:
+    """Parse PoolSync timestamp strings into timezone-aware datetimes."""
+    if not isinstance(value, str):
+        return None
 
-    return description
+    if parsed := dt_util.parse_datetime(value):
+        return parsed
+
+    try:
+        local_datetime = datetime.strptime(value, _POOLSYNC_DATETIME_FORMAT)
+    except ValueError:
+        return None
+
+    return dt_util.as_utc(local_datetime.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE))
 
 
 SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="water_temp",
-            name="Water Temperature",
-            icon="mdi:coolant-temperature",
+            translation_key="water_temperature",
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
@@ -67,8 +71,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="salt_ppm",
-            name="Salt Level",
-            icon="mdi:shaker-outline",
+            translation_key="salt_level",
             native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
@@ -77,9 +80,20 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     ),
     (
         SensorEntityDescription(
+            key="chlor_board_temp",
+            translation_key="board_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
             key="flow_rate",
-            name="Chlorinator Flow Rate",
-            icon="mdi:pump",
+            translation_key="flow_rate",
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
         ),
@@ -88,8 +102,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="chlor_output_setting",
-            name="Chlorinator Output Setting",
-            icon="mdi:percent-circle",
+            translation_key="output_setting",
             native_unit_of_measurement=PERCENTAGE,
             state_class=SensorStateClass.MEASUREMENT,
         ),
@@ -98,8 +111,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="boost_remaining",
-            name="Boost Time Remaining",
-            icon="mdi:timer-sand",
+            translation_key="boost_time_remaining",
             native_unit_of_measurement=None,
             state_class=SensorStateClass.MEASUREMENT,
         ),
@@ -108,8 +120,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="cell_fwd_current",
-            name="Cell Forward Current",
-            icon="mdi:current-dc",
+            translation_key="cell_forward_current",
             native_unit_of_measurement=UnitOfElectricCurrent.MILLIAMPERE,
             device_class=SensorDeviceClass.CURRENT,
             state_class=SensorStateClass.MEASUREMENT,
@@ -121,8 +132,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="cell_rev_current",
-            name="Cell Reverse Current",
-            icon="mdi:current-dc",
+            translation_key="cell_reverse_current",
             native_unit_of_measurement=UnitOfElectricCurrent.MILLIAMPERE,
             device_class=SensorDeviceClass.CURRENT,
             state_class=SensorStateClass.MEASUREMENT,
@@ -134,8 +144,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="cell_output_voltage",
-            name="Cell Output Voltage",
-            icon="mdi:lightning-bolt",
+            translation_key="cell_output_voltage",
             native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
             device_class=SensorDeviceClass.VOLTAGE,
             state_class=SensorStateClass.MEASUREMENT,
@@ -147,8 +156,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="cell_serial_number",
-            name="Cell Serial Number",
-            icon="mdi:barcode-scan",
+            translation_key="cell_serial_number",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
@@ -157,8 +165,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="cell_firmware_version",
-            name="Cell Firmware Version",
-            icon="mdi:chip",
+            translation_key="cell_firmware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
@@ -167,8 +174,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="cell_hardware_version",
-            name="Cell Hardware Version",
-            icon="mdi:memory",
+            translation_key="cell_hardware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
@@ -179,8 +185,7 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="board_temp",
-            name="Board Temperature",
-            icon="mdi:thermometer-lines",
+            translation_key="board_temperature",
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
@@ -193,8 +198,7 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="wifi_rssi",
-            name="Wi-Fi Signal Strength",
-            icon="mdi:wifi-strength-2",
+            translation_key="wifi_signal_strength",
             native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
             device_class=SensorDeviceClass.SIGNAL_STRENGTH,
             state_class=SensorStateClass.MEASUREMENT,
@@ -206,19 +210,17 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="system_datetime",
-            name="System Date/Time",
-            icon="mdi:clock-outline",
+            translation_key="date_time",
             device_class=SensorDeviceClass.TIMESTAMP,
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-        lambda v: dt_util.parse_datetime(v) if isinstance(v, str) else None,
+        _parse_poolsync_datetime,
     ),
     (
         SensorEntityDescription(
             key="firmware_version",
-            name="System Firmware Version",
-            icon="mdi:chip",
+            translation_key="firmware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
@@ -227,8 +229,7 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="hardware_version",
-            name="System Hardware Version",
-            icon="mdi:memory",
+            translation_key="hardware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
@@ -237,8 +238,7 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="uptime_seconds",
-            name="System Uptime",
-            icon="mdi:timer-outline",
+            translation_key="uptime",
             native_unit_of_measurement="s",
             device_class=SensorDeviceClass.DURATION,
             state_class=SensorStateClass.TOTAL_INCREASING,
@@ -252,9 +252,8 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="hp_water_temp",
-            name="Water Temperature",
-            icon="mdi:coolant-temperature",
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            translation_key="water_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
@@ -264,9 +263,8 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="hp_air_temp",
-            name="Air Temperature",
-            icon="mdi:coolant-temperature",
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            translation_key="air_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
@@ -275,20 +273,51 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     ),
     (
         SensorEntityDescription(
-            key="hp_mode",
-            name="Heat Pump Mode",
-            icon="mdi:pump",
-            native_unit_of_measurement=None,
+            key="hp_board_temp",
+            translation_key="board_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_mode",
+            translation_key="mode",
+            native_unit_of_measurement=None,
         ),
         None,
     ),
     (
         SensorEntityDescription(
             key="hp_setpoint_temp",
-            name="Setpoint Temperature",
-            icon="mdi:coolant-temperature",
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            translation_key="active_target_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_pool_setpoint_temp",
+            translation_key="pool_setpoint_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_spa_setpoint_temp",
+            translation_key="spa_setpoint_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
@@ -301,20 +330,19 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
 def _build_sensor_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[SensorDescription],
-    is_metric: bool,
+    role: PoolSyncDeviceInfoRole,
 ) -> list[PoolSyncSensor]:
     """Build sensor entities."""
     sensors: list[PoolSyncSensor] = []
 
     for description, value_fn in descriptions:
-        entity_description = _change_temperature_unit(description, is_metric)
-        sensors.append(PoolSyncSensor(coordinator, entity_description, value_fn))
+        sensors.append(PoolSyncSensor(coordinator, role, description, value_fn))
 
     return sensors
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    _hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     sensors_to_add: list[PoolSyncSensor] = []
@@ -335,13 +363,8 @@ async def async_setup_entry(
     heatpump_id = parsed_data.heat_pump.device_id
     chlor_id = parsed_data.chlorinator.device_id
 
-    # change temperature unit
-    is_metric = hass.config.units is METRIC_SYSTEM
-
     sensors_to_add.extend(
-        _build_sensor_entities(
-            coordinator, SENSOR_DESCRIPTIONS_POOLSYNC, is_metric=is_metric
-        )
+        _build_sensor_entities(coordinator, SENSOR_DESCRIPTIONS_POOLSYNC, "controller")
     )
 
     if chlor_id and parsed_data.chlorinator.is_present:
@@ -349,7 +372,7 @@ async def async_setup_entry(
             _build_sensor_entities(
                 coordinator,
                 SENSOR_DESCRIPTIONS_CHLORSYNC,
-                is_metric=is_metric,
+                "chlorinator",
             )
         )
     elif chlor_id and devices is not None:
@@ -364,7 +387,7 @@ async def async_setup_entry(
             _build_sensor_entities(
                 coordinator,
                 SENSOR_DESCRIPTIONS_HEATPUMP,
-                is_metric=is_metric,
+                "heat_pump",
             )
         )
     elif heatpump_id and devices is not None:
@@ -389,6 +412,7 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
+        role: PoolSyncDeviceInfoRole,
         description: SensorEntityDescription,
         value_fn: Callable[[Any], Any] | None = None,
     ) -> None:
@@ -396,7 +420,7 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         self.entity_description = description
         self._value_fn = value_fn
         self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.device_info
+        self._attr_device_info = coordinator.get_device_info(role)
         self._update_attrs()
 
     @callback

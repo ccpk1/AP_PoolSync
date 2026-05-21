@@ -29,14 +29,25 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     coordinator = Mock()
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
-    coordinator.device_info = {"identifiers": {("poolsync_custom", "AABBCCDDEEFF")}}
+    coordinator.get_device_info = Mock(
+        side_effect=lambda role: {
+            "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
+        }
+    )
     coordinator.password = "test-password"
     coordinator.api_client = Mock()
     coordinator.data = {
         "poolSync": {},
         "devices": {
             "5": {"config": {"chlorOutput": 55}},
-            "7": {"config": {"setpoint": 82, "mode": 1}},
+            "7": {
+                "config": {
+                    "setpoint": 82,
+                    "spaSetpoint": 99,
+                    "poolSpaMode": 1,
+                    "mode": 1,
+                }
+            },
         },
         "deviceType": {
             "5": "chlorSync",
@@ -52,23 +63,22 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
 
     await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
 
-    assert len(added_entities) == 3
-    assert {entity.native_value for entity in added_entities} == {55.0, 82.0, 1.0}
+    assert len(added_entities) == 2
     assert (
         next(
             entity
             for entity in added_entities
-            if entity.entity_description.key == "heat_mode"
-        ).name
-        == "Heat Mode"
+            if entity.entity_description.key == "temperature_output_control"
+        ).native_value
+        == 99.0
     )
     assert (
         next(
             entity
             for entity in added_entities
             if entity.entity_description.key == "temperature_output_control"
-        ).name
-        == "Target Temperature"
+        ).entity_description.translation_key
+        == "active_target_temperature"
     )
     assert NUMBER_DESCRIPTIONS_CHLOR[0][0].key == "chlor_output_control"
     assert NUMBER_DESCRIPTIONS_HEATPUMP_F[0][0].key == "temperature_output_control"

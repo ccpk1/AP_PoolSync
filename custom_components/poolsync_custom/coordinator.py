@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
@@ -19,14 +20,31 @@ from .api import (
 )
 from .const import DEFAULT_NAME, DOMAIN, MANUFACTURER, MODEL
 from .runtime import (
+    HEAT_PUMP_MODE_AUTO_POOL,
+    HEAT_PUMP_MODE_COOL_POOL,
+    HEAT_PUMP_MODE_HEAT_POOL,
+    HEAT_PUMP_MODE_HEAT_SPA,
+    HEAT_PUMP_MODE_OFF,
     PoolSyncDeviceRole,
     PoolSyncParsedData,
     ensure_parsed_data,
+    get_heat_pump_runtime,
     get_role_data,
     parse_poolsync_runtime_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_CONTROLLER_NAME_PATTERN = re.compile(
+    r"^PoolSync(?:\s*(?:™|®|tm))?$",
+    re.IGNORECASE,
+)
+_DEFAULT_CHLORINATOR_NAME_PATTERN = re.compile(
+    r"^ChlorSync(?:\s*(?:™|®|tm))?$",
+    re.IGNORECASE,
+)
+
+type PoolSyncDeviceInfoRole = Literal["controller", "chlorinator", "heat_pump"]
 
 
 class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -124,6 +142,36 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             raise HomeAssistantError(f"Failed to set {description}: {err}") from err
 
+    async def _async_write_role_configs(
+        self,
+        *,
+        role: PoolSyncDeviceRole,
+        updates: dict[str, int],
+        description: str,
+    ) -> None:
+        """Write multiple config values for a resolved device role and refresh once."""
+        if not self.password:
+            raise HomeAssistantError("API password not available to set value")
+
+        parsed_data = self.get_parsed_data()
+        role_data = get_role_data(parsed_data, role)
+        if role_data.device_id is None or not role_data.is_present:
+            raise HomeAssistantError(f"PoolSync {description} target is not available")
+
+        try:
+            for key_id, value in updates.items():
+                await self.api_client.async_set_device_config_value(
+                    device_id=role_data.device_id,
+                    key_id=key_id,
+                    value=value,
+                    password=self.password,
+                )
+            await self.async_request_refresh()
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to set {description}: {err}") from err
+
     async def async_set_chlorinator_output(self, value: int) -> None:
         """Set the chlorinator output level."""
         await self._async_write_role_config(
@@ -142,12 +190,66 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             description="heat pump setpoint",
         )
 
+    async def async_set_heat_pump_pool_setpoint(self, value: int) -> None:
+        """Set the heat pump pool setpoint."""
+        await self._async_write_role_config(
+            role="heat_pump",
+            key_id="setpoint",
+            value=value,
+            description="heat pump pool setpoint",
+        )
+
+    async def async_set_heat_pump_spa_setpoint(self, value: int) -> None:
+        """Set the heat pump spa setpoint."""
+        await self._async_write_role_config(
+            role="heat_pump",
+            key_id="spaSetpoint",
+            value=value,
+            description="heat pump spa setpoint",
+        )
+
+    async def async_set_heat_pump_active_target(self, value: int) -> None:
+        """Set the active target temperature for the current heat-pump context."""
+        runtime = get_heat_pump_runtime(self.get_parsed_data())
+        if runtime is None:
+            raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        if (
+            runtime.mode_context == "heat_spa"
+            and runtime.capabilities.supports_separate_spa_setpoint
+        ):
+            await self.async_set_heat_pump_spa_setpoint(value)
+            return
+
+        await self.async_set_heat_pump_pool_setpoint(value)
+
     async def async_set_heat_pump_mode(self, value: int) -> None:
         """Set the heat pump mode."""
         await self._async_write_role_config(
             role="heat_pump",
             key_id="mode",
             value=value,
+            description="heat pump mode",
+        )
+
+    async def async_set_heat_pump_mode_context(self, mode_context: str) -> None:
+        """Set the heat-pump mode using the contextual runtime model."""
+        if mode_context == HEAT_PUMP_MODE_OFF:
+            updates = {"mode": 0, "poolSpaMode": 0}
+        elif mode_context == HEAT_PUMP_MODE_HEAT_POOL:
+            updates = {"mode": 1, "poolSpaMode": 0}
+        elif mode_context == HEAT_PUMP_MODE_COOL_POOL:
+            updates = {"mode": 2, "poolSpaMode": 0}
+        elif mode_context == HEAT_PUMP_MODE_AUTO_POOL:
+            updates = {"mode": 3, "poolSpaMode": 0}
+        elif mode_context == HEAT_PUMP_MODE_HEAT_SPA:
+            updates = {"mode": 1, "poolSpaMode": 1}
+        else:
+            raise HomeAssistantError(f"Unsupported heat pump mode: {mode_context}")
+
+        await self._async_write_role_configs(
+            role="heat_pump",
+            updates=updates,
             description="heat pump mode",
         )
 
@@ -223,46 +325,140 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information for entities to use."""
-        device_name = DEFAULT_NAME
-        model_name = MODEL
-        sw_version = None
-        hw_version = None
-        config_name_from_api: str | None = None
+        """Return controller device information for backward compatibility."""
+        return self.get_device_info("controller")
+
+    def get_device_info(self, role: PoolSyncDeviceInfoRole) -> DeviceInfo:
+        """Return device information for a specific PoolSync device boundary."""
         parsed_data = (
             ensure_parsed_data(self)
             if self.parsed_data is None and isinstance(self.data, dict)
             else self.parsed_data
         )
 
-        if parsed_data is not None:
-            if (system_config := parsed_data.system.config) is not None:
-                config_name_from_api = system_config.get("name")
+        if role == "controller":
+            return self._get_controller_device_info(parsed_data)
 
-            if (system_info := parsed_data.system.system) is not None:
-                sw_version = system_info.get("fwVersion")
-                hw_version = system_info.get("hwVersion")
+        return self._get_attached_device_info(role, parsed_data)
 
-            if (chlorinator_node_attr := parsed_data.chlorinator.node_attr) is not None:
-                api_model_name = chlorinator_node_attr.get("name")
-                if api_model_name:
-                    model_name = api_model_name
+    def _get_controller_identifier(self) -> tuple[str, str]:
+        """Return the stable device registry identifier for the controller."""
+        return (DOMAIN, self.mac_address)
 
-        if config_name_from_api and config_name_from_api != "PoolSync®":
-            device_name = config_name_from_api
-        else:
-            device_name = (
-                f"{DEFAULT_NAME} {self.mac_address[-6:]}"
-                if self.mac_address and len(self.mac_address) >= 6
-                else DEFAULT_NAME
+    def _get_attached_identifier(self, role: PoolSyncDeviceInfoRole) -> tuple[str, str]:
+        """Return the stable device registry identifier for an attached device."""
+        return (DOMAIN, f"{self.mac_address}_{role}")
+
+    def _get_controller_name(self, parsed_data: PoolSyncParsedData | None) -> str:
+        """Return the best available controller device name."""
+        config_name_from_api: str | None = None
+
+        if (
+            parsed_data is not None
+            and (system_config := parsed_data.system.config) is not None
+        ):
+            config_name_from_api = system_config.get("name")
+
+        if (
+            isinstance(config_name_from_api, str)
+            and config_name_from_api.strip()
+            and not _DEFAULT_CONTROLLER_NAME_PATTERN.fullmatch(
+                config_name_from_api.strip()
             )
+        ):
+            return config_name_from_api
+
+        if isinstance(config_name_from_api, str) and config_name_from_api.strip():
+            return DEFAULT_NAME
+
+        if self.mac_address and len(self.mac_address) >= 6:
+            return f"{DEFAULT_NAME} {self.mac_address[-6:]}"
+
+        return DEFAULT_NAME
+
+    def _get_controller_device_info(
+        self, parsed_data: PoolSyncParsedData | None
+    ) -> DeviceInfo:
+        """Build device info for the PoolSync controller."""
+        sw_version = None
+        hw_version = None
+
+        if (
+            parsed_data is not None
+            and (system_info := parsed_data.system.system) is not None
+        ):
+            sw_version = system_info.get("fwVersion")
+            hw_version = system_info.get("hwVersion")
 
         return DeviceInfo(
-            identifiers={(DOMAIN, self.mac_address)},
-            name=device_name,
+            identifiers={self._get_controller_identifier()},
+            name=self._get_controller_name(parsed_data),
             manufacturer=MANUFACTURER,
-            model=str(model_name) if model_name else MODEL,
+            model=MODEL,
             sw_version=str(sw_version) if sw_version is not None else None,
             hw_version=str(hw_version) if hw_version is not None else None,
             configuration_url=f"http://{self._ip_address}",
+        )
+
+    def _get_attached_device_info(
+        self,
+        role: Literal["chlorinator", "heat_pump"],
+        parsed_data: PoolSyncParsedData | None,
+    ) -> DeviceInfo:
+        """Build device info for an attached device role."""
+        role_data = (
+            get_role_data(parsed_data, role) if parsed_data is not None else None
+        )
+        node_attr = role_data.node_attr if role_data is not None else None
+        system_info = role_data.system if role_data is not None else None
+
+        default_name = "Chlorinator" if role == "chlorinator" else "Heat Pump"
+        default_model = "ChlorSync" if role == "chlorinator" else "Heat Pump"
+        device_name = default_name
+        model_name = default_model
+        sw_version = None
+        hw_version = None
+
+        def _normalize_attached_name(name: str) -> str:
+            """Normalize known vendor default attached-device names."""
+            if role == "chlorinator" and _DEFAULT_CHLORINATOR_NAME_PATTERN.fullmatch(
+                name.strip()
+            ):
+                return "ChlorSync"
+
+            return name
+
+        if (
+            node_attr is not None
+            and isinstance(node_attr.get("name"), str)
+            and node_attr.get("name")
+        ):
+            device_name = _normalize_attached_name(node_attr["name"])
+            model_name = _normalize_attached_name(node_attr["name"])
+
+        if system_info is not None:
+            if isinstance(system_info.get("modelNum"), str) and system_info.get(
+                "modelNum"
+            ):
+                model_name = system_info["modelNum"]
+
+            if role == "heat_pump":
+                sw_version = system_info.get("appFwVersion")
+                hw_version = system_info.get("hwVersion")
+            else:
+                sw_version = system_info.get("fwVersion") or system_info.get(
+                    "drvFwVersion"
+                )
+                hw_version = system_info.get("hwVersion") or system_info.get(
+                    "drvHwVersion"
+                )
+
+        return DeviceInfo(
+            identifiers={self._get_attached_identifier(role)},
+            name=device_name,
+            manufacturer=MANUFACTURER,
+            model=str(model_name) if model_name else default_model,
+            sw_version=str(sw_version) if sw_version is not None else None,
+            hw_version=str(hw_version) if hw_version is not None else None,
+            via_device=self._get_controller_identifier(),
         )

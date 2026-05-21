@@ -1,0 +1,125 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "compressor": {
+        "default": "mdi:engine-off",
+        "state": {
+          "on": "mdi:engine",
+          "off": "mdi:engine-off"
+        }
+      },
+      "fan": {
+        "default": "mdi:fan-off",
+        "state": {
+          "on": "mdi:fan",
+          "off": "mdi:fan-off"
+        }
+      },
+      "flow": {
+        "default": "mdi:water-off",
+        "state": {
+          "on": "mdi:water",
+          "off": "mdi:water-off"
+        }
+      },
+      "service_mode": {
+        "default": "mdi:account-wrench"
+      }
+    },
+    "number": {
+      "active_target_temperature": {
+        "default": "mdi:knob"
+      },
+      "output": {
+        "default": "mdi:knob"
+      }
+    },
+    "select": {
+      "mode": {
+        "default": "mdi:pump",
+        "state": {
+          "off": "mdi:pump-off",
+          "heat_pool": "mdi:fire",
+          "heat_spa": "mdi:hot-tub",
+          "cool_pool": "mdi:snowflake",
+          "auto_pool": "mdi:autorenew"
+        }
+      }
+    },
+    "sensor": {
+      "active_target_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "air_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "board_temperature": {
+        "default": "mdi:thermometer-lines"
+      },
+      "boost_time_remaining": {
+        "default": "mdi:timer-sand"
+      },
+      "cell_firmware_version": {
+        "default": "mdi:chip"
+      },
+      "cell_forward_current": {
+        "default": "mdi:current-dc"
+      },
+      "cell_hardware_version": {
+        "default": "mdi:memory"
+      },
+      "cell_output_voltage": {
+        "default": "mdi:lightning-bolt"
+      },
+      "cell_reverse_current": {
+        "default": "mdi:current-dc"
+      },
+      "cell_serial_number": {
+        "default": "mdi:barcode-scan"
+      },
+      "date_time": {
+        "default": "mdi:clock-outline"
+      },
+      "firmware_version": {
+        "default": "mdi:chip"
+      },
+      "flow_rate": {
+        "default": "mdi:pump"
+      },
+      "hardware_version": {
+        "default": "mdi:memory"
+      },
+      "mode": {
+        "default": "mdi:pump",
+        "state": {
+          "off": "mdi:pump-off",
+          "heat_pool": "mdi:fire",
+          "heat_spa": "mdi:hot-tub",
+          "cool_pool": "mdi:snowflake",
+          "auto_pool": "mdi:autorenew"
+        }
+      },
+      "output_setting": {
+        "default": "mdi:percent-circle"
+      },
+      "pool_setpoint_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "salt_level": {
+        "default": "mdi:shaker-outline"
+      },
+      "spa_setpoint_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "uptime": {
+        "default": "mdi:timer-outline"
+      },
+      "water_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "wifi_signal_strength": {
+        "default": "mdi:wifi-strength-2"
+      }
+    }
+  }
+}

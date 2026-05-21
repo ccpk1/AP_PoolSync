@@ -52,9 +52,122 @@
     "abort": {}
   },
   "entity": {
+    "binary_sensor": {
+      "compressor": {
+        "name": "Compressor"
+      },
+      "fan": {
+        "name": "Fan"
+      },
+      "fault": {
+        "name": "Fault"
+      },
+      "flow": {
+        "name": "Flow"
+      },
+      "node_connected": {
+        "name": "Node connected"
+      },
+      "online": {
+        "name": "Online"
+      },
+      "service_mode": {
+        "name": "Service mode"
+      }
+    },
     "number": {
-      "chlor_output_control": {
-        "name": "Chlorinator Output"
+      "active_target_temperature": {
+        "name": "Active target temperature"
+      },
+      "output": {
+        "name": "Output"
+      }
+    },
+    "sensor": {
+      "active_target_temperature": {
+        "name": "Active target temperature"
+      },
+      "air_temperature": {
+        "name": "Air temperature"
+      },
+      "board_temperature": {
+        "name": "Board temperature"
+      },
+      "boost_time_remaining": {
+        "name": "Boost time remaining"
+      },
+      "cell_firmware_version": {
+        "name": "Cell firmware version"
+      },
+      "cell_forward_current": {
+        "name": "Cell forward current"
+      },
+      "cell_hardware_version": {
+        "name": "Cell hardware version"
+      },
+      "cell_output_voltage": {
+        "name": "Cell output voltage"
+      },
+      "cell_reverse_current": {
+        "name": "Cell reverse current"
+      },
+      "cell_serial_number": {
+        "name": "Cell serial number"
+      },
+      "date_time": {
+        "name": "Date and time"
+      },
+      "firmware_version": {
+        "name": "Firmware version"
+      },
+      "flow_rate": {
+        "name": "Flow rate"
+      },
+      "hardware_version": {
+        "name": "Hardware version"
+      },
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "off": "Off",
+          "heat_pool": "Heat Pool",
+          "heat_spa": "Heat Spa",
+          "cool_pool": "Cool Pool",
+          "auto_pool": "Auto Pool"
+        }
+      },
+      "output_setting": {
+        "name": "Output setting"
+      },
+      "pool_setpoint_temperature": {
+        "name": "Pool setpoint temperature"
+      },
+      "salt_level": {
+        "name": "Salt level"
+      },
+      "spa_setpoint_temperature": {
+        "name": "Spa setpoint temperature"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "water_temperature": {
+        "name": "Water temperature"
+      },
+      "wifi_signal_strength": {
+        "name": "Wi-Fi signal strength"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "off": "Off",
+          "heat_pool": "Heat Pool",
+          "heat_spa": "Heat Spa",
+          "cool_pool": "Cool Pool",
+          "auto_pool": "Auto Pool"
+        }
       }
     }
   }

@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import Mock
 
 from custom_components.poolsync_custom.binary_sensor import (
@@ -30,7 +32,11 @@ def _build_coordinator() -> Mock:
     coordinator = Mock()
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
-    coordinator.device_info = {"identifiers": {("poolsync_custom", "AABBCCDDEEFF")}}
+    coordinator.get_device_info = Mock(
+        side_effect=lambda role: {
+            "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
+        }
+    )
     coordinator.last_update_success = True
     coordinator.data = {
         "poolSync": {
@@ -49,6 +55,15 @@ def _build_coordinator() -> Mock:
         "deviceType": {"5": "chlorSync", "7": "heatPump"},
     }
     return coordinator
+
+
+def _load_runtime_data(sample_name: str) -> dict:
+    """Load runtime data from a sample diagnostics export."""
+    sample_path = (
+        Path(__file__).resolve().parents[2] / "sample_diagnostics" / sample_name
+    )
+    with sample_path.open(encoding="utf-8") as sample_file:
+        return json.load(sample_file)["data"]["runtime_data"]
 
 
 async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
@@ -74,7 +89,10 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     )
     assert chlor_fault.is_on is False
     assert heat_online.is_on is True
-    assert heat_online.name == "Heat Pump Module Online"
+    assert heat_online.entity_description.translation_key == "node_connected"
+    assert heat_online.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_heat_pump")
+    }
     assert BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[0][0].key == "chlorsync_online"
     assert BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][0].key == "heatpump_online"
 
@@ -84,6 +102,7 @@ async def test_binary_sensor_updates_cached_state() -> None:
     coordinator = _build_coordinator()
     sensor = PoolSyncBinarySensor(
         coordinator,
+        "heat_pump",
         BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][0],
         BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[0][1],
     )
@@ -117,3 +136,46 @@ async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
         "service_mode_active",
         "system_fault",
     }
+    assert (
+        next(
+            entity
+            for entity in added_entities
+            if entity.entity_description.key == "poolsync_online"
+        ).entity_description.translation_key
+        == "online"
+    )
+
+
+async def test_heat_pump_binary_sensors_use_derived_runtime_state() -> None:
+    """Test heat-pump binary sensors follow derived runtime state mappings."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_heat_pump")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = _load_runtime_data("t75-spa-startup-fan-nocompressor.json")
+
+    flow_sensor = PoolSyncBinarySensor(
+        coordinator,
+        "heat_pump",
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[2][0],
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[2][1],
+    )
+    compressor_sensor = PoolSyncBinarySensor(
+        coordinator,
+        "heat_pump",
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[3][0],
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[3][1],
+    )
+    fan_sensor = PoolSyncBinarySensor(
+        coordinator,
+        "heat_pump",
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[4][0],
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[4][1],
+    )
+
+    assert flow_sensor.is_on is True
+    assert compressor_sensor.is_on is False
+    assert fan_sensor.is_on is True

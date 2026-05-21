@@ -32,3 +32,31 @@ async def test_get_pushlink_status_does_not_log_password(caplog) -> None:
         for record in caplog.records
         if record.levelno >= logging.INFO
     )
+
+
+async def test_set_device_config_value_accepts_non_json_success_body() -> None:
+    """Test config PATCH accepts a successful non-JSON response body."""
+    session = Mock()
+    response = Mock()
+    response.status = 200
+    response.headers = {"Content-Type": "text/plain"}
+    response.text = AsyncMock(return_value="OK")
+    response.json = AsyncMock(
+        side_effect=ValueError("unexpected character: line 1 column 1 (char 0)")
+    )
+
+    request_context = AsyncMock()
+    request_context.__aenter__.return_value = response
+    request_context.__aexit__.return_value = False
+    session.patch.return_value = request_context
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    result = await client.async_set_device_config_value(
+        device_id="7",
+        key_id="setpoint",
+        value=79,
+        password=TEST_PASSWORD,
+    )
+
+    assert result == {}

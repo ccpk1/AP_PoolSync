@@ -56,6 +56,7 @@ def _build_entity(hass, api_client: Mock) -> PoolSyncChlorOutputNumberEntity:
     coordinator = _build_coordinator(hass, api_client)
     return PoolSyncChlorOutputNumberEntity(
         coordinator,
+        "chlorinator",
         NumberEntityDescription(
             key="chlor_output_control",
             name="Chlorinator Output",
@@ -98,8 +99,10 @@ async def test_async_set_native_value_raises_homeassistant_error(hass) -> None:
     entity.coordinator.async_request_refresh.assert_not_awaited()
 
 
-async def test_async_set_native_value_routes_heat_pump_mode_command(hass) -> None:
-    """Test number writes route heat pump mode through the coordinator command path."""
+async def test_async_set_native_value_routes_active_target_to_spa_setpoint(
+    hass,
+) -> None:
+    """Test active target writes use the spa setpoint when spa mode is active."""
     api_client = Mock()
     api_client.ip_address = TEST_IP_ADDRESS
     api_client.async_set_device_config_value = AsyncMock(return_value={})
@@ -114,7 +117,14 @@ async def test_async_set_native_value_routes_heat_pump_mode_command(hass) -> Non
     coordinator.data = {
         "poolSync": {},
         "devices": {
-            "7": {"config": {"mode": 1}},
+            "7": {
+                "config": {
+                    "mode": 1,
+                    "poolSpaMode": 1,
+                    "setpoint": 78,
+                    "spaSetpoint": 88,
+                },
+            },
         },
         "deviceType": {"7": "heatPump"},
     }
@@ -123,21 +133,22 @@ async def test_async_set_native_value_routes_heat_pump_mode_command(hass) -> Non
 
     entity = PoolSyncChlorOutputNumberEntity(
         coordinator,
+        "heat_pump",
         NumberEntityDescription(
-            key="heat_mode",
-            name="Heat Mode",
-            native_min_value=0,
-            native_max_value=2,
+            key="temperature_output_control",
+            name="Active Target Temperature",
+            native_min_value=40,
+            native_max_value=104,
             native_step=1,
         ),
     )
 
-    await entity.async_set_native_value(2)
+    await entity.async_set_native_value(91)
 
     api_client.async_set_device_config_value.assert_awaited_once_with(
         device_id="7",
-        key_id="mode",
-        value=2,
+        key_id="spaSetpoint",
+        value=91,
         password=TEST_PASSWORD,
     )
     coordinator.async_request_refresh.assert_awaited_once()
@@ -164,6 +175,7 @@ async def test_number_entity_becomes_unavailable_when_value_missing(hass) -> Non
 
     entity = PoolSyncChlorOutputNumberEntity(
         coordinator,
+        "chlorinator",
         NumberEntityDescription(
             key="chlor_output_control",
             name="Chlorinator Output",

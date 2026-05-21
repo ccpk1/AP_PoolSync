@@ -8,7 +8,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import Mock
+
+from homeassistant.const import UnitOfTemperature
+from homeassistant.util import dt as dt_util
 
 from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 from custom_components.poolsync_custom.sensor import (
@@ -32,12 +36,16 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     coordinator = Mock()
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
-    coordinator.device_info = {"identifiers": {("poolsync_custom", "AABBCCDDEEFF")}}
+    coordinator.get_device_info = Mock(
+        side_effect=lambda role: {
+            "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
+        }
+    )
     coordinator.data = {
         "poolSync": {"status": {"boardTemp": 30, "rssi": -67}},
         "devices": {
             "5": {
-                "status": {"waterTemp": 24.5, "saltPPM": 3200},
+                "status": {"waterTemp": 24.5, "saltPPM": 3200, "boardTemp": 94.63},
                 "config": {"chlorOutput": 55},
                 "system": {
                     "cellSerialNum": "ABC123",
@@ -46,8 +54,13 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
                 },
             },
             "7": {
-                "status": {"waterTemp": 82.0, "airTemp": 70.0},
-                "config": {"mode": 1, "setpoint": 84},
+                "status": {"waterTemp": 82.0, "airTemp": 70.0, "boardTemp": 76.99},
+                "config": {
+                    "mode": 1,
+                    "poolSpaMode": 0,
+                    "setpoint": 84,
+                    "spaSetpoint": 99,
+                },
             },
         },
         "deviceType": {"5": "chlorSync", "7": "heatPump"},
@@ -66,15 +79,60 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
         for entity in added_entities
         if entity.entity_description.key == "water_temp"
     )
+    chlor_board_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "chlor_board_temp"
+    )
+    heat_mode_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "hp_mode"
+    )
+    heat_board_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "hp_board_temp"
+    )
     heat_sensor = next(
         entity
         for entity in added_entities
         if entity.entity_description.key == "hp_setpoint_temp"
     )
+    heat_pool_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "hp_pool_setpoint_temp"
+    )
+    heat_spa_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "hp_spa_setpoint_temp"
+    )
     assert chlor_sensor.native_value == 24.5
+    assert chlor_board_sensor.native_value == 94.63
+    assert heat_mode_sensor.native_value == "heat_pool"
+    assert heat_board_sensor.native_value == 76.99
     assert heat_sensor.native_value == 84
-    assert chlor_sensor.name == "Water Temperature"
-    assert heat_sensor.name == "Setpoint Temperature"
+    assert heat_pool_sensor.native_value == 84
+    assert heat_spa_sensor.native_value == 99
+    assert chlor_sensor.entity_description.translation_key == "water_temperature"
+    assert chlor_board_sensor.entity_description.translation_key == "board_temperature"
+    assert heat_board_sensor.entity_description.translation_key == "board_temperature"
+    assert heat_sensor.entity_description.translation_key == "active_target_temperature"
+    assert (
+        heat_pool_sensor.entity_description.translation_key
+        == "pool_setpoint_temperature"
+    )
+    assert (
+        heat_spa_sensor.entity_description.translation_key == "spa_setpoint_temperature"
+    )
+    assert chlor_sensor.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_chlorinator")
+    }
+    assert heat_sensor.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_heat_pump")
+    }
     assert SENSOR_DESCRIPTIONS_CHLORSYNC[0][0].key == "water_temp"
     assert SENSOR_DESCRIPTIONS_HEATPUMP[0][0].key == "hp_water_temp"
 
@@ -84,7 +142,11 @@ async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
     coordinator = Mock()
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
-    coordinator.device_info = {"identifiers": {("poolsync_custom", "AABBCCDDEEFF")}}
+    coordinator.get_device_info = Mock(
+        side_effect=lambda role: {
+            "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
+        }
+    )
     coordinator.data = {
         "poolSync": {"status": {"boardTemp": 30, "rssi": -67}},
         "devices": {},
@@ -106,6 +168,14 @@ async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
         "hardware_version",
         "uptime_seconds",
     }
+    assert (
+        next(
+            entity
+            for entity in added_entities
+            if entity.entity_description.key == "uptime_seconds"
+        ).entity_description.translation_key
+        == "uptime"
+    )
 
 
 async def test_sensor_uses_parsed_runtime_values() -> None:
@@ -113,7 +183,9 @@ async def test_sensor_uses_parsed_runtime_values() -> None:
     coordinator = Mock()
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
-    coordinator.device_info = {"identifiers": {("poolsync_custom", "AABBCCDDEEFF")}}
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
     coordinator.last_update_success = True
     coordinator.data = {
         "poolSync": {
@@ -126,6 +198,7 @@ async def test_sensor_uses_parsed_runtime_values() -> None:
 
     sensor = PoolSyncSensor(
         coordinator,
+        "controller",
         next(
             description
             for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
@@ -136,3 +209,165 @@ async def test_sensor_uses_parsed_runtime_values() -> None:
 
     assert sensor.native_value == "2026-05-20T12:30:00+00:00"
     assert sensor.available is True
+
+
+async def test_system_datetime_sensor_parses_poolsync_datetime_format() -> None:
+    """Test system datetime sensor parses PoolSync local datetime strings."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {
+            "status": {"dateTime": "Wed May 20 19:42:37 2026"},
+        },
+        "devices": {},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensor = PoolSyncSensor(
+        coordinator,
+        "controller",
+        next(
+            description
+            for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+            if description.key == "system_datetime"
+        ),
+        next(
+            value_fn
+            for description, value_fn in SENSOR_DESCRIPTIONS_POOLSYNC
+            if description.key == "system_datetime"
+        ),
+    )
+
+    assert sensor.native_value == dt_util.as_utc(
+        datetime(2026, 5, 20, 19, 42, 37, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    )
+    assert sensor.available is True
+
+
+async def test_heat_pump_mode_sensor_uses_contextual_runtime_value() -> None:
+    """Test heat-pump mode sensor formats the derived runtime mode context."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_heat_pump")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "0": {
+                "config": {"mode": 3, "poolSpaMode": 0, "setpoint": 80},
+                "status": {"waterTemp": 78.0, "airTemp": 70.0},
+            }
+        },
+        "deviceType": {"0": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensor = PoolSyncSensor(
+        coordinator,
+        "heat_pump",
+        next(
+            description
+            for description, value_fn in SENSOR_DESCRIPTIONS_HEATPUMP
+            if description.key == "hp_mode"
+        ),
+        next(
+            value_fn
+            for description, value_fn in SENSOR_DESCRIPTIONS_HEATPUMP
+            if description.key == "hp_mode"
+        ),
+    )
+
+    assert sensor.native_value == "auto_pool"
+    assert sensor.available is True
+
+
+async def test_heat_pump_setpoint_sensors_expose_active_pool_and_spa_values() -> None:
+    """Test heat-pump setpoint sensors expose contextual and stored targets."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_heat_pump")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "0": {
+                "config": {
+                    "mode": 1,
+                    "poolSpaMode": 1,
+                    "setpoint": 78,
+                    "spaSetpoint": 88,
+                },
+                "status": {"waterTemp": 78.0, "airTemp": 70.0},
+            }
+        },
+        "deviceType": {"0": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensors_by_key = {
+        description.key: PoolSyncSensor(coordinator, "heat_pump", description, value_fn)
+        for description, value_fn in SENSOR_DESCRIPTIONS_HEATPUMP
+        if description.key
+        in {"hp_setpoint_temp", "hp_pool_setpoint_temp", "hp_spa_setpoint_temp"}
+    }
+
+    assert sensors_by_key["hp_setpoint_temp"].native_value == 88
+    assert sensors_by_key["hp_pool_setpoint_temp"].native_value == 78
+    assert sensors_by_key["hp_spa_setpoint_temp"].native_value == 88
+
+
+async def test_heat_pump_sensors_stay_fahrenheit_native() -> None:
+    """Test heat-pump temperatures remain Fahrenheit-native."""
+    sensors_by_key = {
+        description.key: description
+        for description, _ in SENSOR_DESCRIPTIONS_HEATPUMP
+        if description.key
+        in {
+            "hp_water_temp",
+            "hp_air_temp",
+            "hp_setpoint_temp",
+            "hp_pool_setpoint_temp",
+            "hp_spa_setpoint_temp",
+        }
+    }
+
+    assert (
+        sensors_by_key["hp_water_temp"].native_unit_of_measurement
+        is UnitOfTemperature.FAHRENHEIT
+    )
+    assert (
+        sensors_by_key["hp_air_temp"].native_unit_of_measurement
+        is UnitOfTemperature.FAHRENHEIT
+    )
+    assert (
+        sensors_by_key["hp_setpoint_temp"].native_unit_of_measurement
+        is UnitOfTemperature.FAHRENHEIT
+    )
+    assert (
+        sensors_by_key["hp_pool_setpoint_temp"].native_unit_of_measurement
+        is UnitOfTemperature.FAHRENHEIT
+    )
+    assert (
+        sensors_by_key["hp_spa_setpoint_temp"].native_unit_of_measurement
+        is UnitOfTemperature.FAHRENHEIT
+    )
+
+    board_temp_description = next(
+        description
+        for description, _ in SENSOR_DESCRIPTIONS_POOLSYNC
+        if description.key == "board_temp"
+    )
+    assert (
+        board_temp_description.native_unit_of_measurement is UnitOfTemperature.CELSIUS
+    )

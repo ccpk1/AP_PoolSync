@@ -131,13 +131,13 @@ class PoolSyncApiClient:
                     try:
                         return await response.json(content_type=None)
                     except (ValueError, aiohttp.ContentTypeError) as err:
-                        if not response_text.strip():
-                            return {}
-                        raise PoolSyncApiError(
-                            f"Invalid JSON response: {err}",
-                            status_code=response.status,
-                            body=response_text,
-                        ) from err
+                        _LOGGER.debug(
+                            "Treating non-JSON PATCH response as success for %s. Error: %s. Body: %s",
+                            url,
+                            err,
+                            response_text[:200],
+                        )
+                        return {}
 
                 if response.status in (401, 403):
                     raise PoolSyncApiAuthError(
