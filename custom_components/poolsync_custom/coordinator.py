@@ -20,16 +20,21 @@ from .api import (
 )
 from .const import DEFAULT_NAME, DOMAIN, MANUFACTURER, MODEL
 from .runtime import (
+    HEAT_PUMP_CONFIG_MODE_AUTO,
+    HEAT_PUMP_CONFIG_MODE_COOL,
+    HEAT_PUMP_CONFIG_MODE_HEAT,
     HEAT_PUMP_MODE_AUTO_POOL,
     HEAT_PUMP_MODE_COOL_POOL,
     HEAT_PUMP_MODE_HEAT_POOL,
     HEAT_PUMP_MODE_HEAT_SPA,
     HEAT_PUMP_MODE_OFF,
+    HEAT_PUMP_POOL_SPA_MODE_SPA,
     HEAT_PUMP_PRESET_POOL,
     HEAT_PUMP_PRESET_SPA,
     PoolSyncDeviceRole,
     PoolSyncHeatPumpClimateHvacMode,
     PoolSyncHeatPumpClimatePresetMode,
+    PoolSyncHeatPumpModeContext,
     PoolSyncParsedData,
     ensure_parsed_data,
     get_heat_pump_climate_preset_mode,
@@ -152,6 +157,44 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.last_update_success:
             raise HomeAssistantError("PoolSync refresh failed")
 
+    def _get_write_role_device_id(
+        self,
+        *,
+        role: PoolSyncDeviceRole,
+        description: str,
+    ) -> str:
+        """Resolve the device ID for a write target role."""
+        if not self.password:
+            raise HomeAssistantError("API password not available to set value")
+
+        role_data = get_role_data(self.get_parsed_data(), role)
+        if role_data.device_id is None or not role_data.is_present:
+            raise HomeAssistantError(f"PoolSync {description} target is not available")
+
+        return role_data.device_id
+
+    def _raise_write_error(self, description: str, err: Exception) -> None:
+        """Translate write-time API failures into user-facing Home Assistant errors."""
+        if isinstance(err, HomeAssistantError):
+            raise err
+
+        if isinstance(err, PoolSyncApiAuthError):
+            raise HomeAssistantError(
+                f"Authentication failed while setting {description}"
+            ) from err
+
+        if isinstance(err, PoolSyncApiCommunicationError):
+            raise HomeAssistantError(
+                f"Communication failed while setting {description}: {err}"
+            ) from err
+
+        if isinstance(err, PoolSyncApiError):
+            raise HomeAssistantError(
+                f"API error while setting {description}: {err}"
+            ) from err
+
+        raise HomeAssistantError(f"Failed to set {description}: {err}") from err
+
     async def _async_write_role_config(
         self,
         *,
@@ -161,26 +204,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         description: str,
     ) -> None:
         """Write a config value for a resolved device role and refresh state."""
-        if not self.password:
-            raise HomeAssistantError("API password not available to set value")
-
-        parsed_data = self.get_parsed_data()
-        role_data = get_role_data(parsed_data, role)
-        if role_data.device_id is None or not role_data.is_present:
-            raise HomeAssistantError(f"PoolSync {description} target is not available")
-
-        try:
-            await self.api_client.async_set_device_config_value(
-                device_id=role_data.device_id,
-                key_id=key_id,
-                value=value,
-                password=self.password,
-            )
-            await self.async_request_refresh()
-        except HomeAssistantError:
-            raise
-        except Exception as err:
-            raise HomeAssistantError(f"Failed to set {description}: {err}") from err
+        await self._async_write_role_configs(
+            role=role,
+            updates={key_id: value},
+            description=description,
+        )
 
     async def _async_write_role_configs(
         self,
@@ -190,27 +218,19 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         description: str,
     ) -> None:
         """Write multiple config values for a resolved device role and refresh once."""
-        if not self.password:
-            raise HomeAssistantError("API password not available to set value")
-
-        parsed_data = self.get_parsed_data()
-        role_data = get_role_data(parsed_data, role)
-        if role_data.device_id is None or not role_data.is_present:
-            raise HomeAssistantError(f"PoolSync {description} target is not available")
+        device_id = self._get_write_role_device_id(role=role, description=description)
 
         try:
             for key_id, value in updates.items():
                 await self.api_client.async_set_device_config_value(
-                    device_id=role_data.device_id,
+                    device_id=device_id,
                     key_id=key_id,
                     value=value,
                     password=self.password,
                 )
             await self.async_request_refresh()
-        except HomeAssistantError:
-            raise
         except Exception as err:
-            raise HomeAssistantError(f"Failed to set {description}: {err}") from err
+            self._raise_write_error(description, err)
 
     async def async_set_chlorinator_output(self, value: int) -> None:
         """Set the chlorinator output level."""
@@ -223,12 +243,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set_heat_pump_setpoint(self, value: int) -> None:
         """Set the heat pump setpoint."""
-        await self._async_write_role_config(
-            role="heat_pump",
-            key_id="setpoint",
-            value=value,
-            description="heat pump setpoint",
-        )
+        await self.async_set_heat_pump_pool_setpoint(value)
 
     async def async_set_heat_pump_pool_setpoint(self, value: int) -> None:
         """Set the heat pump pool setpoint."""
@@ -266,7 +281,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         if (
-            runtime.mode_context == "heat_spa"
+            runtime.mode_context == HEAT_PUMP_MODE_HEAT_SPA
             and runtime.capabilities.supports_separate_spa_setpoint
         ):
             await self.async_set_heat_pump_spa_setpoint(value)
@@ -283,18 +298,23 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             description="heat pump mode",
         )
 
-    async def async_set_heat_pump_mode_context(self, mode_context: str) -> None:
+    async def async_set_heat_pump_mode_context(
+        self, mode_context: PoolSyncHeatPumpModeContext
+    ) -> None:
         """Set the heat-pump mode using the contextual runtime model."""
         if mode_context == HEAT_PUMP_MODE_OFF:
             updates = {"mode": 0, "poolSpaMode": 0}
         elif mode_context == HEAT_PUMP_MODE_HEAT_POOL:
-            updates = {"mode": 1, "poolSpaMode": 0}
+            updates = {"mode": HEAT_PUMP_CONFIG_MODE_HEAT, "poolSpaMode": 0}
         elif mode_context == HEAT_PUMP_MODE_COOL_POOL:
-            updates = {"mode": 2, "poolSpaMode": 0}
+            updates = {"mode": HEAT_PUMP_CONFIG_MODE_COOL, "poolSpaMode": 0}
         elif mode_context == HEAT_PUMP_MODE_AUTO_POOL:
-            updates = {"mode": 3, "poolSpaMode": 0}
+            updates = {"mode": HEAT_PUMP_CONFIG_MODE_AUTO, "poolSpaMode": 0}
         elif mode_context == HEAT_PUMP_MODE_HEAT_SPA:
-            updates = {"mode": 1, "poolSpaMode": 1}
+            updates = {
+                "mode": HEAT_PUMP_CONFIG_MODE_HEAT,
+                "poolSpaMode": HEAT_PUMP_POOL_SPA_MODE_SPA,
+            }
         else:
             raise HomeAssistantError(f"Unsupported heat pump mode: {mode_context}")
 
@@ -444,12 +464,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if "Invalid JSON response" in str(err)
                 else "api_error"
             )
-            self._set_last_failure(failure_class, str(err))
-            self.last_failure_context = {
-                "status_code": err.status_code,
-                "has_response_body": bool(err.body),
-                "retryable": failure_class != "malformed_response",
-            }
+            self._set_last_failure(
+                failure_class,
+                str(err),
+                {
+                    "status_code": err.status_code,
+                    "has_response_body": bool(err.body),
+                    "retryable": failure_class != "malformed_response",
+                },
+            )
             self._log_unavailable_once(str(err))
             _LOGGER.error(
                 "Coordinator %s: API error fetching data: %s (Status: %s, Body: %s)",

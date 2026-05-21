@@ -460,6 +460,63 @@ async def test_heat_pump_active_target_uses_preset_override(hass) -> None:
     coordinator.async_set_heat_pump_pool_setpoint.assert_not_awaited()
 
 
+async def test_heat_pump_setpoint_alias_uses_pool_setpoint_writer(hass) -> None:
+    """Test legacy heat-pump setpoint writes reuse the pool setpoint path."""
+    api_client = Mock()
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.async_set_heat_pump_pool_setpoint = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_setpoint(86)
+
+    coordinator.async_set_heat_pump_pool_setpoint.assert_awaited_once_with(86)
+
+
+async def test_write_role_config_surfaces_auth_errors(hass) -> None:
+    """Test write-time auth failures surface a specific Home Assistant error."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {"5": {"config": {}, "status": {}, "system": {}}},
+            "deviceType": {"5": "chlorSync"},
+        }
+    )
+    api_client.async_set_device_config_value = AsyncMock(
+        side_effect=PoolSyncApiAuthError("Authentication failed: 401")
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+
+    with pytest.raises(
+        HomeAssistantError,
+        match="Authentication failed while setting chlorinator output",
+    ):
+        await coordinator.async_set_chlorinator_output(50)
+
+
+async def test_write_role_config_surfaces_communication_errors(hass) -> None:
+    """Test write-time communication failures surface a specific error."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {"5": {"config": {}, "status": {}, "system": {}}},
+            "deviceType": {"5": "chlorSync"},
+        }
+    )
+    api_client.async_set_device_config_value = AsyncMock(
+        side_effect=PoolSyncApiCommunicationError("cannot connect")
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+
+    with pytest.raises(
+        HomeAssistantError,
+        match="Communication failed while setting chlorinator output: cannot connect",
+    ):
+        await coordinator.async_set_chlorinator_output(50)
+
+
 async def test_heat_pump_climate_mode_helper_rejects_unsupported_cooling(hass) -> None:
     """Test climate helper does not expose unsupported cooling writes."""
     api_client = Mock()
