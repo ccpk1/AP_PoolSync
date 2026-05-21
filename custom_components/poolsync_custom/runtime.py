@@ -782,9 +782,8 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "hardware_version": lambda parsed_data: _get_dict_value(
         parsed_data.system.system, "hwVersion"
     ),
-    "uptime_seconds": lambda parsed_data: _get_dict_value(
-        parsed_data.system.stats, "upTimeSecs"
-    ),
+    # The device-reported upTimeSecs never seemed to reset, even after reboot and
+    # full power removal, so we intentionally do not expose it as a sensor.
     "water_temp": lambda parsed_data: _get_dict_value(
         parsed_data.chlorinator.status, "waterTemp"
     ),

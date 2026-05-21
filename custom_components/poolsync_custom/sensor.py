@@ -245,18 +245,6 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
-    (
-        SensorEntityDescription(
-            key="uptime_seconds",
-            translation_key="uptime",
-            native_unit_of_measurement="s",
-            device_class=SensorDeviceClass.DURATION,
-            state_class=SensorStateClass.TOTAL_INCREASING,
-            entity_registry_enabled_default=False,
-            entity_category=EntityCategory.DIAGNOSTIC,
-        ),
-        None,
-    ),
 )
 SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     (

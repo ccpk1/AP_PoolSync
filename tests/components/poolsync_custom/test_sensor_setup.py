@@ -175,16 +175,7 @@ async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
         "system_datetime",
         "firmware_version",
         "hardware_version",
-        "uptime_seconds",
     }
-    assert (
-        next(
-            entity
-            for entity in added_entities
-            if entity.entity_description.key == "uptime_seconds"
-        ).entity_description.translation_key
-        == "uptime"
-    )
 
 
 async def test_sensor_uses_parsed_runtime_values() -> None:

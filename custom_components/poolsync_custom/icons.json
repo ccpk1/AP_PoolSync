@@ -121,9 +121,6 @@
       "spa_setpoint_temperature": {
         "default": "mdi:coolant-temperature"
       },
-      "uptime": {
-        "default": "mdi:timer-outline"
-      },
       "water_temperature": {
         "default": "mdi:coolant-temperature"
       },
