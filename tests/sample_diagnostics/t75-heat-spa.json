@@ -1,0 +1,343 @@
+{
+  "home_assistant": {
+    "installation_type": "Unsupported Third Party Container",
+    "version": "2026.4.0.dev0",
+    "dev": true,
+    "hassio": false,
+    "virtualenv": true,
+    "python_version": "3.14.4",
+    "docker": true,
+    "arch": "x86_64",
+    "timezone": "America/New_York",
+    "os_name": "Linux",
+    "os_version": "6.17.0-23-generic",
+    "run_as_root": false
+  },
+  "custom_components": {
+    "choreops": {
+      "documentation": "https://github.com/ccpk1/choreops/wiki",
+      "version": "1.0.8",
+      "requirements": ["python-dateutil>=2.9.0"]
+    },
+    "pyscript": {
+      "documentation": "https://github.com/custom-components/pyscript",
+      "version": "1.6.1",
+      "requirements": ["croniter==2.0.2", "watchdog==2.3.1"]
+    },
+    "controld_manager": {
+      "documentation": "https://github.com/ccpk1/controld-manager-ha",
+      "version": "1.3.0",
+      "requirements": []
+    },
+    "poolsync_custom": {
+      "documentation": "https://github.com/ccpk1/AP_PoolSync",
+      "version": "1.0.0",
+      "requirements": ["aiohttp>=3.8.0"]
+    },
+    "custom_icons": {
+      "documentation": "https://github.com/thomasloven/hass-custom_icons",
+      "version": "1.0.1",
+      "requirements": []
+    },
+    "cable_modem_monitor": {
+      "documentation": "https://github.com/solentlabs/cable_modem_monitor",
+      "version": "3.14.0-beta.3",
+      "requirements": [
+        "solentlabs-cable-modem-monitor-core==3.14.0-beta.3",
+        "solentlabs-cable-modem-monitor-catalog==3.14.0-beta.3"
+      ]
+    },
+    "firewalla_local": {
+      "documentation": "https://github.com/ccpk1/firewalla-local-ha",
+      "version": "1.1.6",
+      "requirements": ["cryptography>=44.0.0"]
+    },
+    "hacs": {
+      "documentation": "https://hacs.xyz/docs/use/",
+      "version": "2.0.5",
+      "requirements": ["aiogithubapi>=22.10.1"]
+    }
+  },
+  "integration_manifest": {
+    "domain": "poolsync_custom",
+    "name": "PoolSync Custom",
+    "documentation": "https://github.com/ccpk1/AP_PoolSync",
+    "iot_class": "local_polling",
+    "issue_tracker": "https://github.com/ccpk1/AP_PoolSync/issues",
+    "codeowners": ["socbrian"],
+    "config_flow": true,
+    "version": "1.0.0",
+    "requirements": ["aiohttp>=3.8.0"],
+    "dependencies": [],
+    "loggers": ["custom_components.poolsync_custom"],
+    "is_built_in": false,
+    "overwrites_built_in": false
+  },
+  "setup_times": {},
+  "data": {
+    "config_entry": {
+      "created_at": "2026-05-20T23:14:18.620226+00:00",
+      "data": {
+        "ip_address": "**REDACTED**",
+        "password": "**REDACTED**",
+        "macAddress": "**REDACTED**"
+      },
+      "discovery_keys": {},
+      "disabled_by": null,
+      "domain": "poolsync_custom",
+      "entry_id": "01KS3TP8VW3Z6MFC3Z9QNZVDDJ",
+      "minor_version": 1,
+      "modified_at": "2026-05-20T23:29:20.185915+00:00",
+      "options": {
+        "scan_interval": 30
+      },
+      "pref_disable_new_entities": false,
+      "pref_disable_polling": false,
+      "source": "user",
+      "subentries": [],
+      "title": "PoolSync (D354B4)",
+      "unique_id": "840D8ED354B4",
+      "version": 1
+    },
+    "coordinator": {
+      "last_update_success": true,
+      "last_exception": null,
+      "name": "poolsync_custom(840D8ED354B4)",
+      "update_interval_seconds": 30.0
+    },
+    "runtime_data": {
+      "poolSync": {
+        "status": {
+          "online": true,
+          "flags": 0,
+          "rssi": -68,
+          "boardTemp": 20,
+          "dateTime": "Wed May 20 19:42:37 2026",
+          "remoteUiPid": 4096,
+          "remoteUiVersion": 0
+        },
+        "system": {
+          "macAddr": "**REDACTED**",
+          "bssid": "**REDACTED**",
+          "fwVersion": 852,
+          "hwVersion": "2.0"
+        },
+        "config": {
+          "name": "PoolSync\u2122",
+          "setupMode": 0,
+          "serviceMode": 0,
+          "brightness": 0,
+          "timeZone": "EST5EDT,M3.2.0,M11.1.0",
+          "latitude": "**REDACTED**",
+          "longitude": "**REDACTED**",
+          "optIns": 4294967295,
+          "isWatching": 29655341
+        },
+        "faults": 0,
+        "stats": {
+          "numPowerups": 186,
+          "lastEsp32ResetReason": 3,
+          "restartHistory": "00000708",
+          "cfgRamConflicts": 0,
+          "cfgNvramConflicts": 0,
+          "wifiDisconnects": 46,
+          "awsDisconnects": 153,
+          "caFileRestores": 0,
+          "certFileRestores": 0,
+          "certFlashRestores": 0,
+          "pvtkeyFileRestores": 0,
+          "pvtkeyFlashRestores": 0,
+          "certRefreshes": 0,
+          "systemRestarts": 176,
+          "iRamFreeMin": 84815,
+          "iRamMaxBlock": 73728,
+          "iRamMaxBlockMin": 73728,
+          "spiRamFreeMin": 2816239,
+          "spiRamMaxBlock": 2818048,
+          "spiRamMaxBlockMin": 2752512,
+          "minTaskStackSize": 2088,
+          "taskNameMinStack": "PSH",
+          "numAwsIotTxMessages": 3830,
+          "numAwsIotRxMessages": 8,
+          "numDeviceOffline": 0,
+          "lastOfflineDevPid": 0,
+          "lastOfflineDevAddr": 0,
+          "numDeviceCmdErrResp": 0,
+          "numDeviceMsgNoResp": 17417,
+          "minRssi": -96,
+          "maxRssi": -60,
+          "minBoardTemp": 20,
+          "maxBoardTemp": 59,
+          "numConnectButtonPresses": 0,
+          "numServiceButtonPresses": 1,
+          "numServiceAccessButtonPresses": 0,
+          "numSetupButtonPresses": 1,
+          "numConsoleLogins": 0,
+          "numConsoleIncorrectPassword": 0,
+          "upTimeSecs": 15374577,
+          "mqttKeepAliveTimeouts": 31656177,
+          "numFatFsRegenerations": 0,
+          "numDeviceInstallStableFw": 0,
+          "lastDeviceInstallStableFwPid": 0
+        }
+      },
+      "devices": {
+        "0": {
+          "nodeAttr": {
+            "name": "Heat Pump",
+            "pid": 9984,
+            "nodeAddr": 16,
+            "idmpAddr": 0,
+            "online": true,
+            "flags": 2,
+            "bootMode": 2,
+            "fwUpdProg": 0,
+            "fwUpdResult": 0
+          },
+          "status": {
+            "stateFlags": 8,
+            "ctrlFlags": 13,
+            "boardTemp": 76.99,
+            "waterTemp": 71.6,
+            "waterTemp2": 0,
+            "airTemp": 54.75,
+            "solarTemp": 0,
+            "ds1Temp": 0,
+            "ds2Temp": 0,
+            "compRPM": 0,
+            "flowPeriod": 0,
+            "outletTemp": 0,
+            "geoInlet": 0,
+            "geoOutlet": 0
+          },
+          "system": {
+            "serialNum": "**REDACTED**",
+            "modelNum": "075AHDSBLH",
+            "hwVersion": "F",
+            "blFwVersion": 262,
+            "appFwVersion": 270,
+            "dispFwVersion": 65,
+            "compModelNum": ""
+          },
+          "config": {
+            "mode": 1,
+            "poolSpaMode": 1,
+            "setpoint": 78,
+            "spaSetpoint": 88,
+            "efficiencyMode": 0,
+            "turboBoost": 0,
+            "serviceMode": 0,
+            "schedMode": 0,
+            "schedAwayEnd": 0,
+            "extCtrlMode": 0,
+            "multiUnitMode": 0,
+            "multiUnitAddr": 0,
+            "gasBoost": 0,
+            "backupHeatStartTime": 0,
+            "backupHeatStopTime": 0,
+            "backupHeatMode": 0,
+            "solarMode": 0,
+            "solarSetpoint": 0,
+            "setpointMin": 0,
+            "setpointMax": 0
+          },
+          "faults": [0, 0],
+          "stats": [
+            0, 3758096387, 69335303, 2905345, 3072380, 65813, 0, 2904521, 0,
+            36777588
+          ],
+          "faultCounts": [0, 315, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0],
+          "equip": {
+            "0": null,
+            "1": null,
+            "2": null,
+            "3": null,
+            "4": null,
+            "5": null,
+            "6": null,
+            "7": null,
+            "8": null,
+            "9": null,
+            "10": null,
+            "11": null,
+            "12": null,
+            "13": null,
+            "14": null,
+            "15": null
+          },
+          "groups": {
+            "0": null,
+            "1": null,
+            "2": null,
+            "3": null,
+            "4": null,
+            "5": null,
+            "6": null,
+            "7": null,
+            "8": null,
+            "9": null,
+            "10": null,
+            "11": null
+          },
+          "schedules": {
+            "0": null,
+            "1": null,
+            "2": null,
+            "3": null,
+            "4": null,
+            "5": null,
+            "6": null,
+            "7": null,
+            "8": null,
+            "9": null,
+            "10": null,
+            "11": null
+          }
+        },
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null,
+        "7": null,
+        "8": null,
+        "9": null,
+        "10": null,
+        "11": null,
+        "12": null,
+        "13": null,
+        "14": null,
+        "15": null
+      },
+      "deviceType": {
+        "0": "heatPump",
+        "1": "",
+        "2": "",
+        "3": "",
+        "4": "",
+        "5": "",
+        "6": "",
+        "7": "",
+        "8": "",
+        "9": "",
+        "10": "",
+        "11": "",
+        "12": "",
+        "13": "",
+        "14": "",
+        "15": ""
+      }
+    },
+    "device": {
+      "entry_type": null,
+      "hw_version": "2.0",
+      "manufacturer": "AutoPilot",
+      "model": "PoolSync",
+      "name": "PoolSync\u2122",
+      "name_by_user": null,
+      "sw_version": "852"
+    }
+  },
+  "issues": []
+}
