@@ -5,6 +5,11 @@
         "default": "mdi:refresh"
       }
     },
+    "climate": {
+      "water_thermostat": {
+        "default": "mdi:thermostat"
+      }
+    },
     "binary_sensor": {
       "compressor": {
         "default": "mdi:engine-off",

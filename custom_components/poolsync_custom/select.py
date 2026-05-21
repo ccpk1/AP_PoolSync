@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -40,6 +41,7 @@ async def async_setup_entry(
                     key="heat_mode",
                     options=options,
                     translation_key="mode",
+                    entity_category=EntityCategory.CONFIG,
                 ),
             )
         ]

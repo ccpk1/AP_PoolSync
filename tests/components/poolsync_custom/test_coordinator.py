@@ -12,6 +12,7 @@ import logging
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.poolsync_custom.api import PoolSyncApiCommunicationError
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
@@ -261,6 +262,101 @@ async def test_device_info_normalizes_default_controller_name_variants(
     controller_info = coordinator.get_device_info("controller")
 
     assert controller_info["name"] == "PoolSync"
+    assert controller_info["model"] == "PoolSync"
+
+
+async def test_heat_pump_climate_mode_helper_uses_preset_context(hass) -> None:
+    """Test climate HVAC writes map back to the contextual heat-pump mode writer."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "7": {
+                    "system": {"modelNum": "075AHDSBLH"},
+                    "config": {
+                        "mode": 0,
+                        "poolSpaMode": 0,
+                        "setpoint": 84,
+                        "spaSetpoint": 99,
+                    },
+                    "status": {"ctrlFlags": 0, "stateFlags": 0},
+                }
+            },
+            "deviceType": {"7": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+    coordinator.async_set_heat_pump_mode_context = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_climate_mode(
+        hvac_mode="heat", preset_mode="spa"
+    )
+
+    coordinator.async_set_heat_pump_mode_context.assert_awaited_once_with("heat_spa")
+
+
+async def test_heat_pump_active_target_uses_preset_override(hass) -> None:
+    """Test climate target writes can target spa while the heat pump is off."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "7": {
+                    "system": {"modelNum": "075AHDSBLH"},
+                    "config": {
+                        "mode": 0,
+                        "poolSpaMode": 0,
+                        "setpoint": 84,
+                        "spaSetpoint": 99,
+                    },
+                    "status": {"ctrlFlags": 0, "stateFlags": 0},
+                }
+            },
+            "deviceType": {"7": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+    coordinator.async_set_heat_pump_pool_setpoint = AsyncMock(return_value=None)
+    coordinator.async_set_heat_pump_spa_setpoint = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_active_target(91, preset_mode="spa")
+
+    coordinator.async_set_heat_pump_spa_setpoint.assert_awaited_once_with(91)
+    coordinator.async_set_heat_pump_pool_setpoint.assert_not_awaited()
+
+
+async def test_heat_pump_climate_mode_helper_rejects_unsupported_cooling(hass) -> None:
+    """Test climate helper does not expose unsupported cooling writes."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "7": {
+                    "system": {"modelNum": "075AHDSBLH"},
+                    "config": {
+                        "mode": 1,
+                        "poolSpaMode": 0,
+                        "setpoint": 84,
+                        "spaSetpoint": 99,
+                    },
+                    "status": {"ctrlFlags": 13, "stateFlags": 8},
+                }
+            },
+            "deviceType": {"7": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+
+    with pytest.raises(HomeAssistantError, match="Cooling mode is not supported"):
+        await coordinator.async_set_heat_pump_climate_mode(
+            hvac_mode="cool", preset_mode="pool"
+        )
 
 
 async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) -> None:

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, Mock
 
+from homeassistant.const import EntityCategory
+
 from custom_components.poolsync_custom.button import PoolSyncButton, async_setup_entry
 
 
@@ -39,6 +41,7 @@ async def test_async_setup_entry_adds_controller_button(hass) -> None:
     button = added_entities[0]
     assert button.entity_description.key == "manual_refresh"
     assert button.entity_description.translation_key == "manual_refresh"
+    assert button.entity_description.entity_category == EntityCategory.CONFIG
     assert button.device_info["identifiers"] == {("poolsync_custom", "AABBCCDDEEFF")}
 
 

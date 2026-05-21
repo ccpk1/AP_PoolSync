@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 from homeassistant.components.select import SelectEntityDescription
+from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
@@ -66,6 +67,7 @@ async def test_async_setup_entry_creates_translated_heat_mode_select(hass) -> No
     assert select_entity.current_option == "heat_spa"
     assert select_entity.options == ["off", "heat_pool", "heat_spa"]
     assert select_entity.entity_description.translation_key == "mode"
+    assert select_entity.entity_description.entity_category == EntityCategory.CONFIG
     assert select_entity.device_info["identifiers"] == {
         ("poolsync_custom", f"{TEST_MAC_ADDRESS}_heat_pump")
     }

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
+from homeassistant.const import EntityCategory
+
 from custom_components.poolsync_custom.number import (
     NUMBER_DESCRIPTIONS_CHLOR,
     NUMBER_DESCRIPTIONS_HEATPUMP_F,
@@ -79,6 +81,14 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
             if entity.entity_description.key == "temperature_output_control"
         ).entity_description.translation_key
         == "active_target_temperature"
+    )
+    assert (
+        next(
+            entity
+            for entity in added_entities
+            if entity.entity_description.key == "temperature_output_control"
+        ).entity_description.entity_category
+        == EntityCategory.CONFIG
     )
     assert NUMBER_DESCRIPTIONS_CHLOR[0][0].key == "chlor_output_control"
     assert NUMBER_DESCRIPTIONS_HEATPUMP_F[0][0].key == "temperature_output_control"

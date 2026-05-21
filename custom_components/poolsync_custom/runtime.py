@@ -14,12 +14,17 @@ type PoolSyncDeviceRole = Literal["chlorinator", "heat_pump"]
 type PoolSyncHeatPumpModeContext = Literal[
     "off", "heat_pool", "heat_spa", "cool_pool", "auto_pool"
 ]
+type PoolSyncHeatPumpClimatePresetMode = Literal["pool", "spa"]
+type PoolSyncHeatPumpClimateHvacMode = Literal["off", "heat", "cool", "auto"]
+type PoolSyncHeatPumpClimateHvacAction = Literal["off", "idle", "heating", "cooling"]
 
 HEAT_PUMP_MODE_OFF = "off"
 HEAT_PUMP_MODE_HEAT_POOL = "heat_pool"
 HEAT_PUMP_MODE_HEAT_SPA = "heat_spa"
 HEAT_PUMP_MODE_COOL_POOL = "cool_pool"
 HEAT_PUMP_MODE_AUTO_POOL = "auto_pool"
+HEAT_PUMP_PRESET_POOL = "pool"
+HEAT_PUMP_PRESET_SPA = "spa"
 
 T75_MODEL_NUMBER = "075AHDSBLH"
 
@@ -393,6 +398,141 @@ def get_heat_pump_mode_options(parsed_data: PoolSyncParsedData) -> list[str]:
         options.append(HEAT_PUMP_MODE_HEAT_SPA)
 
     return options
+
+
+def get_heat_pump_climate_preset_modes(
+    parsed_data: PoolSyncParsedData,
+) -> list[PoolSyncHeatPumpClimatePresetMode]:
+    """Return the supported climate preset modes for the heat pump."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None:
+        return []
+
+    preset_modes: list[PoolSyncHeatPumpClimatePresetMode] = [HEAT_PUMP_PRESET_POOL]
+    if runtime.capabilities.supports_pool_spa_mode:
+        preset_modes.append(HEAT_PUMP_PRESET_SPA)
+    return preset_modes
+
+
+def get_heat_pump_climate_preset_mode(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncHeatPumpClimatePresetMode | None:
+    """Return the active climate preset mode for the heat pump."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None:
+        return None
+
+    if runtime.mode_context == HEAT_PUMP_MODE_HEAT_SPA:
+        return HEAT_PUMP_PRESET_SPA
+
+    if runtime.mode_context in {
+        HEAT_PUMP_MODE_HEAT_POOL,
+        HEAT_PUMP_MODE_COOL_POOL,
+        HEAT_PUMP_MODE_AUTO_POOL,
+    }:
+        return HEAT_PUMP_PRESET_POOL
+
+    return None
+
+
+def get_heat_pump_climate_hvac_modes(
+    parsed_data: PoolSyncParsedData,
+) -> list[PoolSyncHeatPumpClimateHvacMode]:
+    """Return the supported climate HVAC modes for the heat pump."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None:
+        return []
+
+    hvac_modes: list[PoolSyncHeatPumpClimateHvacMode] = ["off", "heat"]
+
+    if (
+        runtime.capabilities.supports_cooling
+        or runtime.mode_context == HEAT_PUMP_MODE_COOL_POOL
+    ):
+        hvac_modes.append("cool")
+
+    if (
+        runtime.capabilities.supports_cooling
+        or runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL
+    ):
+        hvac_modes.append("auto")
+
+    return hvac_modes
+
+
+def get_heat_pump_climate_hvac_mode(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncHeatPumpClimateHvacMode | None:
+    """Return the active climate HVAC mode for the heat pump."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None or runtime.mode_context is None:
+        return None
+
+    if runtime.mode_context == HEAT_PUMP_MODE_OFF:
+        return "off"
+    if runtime.mode_context in {HEAT_PUMP_MODE_HEAT_POOL, HEAT_PUMP_MODE_HEAT_SPA}:
+        return "heat"
+    if runtime.mode_context == HEAT_PUMP_MODE_COOL_POOL:
+        return "cool"
+    if runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL:
+        return "auto"
+
+    return None
+
+
+def get_heat_pump_climate_hvac_action(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncHeatPumpClimateHvacAction | None:
+    """Return the active climate HVAC action for the heat pump."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None or runtime.mode_context is None:
+        return None
+
+    if runtime.mode_context == HEAT_PUMP_MODE_OFF:
+        return "off"
+
+    if runtime.mode_context in {HEAT_PUMP_MODE_HEAT_POOL, HEAT_PUMP_MODE_HEAT_SPA}:
+        return "heating" if runtime.compressor_running else "idle"
+
+    if runtime.mode_context == HEAT_PUMP_MODE_COOL_POOL:
+        return "cooling" if runtime.compressor_running else "idle"
+
+    if runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL:
+        if not runtime.compressor_running:
+            return "idle"
+        if runtime.capabilities.supports_cooling:
+            return None
+        return "heating"
+
+    return None
+
+
+def get_heat_pump_climate_current_temperature(
+    parsed_data: PoolSyncParsedData,
+) -> int | float | None:
+    """Return the current climate temperature for the heat pump."""
+    return _get_number_value(parsed_data.heat_pump.status, "waterTemp")
+
+
+def get_heat_pump_climate_target_temperature(
+    parsed_data: PoolSyncParsedData,
+    preset_mode: PoolSyncHeatPumpClimatePresetMode | None = None,
+) -> int | float | None:
+    """Return the climate target temperature for the active or selected body."""
+    runtime = get_heat_pump_runtime(parsed_data)
+    if runtime is None:
+        return None
+
+    if runtime.active_target_temperature is not None:
+        return runtime.active_target_temperature
+
+    if (
+        preset_mode == HEAT_PUMP_PRESET_SPA
+        and runtime.capabilities.supports_separate_spa_setpoint
+    ):
+        return runtime.spa_setpoint
+
+    return runtime.pool_setpoint
 
 
 _NUMBER_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {

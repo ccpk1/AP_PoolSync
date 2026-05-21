@@ -54,7 +54,20 @@
   "entity": {
     "button": {
       "manual_refresh": {
-        "name": "Manual refresh"
+        "name": "Refresh data"
+      }
+    },
+    "climate": {
+      "water_thermostat": {
+        "name": "Thermostat",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "pool": "Pool",
+              "spa": "Spa"
+            }
+          }
+        }
       }
     },
     "binary_sensor": {

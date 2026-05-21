@@ -18,10 +18,11 @@ from homeassistant.components.number import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
+    EntityCategory,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError  # For service call errors
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -59,6 +60,7 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
         NumberEntityDescription(
             key="temperature_output_control",  # NUMBER_KEY_CHLOR_OUTPUT, # "chlor_output_control"
             translation_key="active_target_temperature",
+            entity_category=EntityCategory.CONFIG,
             native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             native_min_value=40,  # e.g., 0
             native_max_value=104,  # e.g., 100

@@ -25,9 +25,14 @@ from .runtime import (
     HEAT_PUMP_MODE_HEAT_POOL,
     HEAT_PUMP_MODE_HEAT_SPA,
     HEAT_PUMP_MODE_OFF,
+    HEAT_PUMP_PRESET_POOL,
+    HEAT_PUMP_PRESET_SPA,
     PoolSyncDeviceRole,
+    PoolSyncHeatPumpClimateHvacMode,
+    PoolSyncHeatPumpClimatePresetMode,
     PoolSyncParsedData,
     ensure_parsed_data,
+    get_heat_pump_climate_preset_mode,
     get_heat_pump_runtime,
     get_role_data,
     parse_poolsync_runtime_data,
@@ -215,11 +220,22 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             description="heat pump spa setpoint",
         )
 
-    async def async_set_heat_pump_active_target(self, value: int) -> None:
+    async def async_set_heat_pump_active_target(
+        self,
+        value: int,
+        preset_mode: PoolSyncHeatPumpClimatePresetMode | None = None,
+    ) -> None:
         """Set the active target temperature for the current heat-pump context."""
         runtime = get_heat_pump_runtime(self.get_parsed_data())
         if runtime is None:
             raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        if (
+            preset_mode == HEAT_PUMP_PRESET_SPA
+            and runtime.capabilities.supports_separate_spa_setpoint
+        ):
+            await self.async_set_heat_pump_spa_setpoint(value)
+            return
 
         if (
             runtime.mode_context == "heat_spa"
@@ -259,6 +275,52 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             updates=updates,
             description="heat pump mode",
         )
+
+    async def async_set_heat_pump_climate_mode(
+        self,
+        *,
+        hvac_mode: PoolSyncHeatPumpClimateHvacMode,
+        preset_mode: PoolSyncHeatPumpClimatePresetMode | None = None,
+    ) -> None:
+        """Set heat-pump climate state using HVAC and preset semantics."""
+        runtime = get_heat_pump_runtime(self.get_parsed_data())
+        if runtime is None:
+            raise HomeAssistantError("PoolSync heat pump mode is not available")
+
+        if hvac_mode == "off":
+            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_OFF)
+            return
+
+        resolved_preset = (
+            preset_mode
+            or get_heat_pump_climate_preset_mode(self.get_parsed_data())
+            or HEAT_PUMP_PRESET_POOL
+        )
+
+        if hvac_mode == "heat":
+            await self.async_set_heat_pump_mode_context(
+                HEAT_PUMP_MODE_HEAT_SPA
+                if (
+                    resolved_preset == HEAT_PUMP_PRESET_SPA
+                    and runtime.capabilities.supports_pool_spa_mode
+                )
+                else HEAT_PUMP_MODE_HEAT_POOL
+            )
+            return
+
+        if hvac_mode == "cool":
+            if not runtime.capabilities.supports_cooling:
+                raise HomeAssistantError("Cooling mode is not supported")
+            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_COOL_POOL)
+            return
+
+        if hvac_mode == "auto":
+            if not runtime.capabilities.supports_cooling:
+                raise HomeAssistantError("Auto mode is not supported")
+            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_AUTO_POOL)
+            return
+
+        raise HomeAssistantError(f"Unsupported climate HVAC mode: {hvac_mode}")
 
     async def _async_update_data(self) -> dict[str, Any]:
         """

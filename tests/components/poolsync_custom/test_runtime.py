@@ -8,8 +8,16 @@ from pathlib import Path
 import pytest
 
 from custom_components.poolsync_custom.runtime import (
+    HEAT_PUMP_PRESET_POOL,
+    HEAT_PUMP_PRESET_SPA,
     T75_MODEL_NUMBER,
     get_heat_pump_capabilities,
+    get_heat_pump_climate_hvac_action,
+    get_heat_pump_climate_hvac_mode,
+    get_heat_pump_climate_hvac_modes,
+    get_heat_pump_climate_preset_mode,
+    get_heat_pump_climate_preset_modes,
+    get_heat_pump_climate_target_temperature,
     get_heat_pump_runtime,
     parse_poolsync_runtime_data,
 )
@@ -73,6 +81,35 @@ def test_t75_heat_pump_capabilities_use_model_number() -> None:
     assert capabilities.supports_pool_spa_mode is True
     assert capabilities.supports_separate_spa_setpoint is True
     assert capabilities.supports_cooling is False
+
+
+def test_t75_heat_pump_climate_helpers_use_contextual_runtime_state() -> None:
+    """Test climate-facing runtime helpers for the known T75 profile."""
+    parsed_data = _load_parsed_data("t75-heat-pool.json")
+
+    assert get_heat_pump_climate_hvac_modes(parsed_data) == ["off", "heat"]
+    assert get_heat_pump_climate_hvac_mode(parsed_data) == "heat"
+    assert get_heat_pump_climate_hvac_action(parsed_data) == "heating"
+    assert get_heat_pump_climate_preset_modes(parsed_data) == [
+        HEAT_PUMP_PRESET_POOL,
+        HEAT_PUMP_PRESET_SPA,
+    ]
+    assert get_heat_pump_climate_preset_mode(parsed_data) == HEAT_PUMP_PRESET_POOL
+    assert get_heat_pump_climate_target_temperature(parsed_data) == 78
+
+
+def test_heat_pump_climate_target_temperature_uses_selected_preset_while_off() -> None:
+    """Test climate target falls back to stored pool/spa targets when off."""
+    parsed_data = _load_parsed_data("t75-off-no-flow.json")
+
+    assert (
+        get_heat_pump_climate_target_temperature(parsed_data, HEAT_PUMP_PRESET_POOL)
+        == 78
+    )
+    assert (
+        get_heat_pump_climate_target_temperature(parsed_data, HEAT_PUMP_PRESET_SPA)
+        == 88
+    )
 
 
 @pytest.mark.parametrize(

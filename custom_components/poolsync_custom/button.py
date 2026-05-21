@@ -30,7 +30,7 @@ async def async_setup_entry(
                 ButtonEntityDescription(
                     key="manual_refresh",
                     translation_key="manual_refresh",
-                    entity_category=EntityCategory.DIAGNOSTIC,
+                    entity_category=EntityCategory.CONFIG,
                 ),
             )
         ]
