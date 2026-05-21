@@ -326,6 +326,8 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         if hvac_mode == "heat":
+            if not runtime.capabilities.supports_heating:
+                raise HomeAssistantError("Heating mode is not supported")
             await self.async_set_heat_pump_mode_context(
                 HEAT_PUMP_MODE_HEAT_SPA
                 if (
@@ -343,7 +345,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         if hvac_mode == "auto":
-            if not runtime.capabilities.supports_cooling:
+            if not (
+                runtime.capabilities.supports_heating
+                and runtime.capabilities.supports_cooling
+            ):
                 raise HomeAssistantError("Auto mode is not supported")
             await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_AUTO_POOL)
             return

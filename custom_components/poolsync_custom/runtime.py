@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import CHLORINATOR_ID, HEATPUMP_ID
+from .const import (
+    CHLORINATOR_ID,
+    HEATPUMP_ID,
+    WIFI_RSSI_FAIR_MIN,
+    WIFI_RSSI_GOOD_MIN,
+)
 
 type PoolSyncDeviceRole = Literal["chlorinator", "heat_pump"]
 type PoolSyncHeatPumpModeContext = Literal[
@@ -27,7 +33,11 @@ HEAT_PUMP_MODE_AUTO_POOL = "auto_pool"
 HEAT_PUMP_PRESET_POOL = "pool"
 HEAT_PUMP_PRESET_SPA = "spa"
 
-T75_MODEL_NUMBER = "075AHDSBLH"
+HEAT_PUMP_CONFIG_MODE_HEAT = 1
+HEAT_PUMP_CONFIG_MODE_COOL = 2
+HEAT_PUMP_CONFIG_MODE_AUTO = 3
+HEAT_PUMP_POOL_SPA_MODE_SPA = 1
+HEAT_PUMP_STATE_FLAGS_ACTIVE = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +88,7 @@ class PoolSyncSystemData:
 class PoolSyncDeviceRoleData:
     """Normalized device-role payload."""
 
-    role: str
+    role: PoolSyncDeviceRole
     device_id: str | None
     data: dict[str, Any] | None
 
@@ -142,6 +152,36 @@ class PoolSyncHeatPumpCapabilities:
     profile: str
     supports_pool_spa_mode: bool
     supports_separate_spa_setpoint: bool
+    supports_heating: bool
+    supports_cooling: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSyncAquaCalFeatureProfile:
+    """Operational capabilities decoded from the AquaCal feature slot."""
+
+    name: str
+    supports_heating: bool
+    supports_cooling: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSyncAquaCalControlProfile:
+    """Control capabilities decoded from the AquaCal control slot."""
+
+    name: str
+    supports_pool_spa_mode: bool
+    supports_separate_spa_setpoint: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSyncAquaCalModelProfile:
+    """Combined capabilities decoded from AquaCal model nomenclature."""
+
+    profile: str
+    supports_pool_spa_mode: bool
+    supports_separate_spa_setpoint: bool
+    supports_heating: bool
     supports_cooling: bool
 
 
@@ -163,13 +203,38 @@ class PoolSyncHeatPumpRuntime:
     active_target_temperature: int | float | None
 
 
-_KNOWN_HEAT_PUMP_CAPABILITIES: dict[str, dict[str, Any]] = {
-    T75_MODEL_NUMBER: {
-        "profile": "t75_base_heat_pump",
-        "supports_pool_spa_mode": True,
-        "supports_separate_spa_setpoint": True,
-        "supports_cooling": False,
-    }
+_AQUACAL_MODEL_NUMBER_PATTERN = re.compile(
+    r"^(?P<brand>[A-Z]{0,2})(?P<unit>\d{3,4})(?P<voltage>[A-Z])(?P<feature>[A-Z])(?P<control>[A-Z]).+$"
+)
+
+_AQUACAL_FEATURE_PROFILES: dict[str, PoolSyncAquaCalFeatureProfile] = {
+    "H": PoolSyncAquaCalFeatureProfile(
+        name="heat_only", supports_heating=True, supports_cooling=False
+    ),
+    "R": PoolSyncAquaCalFeatureProfile(
+        name="heat_cool", supports_heating=True, supports_cooling=True
+    ),
+    "C": PoolSyncAquaCalFeatureProfile(
+        name="cool_only", supports_heating=False, supports_cooling=True
+    ),
+}
+
+_AQUACAL_CONTROL_PROFILES: dict[str, PoolSyncAquaCalControlProfile] = {
+    "D": PoolSyncAquaCalControlProfile(
+        name="digital",
+        supports_pool_spa_mode=True,
+        supports_separate_spa_setpoint=True,
+    ),
+    "V": PoolSyncAquaCalControlProfile(
+        name="variable_speed",
+        supports_pool_spa_mode=True,
+        supports_separate_spa_setpoint=True,
+    ),
+    "A": PoolSyncAquaCalControlProfile(
+        name="analog",
+        supports_pool_spa_mode=False,
+        supports_separate_spa_setpoint=False,
+    ),
 }
 
 
@@ -218,6 +283,21 @@ def _get_number_value(section: dict[str, Any] | None, key: str) -> int | float |
     return value
 
 
+def _heat_pump_has_flow(ctrl_flags_raw: int) -> bool:
+    """Return whether the heat pump reports active water flow."""
+    return ctrl_flags_raw != 0
+
+
+def _heat_pump_compressor_running(state_flags_raw: int) -> bool:
+    """Return whether the heat pump reports the compressor is running."""
+    return state_flags_raw == HEAT_PUMP_STATE_FLAGS_ACTIVE
+
+
+def _heat_pump_fan_running(state_flags_raw: int) -> bool:
+    """Return whether the heat pump reports the fan is running."""
+    return state_flags_raw >= HEAT_PUMP_STATE_FLAGS_ACTIVE
+
+
 def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
     """Resolve heat pump and chlorinator device IDs from payload data."""
     heatpump_id: str | None = HEATPUMP_ID
@@ -235,6 +315,38 @@ def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | No
         )
 
     return heatpump_id, chlorinator_id
+
+
+def _decode_aquacal_model_profile(
+    model_number: str | None,
+) -> PoolSyncAquaCalModelProfile | None:
+    """Return a capability profile decoded from AquaCal model nomenclature."""
+    if model_number is None:
+        return None
+
+    normalized_model_number = model_number.strip().upper()
+    if not (match := _AQUACAL_MODEL_NUMBER_PATTERN.fullmatch(normalized_model_number)):
+        return None
+
+    feature_code = match.group("feature")
+    control_code = match.group("control")
+
+    if feature_code not in _AQUACAL_FEATURE_PROFILES:
+        return None
+
+    if control_code not in _AQUACAL_CONTROL_PROFILES:
+        return None
+
+    feature_profile = _AQUACAL_FEATURE_PROFILES[feature_code]
+    control_profile = _AQUACAL_CONTROL_PROFILES[control_code]
+
+    return PoolSyncAquaCalModelProfile(
+        profile=f"aquacal_{feature_profile.name}_{control_profile.name}",
+        supports_pool_spa_mode=control_profile.supports_pool_spa_mode,
+        supports_separate_spa_setpoint=(control_profile.supports_separate_spa_setpoint),
+        supports_heating=feature_profile.supports_heating,
+        supports_cooling=feature_profile.supports_cooling,
+    )
 
 
 def parse_poolsync_runtime_data(data: dict[str, Any]) -> PoolSyncParsedData:
@@ -296,27 +408,38 @@ def get_heat_pump_capabilities(
     if not isinstance(model_number, str):
         model_number = None
 
-    if model_number in _KNOWN_HEAT_PUMP_CAPABILITIES:
-        known = _KNOWN_HEAT_PUMP_CAPABILITIES[model_number]
-        return PoolSyncHeatPumpCapabilities(
-            model_number=model_number,
-            profile=known["profile"],
-            supports_pool_spa_mode=known["supports_pool_spa_mode"],
-            supports_separate_spa_setpoint=known["supports_separate_spa_setpoint"],
-            supports_cooling=known["supports_cooling"],
-        )
-
     config = parsed_data.heat_pump.config
+    model_profile = _decode_aquacal_model_profile(model_number)
+
+    payload_supports_pool_spa_mode = (
+        _get_dict_value(config, "poolSpaMode") is not None
+        or _get_dict_value(config, "spaSetpoint") is not None
+    )
+    payload_supports_separate_spa_setpoint = (
+        _get_dict_value(config, "spaSetpoint") is not None
+    )
+
     return PoolSyncHeatPumpCapabilities(
         model_number=model_number,
-        profile="unknown_heat_pump",
-        supports_pool_spa_mode=(
-            _get_dict_value(config, "poolSpaMode") is not None
-            or _get_dict_value(config, "spaSetpoint") is not None
+        profile=(
+            model_profile.profile if model_profile is not None else "unknown_heat_pump"
         ),
-        supports_separate_spa_setpoint=_get_dict_value(config, "spaSetpoint")
-        is not None,
-        supports_cooling=False,
+        supports_pool_spa_mode=(
+            model_profile.supports_pool_spa_mode
+            if model_profile is not None
+            else payload_supports_pool_spa_mode
+        ),
+        supports_separate_spa_setpoint=(
+            model_profile.supports_separate_spa_setpoint
+            if model_profile is not None
+            else payload_supports_separate_spa_setpoint
+        ),
+        supports_heating=(
+            model_profile.supports_heating if model_profile is not None else True
+        ),
+        supports_cooling=(
+            model_profile.supports_cooling if model_profile is not None else False
+        ),
     )
 
 
@@ -340,14 +463,23 @@ def get_heat_pump_runtime(
 
     if mode_value is None:
         mode_context = None
-    elif mode_value == 1:
-        if capabilities.supports_pool_spa_mode and pool_spa_mode == 1:
+    elif mode_value == HEAT_PUMP_CONFIG_MODE_HEAT:
+        if (
+            capabilities.supports_pool_spa_mode
+            and pool_spa_mode == HEAT_PUMP_POOL_SPA_MODE_SPA
+        ):
             mode_context = HEAT_PUMP_MODE_HEAT_SPA
         else:
             mode_context = HEAT_PUMP_MODE_HEAT_POOL
-    elif mode_value == 2 and pool_spa_mode != 1:
+    elif (
+        mode_value == HEAT_PUMP_CONFIG_MODE_COOL
+        and pool_spa_mode != HEAT_PUMP_POOL_SPA_MODE_SPA
+    ):
         mode_context = HEAT_PUMP_MODE_COOL_POOL
-    elif mode_value == 3 and pool_spa_mode != 1:
+    elif (
+        mode_value == HEAT_PUMP_CONFIG_MODE_AUTO
+        and pool_spa_mode != HEAT_PUMP_POOL_SPA_MODE_SPA
+    ):
         mode_context = HEAT_PUMP_MODE_AUTO_POOL
     else:
         mode_context = HEAT_PUMP_MODE_OFF
@@ -367,11 +499,15 @@ def get_heat_pump_runtime(
         capabilities=capabilities,
         ctrl_flags_raw=ctrl_flags_raw,
         state_flags_raw=state_flags_raw,
-        has_flow=(ctrl_flags_raw != 0) if ctrl_flags_raw is not None else None,
-        compressor_running=(state_flags_raw == 8)
+        has_flow=_heat_pump_has_flow(ctrl_flags_raw)
+        if ctrl_flags_raw is not None
+        else None,
+        compressor_running=_heat_pump_compressor_running(state_flags_raw)
         if state_flags_raw is not None
         else None,
-        fan_running=(state_flags_raw >= 8) if state_flags_raw is not None else None,
+        fan_running=_heat_pump_fan_running(state_flags_raw)
+        if state_flags_raw is not None
+        else None,
         mode_value=mode_value,
         pool_spa_mode=pool_spa_mode,
         mode_context=mode_context,
@@ -387,15 +523,29 @@ def get_heat_pump_mode_options(parsed_data: PoolSyncParsedData) -> list[str]:
     if runtime is None:
         return []
 
-    options = [HEAT_PUMP_MODE_OFF, HEAT_PUMP_MODE_HEAT_POOL]
+    options = [HEAT_PUMP_MODE_OFF]
+
+    if runtime.capabilities.supports_heating or runtime.mode_context in {
+        HEAT_PUMP_MODE_HEAT_POOL,
+        HEAT_PUMP_MODE_HEAT_SPA,
+    }:
+        options.append(HEAT_PUMP_MODE_HEAT_POOL)
 
     if runtime.capabilities.supports_cooling or runtime.mode_context in {
         HEAT_PUMP_MODE_COOL_POOL,
         HEAT_PUMP_MODE_AUTO_POOL,
     }:
-        options.extend([HEAT_PUMP_MODE_COOL_POOL, HEAT_PUMP_MODE_AUTO_POOL])
+        options.append(HEAT_PUMP_MODE_COOL_POOL)
 
-    if runtime.capabilities.supports_pool_spa_mode:
+    if (
+        runtime.capabilities.supports_heating and runtime.capabilities.supports_cooling
+    ) or runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL:
+        options.append(HEAT_PUMP_MODE_AUTO_POOL)
+
+    if (
+        runtime.capabilities.supports_heating
+        and runtime.capabilities.supports_pool_spa_mode
+    ):
         options.append(HEAT_PUMP_MODE_HEAT_SPA)
 
     return options
@@ -444,7 +594,13 @@ def get_heat_pump_climate_hvac_modes(
     if runtime is None:
         return []
 
-    hvac_modes: list[PoolSyncHeatPumpClimateHvacMode] = ["off", "heat"]
+    hvac_modes: list[PoolSyncHeatPumpClimateHvacMode] = ["off"]
+
+    if runtime.capabilities.supports_heating or runtime.mode_context in {
+        HEAT_PUMP_MODE_HEAT_POOL,
+        HEAT_PUMP_MODE_HEAT_SPA,
+    }:
+        hvac_modes.append("heat")
 
     if (
         runtime.capabilities.supports_cooling
@@ -453,9 +609,8 @@ def get_heat_pump_climate_hvac_modes(
         hvac_modes.append("cool")
 
     if (
-        runtime.capabilities.supports_cooling
-        or runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL
-    ):
+        runtime.capabilities.supports_heating and runtime.capabilities.supports_cooling
+    ) or runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL:
         hvac_modes.append("auto")
 
     return hvac_modes
@@ -540,15 +695,15 @@ def get_wifi_signal_status(
     parsed_data: PoolSyncParsedData,
 ) -> PoolSyncWifiSignalStatus | None:
     """Return a qualitative Wi-Fi signal status from the controller RSSI."""
-    rssi = _get_dict_value(parsed_data.system.status, "rssi")
+    rssi = _get_number_value(parsed_data.system.status, "rssi")
 
-    if not isinstance(rssi, (int, float)):
+    if rssi is None:
         return None
 
-    if rssi >= -67:
+    if rssi >= WIFI_RSSI_GOOD_MIN:
         return "good"
 
-    if rssi >= -75:
+    if rssi >= WIFI_RSSI_FAIR_MIN:
         return "fair"
 
     return "poor"

@@ -114,7 +114,8 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
         "active_target_temperature": 88,
         "capabilities": {
             "model_number": "075AHDSBLH",
-            "profile": "t75_base_heat_pump",
+            "profile": "aquacal_heat_only_digital",
+            "supports_heating": True,
             "supports_cooling": False,
             "supports_pool_spa_mode": True,
             "supports_separate_spa_setpoint": True,

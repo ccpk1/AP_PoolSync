@@ -10,7 +10,6 @@ import pytest
 from custom_components.poolsync_custom.runtime import (
     HEAT_PUMP_PRESET_POOL,
     HEAT_PUMP_PRESET_SPA,
-    T75_MODEL_NUMBER,
     get_heat_pump_capabilities,
     get_heat_pump_climate_hvac_action,
     get_heat_pump_climate_hvac_mode,
@@ -73,15 +72,121 @@ def test_t75_heat_pump_runtime_states(
 
 
 def test_t75_heat_pump_capabilities_use_model_number() -> None:
-    """Test the known T75 capability profile is selected by actual model number."""
+    """Test the AquaCal capability profile is decoded from the model number."""
     capabilities = get_heat_pump_capabilities(_load_parsed_data("t75-heat-pool.json"))
 
     assert capabilities is not None
-    assert capabilities.model_number == T75_MODEL_NUMBER
-    assert capabilities.profile == "t75_base_heat_pump"
+    assert capabilities.model_number == "075AHDSBLH"
+    assert capabilities.profile == "aquacal_heat_only_digital"
     assert capabilities.supports_pool_spa_mode is True
     assert capabilities.supports_separate_spa_setpoint is True
+    assert capabilities.supports_heating is True
     assert capabilities.supports_cooling is False
+
+
+@pytest.mark.parametrize(
+    (
+        "model_number",
+        "expected_profile",
+        "expected_supports_pool_spa_mode",
+        "expected_supports_separate_spa_setpoint",
+        "expected_supports_heating",
+        "expected_supports_cooling",
+    ),
+    [
+        ("075AHDSBLH", "aquacal_heat_only_digital", True, True, True, False),
+        ("LT0800AHDSBND", "aquacal_heat_only_digital", True, True, True, False),
+        (
+            "SQ225ARVSBNN",
+            "aquacal_heat_cool_variable_speed",
+            True,
+            True,
+            True,
+            True,
+        ),
+        ("SQ225ACDSBNN", "aquacal_cool_only_digital", True, True, False, True),
+        ("SQ225AHASBNN", "aquacal_heat_only_analog", False, False, True, False),
+    ],
+)
+def test_heat_pump_capabilities_decode_aquacal_model_nomenclature(
+    model_number: str,
+    expected_profile: str,
+    expected_supports_pool_spa_mode: bool,
+    expected_supports_separate_spa_setpoint: bool,
+    expected_supports_heating: bool,
+    expected_supports_cooling: bool,
+) -> None:
+    """Test AquaCal nomenclature decoding for capability profile selection."""
+    parsed_data = parse_poolsync_runtime_data(
+        {
+            "poolSync": {},
+            "devices": {
+                "0": {
+                    "system": {"modelNum": model_number},
+                    "config": {},
+                    "status": {},
+                }
+            },
+            "deviceType": {"0": "heatPump"},
+        }
+    )
+
+    capabilities = get_heat_pump_capabilities(parsed_data)
+
+    assert capabilities is not None
+    assert capabilities.profile == expected_profile
+    assert capabilities.supports_pool_spa_mode is expected_supports_pool_spa_mode
+    assert (
+        capabilities.supports_separate_spa_setpoint
+        is expected_supports_separate_spa_setpoint
+    )
+    assert capabilities.supports_heating is expected_supports_heating
+    assert capabilities.supports_cooling is expected_supports_cooling
+
+
+def test_unknown_model_falls_back_to_payload_pool_spa_capabilities() -> None:
+    """Test unknown models still infer pool/spa capability from payload fields."""
+    parsed_data = parse_poolsync_runtime_data(
+        {
+            "poolSync": {},
+            "devices": {
+                "0": {
+                    "system": {"modelNum": "UNKNOWN"},
+                    "config": {"poolSpaMode": 1, "spaSetpoint": 88},
+                    "status": {},
+                }
+            },
+            "deviceType": {"0": "heatPump"},
+        }
+    )
+
+    capabilities = get_heat_pump_capabilities(parsed_data)
+
+    assert capabilities is not None
+    assert capabilities.profile == "unknown_heat_pump"
+    assert capabilities.supports_pool_spa_mode is True
+    assert capabilities.supports_separate_spa_setpoint is True
+
+
+def test_cool_only_heat_pump_hvac_modes_exclude_heat_and_auto() -> None:
+    """Test cool-only AquaCal models only expose off and cool HVAC modes."""
+    parsed_data = parse_poolsync_runtime_data(
+        {
+            "poolSync": {},
+            "devices": {
+                "0": {
+                    "system": {"modelNum": "SQ225ACDSBNN"},
+                    "config": {"mode": 2, "poolSpaMode": 0, "setpoint": 78},
+                    "status": {"ctrlFlags": 13, "stateFlags": 8},
+                }
+            },
+            "deviceType": {"0": "heatPump"},
+        }
+    )
+
+    assert get_heat_pump_climate_hvac_modes(parsed_data) == ["off", "cool"]
+    assert get_heat_pump_climate_hvac_mode(parsed_data) == "cool"
+    assert get_heat_pump_climate_hvac_action(parsed_data) == "cooling"
 
 
 def test_t75_heat_pump_climate_helpers_use_contextual_runtime_state() -> None:
@@ -159,14 +264,14 @@ def test_heat_pump_runtime_supports_forum_reported_modes(
     ("rssi", "expected_status"),
     [
         (-60, "good"),
-        (-67, "good"),
-        (-70, "fair"),
-        (-75, "fair"),
-        (-76, "poor"),
+        (-75, "good"),
+        (-76, "fair"),
+        (-80, "fair"),
+        (-81, "poor"),
         (None, None),
     ],
 )
-def test_wifi_signal_status_uses_conservative_rssi_bands(
+def test_wifi_signal_status_uses_manufacturer_rssi_bands(
     rssi: int | None,
     expected_status: str | None,
 ) -> None:
@@ -179,3 +284,15 @@ def test_wifi_signal_status_uses_conservative_rssi_bands(
     )
 
     assert get_wifi_signal_status(parsed_data) == expected_status
+
+
+def test_wifi_signal_status_ignores_boolean_rssi_values() -> None:
+    """Test Wi-Fi signal status ignores malformed boolean RSSI payloads."""
+    parsed_data = parse_poolsync_runtime_data(
+        {
+            "poolSync": {"status": {"rssi": True}},
+            "devices": {},
+        }
+    )
+
+    assert get_wifi_signal_status(parsed_data) is None

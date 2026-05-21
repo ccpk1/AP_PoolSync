@@ -245,7 +245,7 @@ async def test_wifi_signal_status_sensor_uses_enum_state_and_rssi_attribute() ->
         ),
     )
 
-    assert sensor.native_value == "fair"
+    assert sensor.native_value == "good"
     assert sensor.available is True
     assert sensor.extra_state_attributes == {"rssi_dbm": -74}
 

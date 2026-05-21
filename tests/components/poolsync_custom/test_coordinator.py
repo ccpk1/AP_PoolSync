@@ -490,6 +490,64 @@ async def test_heat_pump_climate_mode_helper_rejects_unsupported_cooling(hass) -
         )
 
 
+async def test_heat_pump_climate_mode_helper_rejects_unsupported_heating(hass) -> None:
+    """Test climate helper does not expose unsupported heating writes."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "7": {
+                    "system": {"modelNum": "SQ225ACDSBNN"},
+                    "config": {
+                        "mode": 2,
+                        "poolSpaMode": 0,
+                        "setpoint": 84,
+                    },
+                    "status": {"ctrlFlags": 13, "stateFlags": 8},
+                }
+            },
+            "deviceType": {"7": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+
+    with pytest.raises(HomeAssistantError, match="Heating mode is not supported"):
+        await coordinator.async_set_heat_pump_climate_mode(
+            hvac_mode="heat", preset_mode="pool"
+        )
+
+
+async def test_heat_pump_climate_mode_helper_rejects_unsupported_auto(hass) -> None:
+    """Test climate helper does not expose auto writes on cool-only models."""
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "7": {
+                    "system": {"modelNum": "SQ225ACDSBNN"},
+                    "config": {
+                        "mode": 2,
+                        "poolSpaMode": 0,
+                        "setpoint": 84,
+                    },
+                    "status": {"ctrlFlags": 13, "stateFlags": 8},
+                }
+            },
+            "deviceType": {"7": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+
+    with pytest.raises(HomeAssistantError, match="Auto mode is not supported"):
+        await coordinator.async_set_heat_pump_climate_mode(
+            hvac_mode="auto", preset_mode="pool"
+        )
+
+
 async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) -> None:
     """Test device info lazily derives parsed runtime state from raw coordinator data."""
     api_client = Mock()

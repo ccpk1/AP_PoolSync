@@ -62,6 +62,7 @@ async def async_get_config_entry_diagnostics(
                 "capabilities": {
                     "model_number": heat_pump_runtime.capabilities.model_number,
                     "profile": heat_pump_runtime.capabilities.profile,
+                    "supports_heating": heat_pump_runtime.capabilities.supports_heating,
                     "supports_cooling": heat_pump_runtime.capabilities.supports_cooling,
                     "supports_pool_spa_mode": heat_pump_runtime.capabilities.supports_pool_spa_mode,
                     "supports_separate_spa_setpoint": heat_pump_runtime.capabilities.supports_separate_spa_setpoint,

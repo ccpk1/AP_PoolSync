@@ -41,6 +41,12 @@ PUSHLINK_TIMEOUT_S = 120  # How long to wait for the user to press the button (s
 # Other constants
 HTTP_TIMEOUT = 30  # <<< Increased timeout for HTTP requests (seconds)
 
+# Wi-Fi RSSI grading thresholds from the manufacturer guidance.
+# The device's separate "excellent" range is intentionally folded into "good"
+# for the simplified Home Assistant status sensor.
+WIFI_RSSI_GOOD_MIN = -75
+WIFI_RSSI_FAIR_MIN = -80
+
 # Platform
 PLATFORMS = ["sensor", "binary_sensor", "number", "select", "button", "climate"]
 
