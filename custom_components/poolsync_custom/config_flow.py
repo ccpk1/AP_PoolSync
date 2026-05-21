@@ -71,6 +71,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if self._task_still_running(self._link_task):
             assert self._link_task is not None
+            _LOGGER.info(
+                "Restarting PoolSync onboarding for %s while a prior push-link task is still running",
+                self._ip_address,
+            )
             self._link_task.cancel()
 
         self._password = None
@@ -81,17 +85,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._api_client is None:
             self._api_client = await self._async_create_client(self._ip_address)
 
+        _LOGGER.info("Starting PoolSync push-link onboarding for %s", self._ip_address)
+
         try:
             await self._api_client.start_pushlink()
-        except PoolSyncApiCommunicationError:
+        except PoolSyncApiCommunicationError as err:
+            _LOGGER.warning(
+                "Could not start PoolSync push-link onboarding for %s: %s",
+                self._ip_address,
+                err,
+            )
             return "cannot_connect"
         except PoolSyncApiError as err:
-            _LOGGER.error(
-                "API error during push-link start for %s: %s",
+            _LOGGER.warning(
+                "PoolSync push-link onboarding start failed for %s: %s",
                 self._ip_address,
                 err,
             )
             return "api_error"
+
+        _LOGGER.info("PoolSync push-link onboarding started for %s", self._ip_address)
 
         return None
 
@@ -119,6 +132,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(self._mac_address)
 
         if self.source == config_entries.SOURCE_REAUTH:
+            _LOGGER.info(
+                "Completing PoolSync reauthentication for %s with device %s",
+                self._ip_address,
+                self._mac_address,
+            )
             self._abort_if_unique_id_mismatch(reason="wrong_device")
             return self.async_update_reload_and_abort(
                 self._get_reauth_entry(),
@@ -131,6 +149,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         self._abort_if_unique_id_configured()
+        _LOGGER.info(
+            "Completing PoolSync onboarding for %s with device %s",
+            self._ip_address,
+            self._mac_address,
+        )
 
         return self.async_create_entry(
             title=f"{DEFAULT_NAME} ({self._mac_address[-6:]})",
@@ -148,13 +171,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             await self._link_task
         except asyncio.CancelledError:
+            _LOGGER.warning(
+                "PoolSync push-link polling task was cancelled for %s",
+                self._ip_address,
+            )
             self._link_error = "unknown"
         finally:
             self._link_task = None
 
         if self._password and self._mac_address:
+            _LOGGER.info(
+                "PoolSync onboarding collected credentials for %s and will finish setup",
+                self._ip_address,
+            )
             return self.async_show_progress_done(next_step_id="finish_link")
 
+        _LOGGER.warning(
+            "PoolSync onboarding failed for %s with reason %s",
+            self._ip_address,
+            self._link_error or "unknown",
+        )
         return self.async_show_progress_done(next_step_id="link_failed")
 
     def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
@@ -171,6 +207,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ip_address = user_input[POOLSYNC_CONF_IP_ADDRESS].strip()
             self._ip_address = ip_address
             if not self._validate_ip_address(ip_address):
+                _LOGGER.warning(
+                    "PoolSync onboarding rejected invalid IP address input: %s",
+                    ip_address,
+                )
                 errors["base"] = "invalid_ip"
             else:
                 if error := await self._async_begin_pushlink():
@@ -190,10 +230,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         del user_input
 
         if not self._ip_address or not self._api_client:
+            _LOGGER.error(
+                "PoolSync onboarding link step reached without initialized client state"
+            )
             return self.async_abort(reason="internal_error")
 
         if not self._link_task:
             self._link_error = None
+            _LOGGER.info(
+                "Polling PoolSync push-link status for %s for up to %s seconds",
+                self._ip_address,
+                PUSHLINK_TIMEOUT_S,
+            )
             self._link_task = self.hass.async_create_task(
                 self._async_poll_for_password()
             )
@@ -216,6 +264,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Show a retry screen after a failed push-link attempt."""
         if user_input is not None:
+            _LOGGER.info(
+                "Retrying PoolSync onboarding for %s after failure %s",
+                self._ip_address,
+                self._link_error or "unknown",
+            )
             self._link_error = await self._async_begin_pushlink()
             if self._link_error is None:
                 return await self.async_step_link()
@@ -251,6 +304,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle reauth on authentication failure."""
         self._ip_address = str(entry_data[CONF_IP_ADDRESS]).strip()
+        _LOGGER.info("Starting PoolSync reauthentication for %s", self._ip_address)
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -261,6 +315,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._ip_address = str(reauth_entry.data[CONF_IP_ADDRESS]).strip()
 
         if user_input is not None:
+            _LOGGER.info(
+                "Confirming PoolSync reauthentication for %s",
+                self._ip_address,
+            )
             self._link_error = await self._async_begin_pushlink()
             if self._link_error is None:
                 return await self.async_step_link()
@@ -281,6 +339,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_poll_for_password(self) -> None:
         """Poll the device for pushlink status until password is received or timeout."""
         if not self._api_client or not self._ip_address:
+            _LOGGER.error(
+                "PoolSync onboarding polling started without initialized client state"
+            )
             self._link_error = "internal_error_polling_setup"
             return
 
@@ -297,9 +358,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._password = status_response[API_RESPONSE_PASSWORD]
                     self._mac_address = status_response.get(API_RESPONSE_MAC_ADDRESS)
                     if not self._mac_address:
+                        _LOGGER.warning(
+                            "PoolSync onboarding received a password for %s without a MAC address",
+                            self._ip_address,
+                        )
                         error_to_show = "link_failed"
                         break
 
+                    _LOGGER.info(
+                        "PoolSync onboarding received credentials for %s and linked device %s",
+                        self._ip_address,
+                        self._mac_address,
+                    )
                     return
 
                 time_remaining = status_response.get(API_RESPONSE_TIME_REMAINING)
@@ -312,18 +382,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 )
 
+                _LOGGER.debug(
+                    "PoolSync onboarding still waiting for %s; about %s seconds remain",
+                    self._ip_address,
+                    time_remaining_for_ui,
+                )
+
                 if time_remaining_for_ui <= 0 and not self._password:
+                    _LOGGER.warning(
+                        "PoolSync onboarding timed out for %s while waiting for the device password",
+                        self._ip_address,
+                    )
                     error_to_show = "link_timeout"
                     break
 
-            except PoolSyncApiCommunicationError:
-                _LOGGER.debug(
-                    "Communication error while polling pushlink status for %s",
+            except PoolSyncApiCommunicationError as err:
+                _LOGGER.warning(
+                    "Communication error while polling PoolSync push-link status for %s: %s",
                     self._ip_address,
+                    err,
                 )
             except PoolSyncApiError as e:
-                _LOGGER.error(
-                    "API error while polling pushlink status for %s: %s",
+                _LOGGER.warning(
+                    "API error while polling PoolSync push-link status for %s: %s",
                     self._ip_address,
                     e,
                 )
@@ -334,6 +415,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             time_elapsed += PUSHLINK_CHECK_INTERVAL_S
 
         if not self._password and not error_to_show:
+            _LOGGER.warning(
+                "PoolSync onboarding timed out for %s before credentials were returned",
+                self._ip_address,
+            )
             error_to_show = "link_timeout"
 
         self._link_error = error_to_show

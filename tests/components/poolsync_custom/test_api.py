@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from custom_components.poolsync_custom.api import (
+    PoolSyncApiAuthError,
     PoolSyncApiClient,
     PoolSyncApiCommunicationError,
     PoolSyncApiError,
@@ -54,7 +55,7 @@ async def test_set_device_config_value_accepts_non_json_success_body() -> None:
     request_context = AsyncMock()
     request_context.__aenter__.return_value = response
     request_context.__aexit__.return_value = False
-    session.patch.return_value = request_context
+    session.request.return_value = request_context
 
     client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
 
@@ -66,6 +67,36 @@ async def test_set_device_config_value_accepts_non_json_success_body() -> None:
     )
 
     assert result == {}
+    session.request.assert_called_once()
+
+
+async def test_set_device_config_value_preserves_auth_failure_details() -> None:
+    """Test config PATCH auth failures preserve response details."""
+    session = Mock()
+    response = Mock()
+    response.status = 403
+    response.reason = "Forbidden"
+    response.headers = {"Content-Type": "text/plain"}
+    response.text = AsyncMock(return_value="bad password")
+
+    request_context = AsyncMock()
+    request_context.__aenter__.return_value = response
+    request_context.__aexit__.return_value = False
+    session.request.return_value = request_context
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    with pytest.raises(PoolSyncApiAuthError, match="Authentication failed: 403") as err:
+        await client.async_set_device_config_value(
+            device_id="7",
+            key_id="setpoint",
+            value=79,
+            password=TEST_PASSWORD,
+        )
+
+    assert err.value.status_code == 403
+    assert err.value.body == "bad password"
+    session.request.assert_called_once()
 
 
 async def test_request_raises_timeout_as_communication_error() -> None:

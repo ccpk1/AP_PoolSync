@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import aiohttp
@@ -11,7 +12,6 @@ from aiohttp.client_exceptions import ClientConnectorError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
-# Assuming const.py is in the same directory
 from .const import (
     API_PATH_ALL_DATA,
     API_PATH_PUSHLINK_START,
@@ -20,13 +20,22 @@ from .const import (
     HEADER_USER,
     HTTP_TIMEOUT,
     USER_HEADER_VALUE,
-    # API_RESPONSE_PASSWORD, # Not directly used in this file for logic, but for context
-    # API_RESPONSE_TIME_REMAINING, # Not directly used in this file for logic
-    # API_RESPONSE_MAC_ADDRESS, # Not directly used in this file for logic
 )
 
 _LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
+
+
+def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    """Return request headers with any authorization values redacted."""
+    return {
+        key: (
+            value[:10] + "..."
+            if key == HEADER_AUTHORIZATION and value and len(value) > 10
+            else value
+        )
+        for key, value in headers.items()
+    }
 
 
 def async_create_poolsync_session(hass: HomeAssistant) -> aiohttp.ClientSession:
@@ -90,28 +99,62 @@ class PoolSyncApiClient:
                 "Password is required to change PoolSync settings."
             )
 
-        path = "/api/poolsync"
+        return await self._request(
+            "PATCH",
+            "/api/poolsync",
+            password=password,
+            params={"cmd": "devices", "device": device_id},
+            json_data={"config": {key_id: int(value)}},
+            allow_non_json_success=True,
+        )
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        password: str | None = None,
+        *,
+        params: Mapping[str, str] | None = None,
+        json_data: Any | None = None,
+        allow_non_json_success: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Make an HTTP request to the PoolSync device.
+
+        Args:
+            method: HTTP method (GET, PUT).
+            path: API endpoint path.
+            password: Optional password for authorization.
+
+        Returns:
+            A dictionary containing the JSON response from the API.
+
+        Raises:
+            PoolSyncApiCommunicationError: If there's a network or device communication issue.
+            PoolSyncApiAuthError: If the server returns a 401 or 403 error.
+            PoolSyncApiError: For other HTTP errors or invalid JSON response.
+        """
         url = f"{self._base_url}{path}"
         headers = {
-            "Content-Type": "application/json",
             HEADER_USER: USER_HEADER_VALUE,
-            "Accept-Encoding": "gzip, deflate",
-            HEADER_AUTHORIZATION: password,
         }
+        if password:
+            headers[HEADER_AUTHORIZATION] = password
+        if json_data is not None:
+            headers["Content-Type"] = "application/json"
+            headers["Accept-Encoding"] = "gzip, deflate"
 
-        params = {
-            "cmd": "devices",
-            "device": device_id,
-        }
-
-        json_data = {
-            "config": {
-                key_id: int(value),
-            }
-        }
+        _LOGGER.debug(
+            "Requesting URL: %s, Method: %s, Params: %s, Headers: %s",
+            url,
+            method,
+            dict(params or {}),
+            _redact_headers(headers),
+        )
 
         try:
-            async with self._session.patch(
+            async with self._session.request(
+                method,
                 url,
                 params=params,
                 headers=headers,
@@ -120,7 +163,7 @@ class PoolSyncApiClient:
             ) as response:
                 response_text = await response.text()
                 _LOGGER.debug(
-                    "PATCH response from %s: Status: %s, Content-Type: %s, Body snippet: %s",
+                    "Response from %s: Status: %s, Content-Type: %s, Body snippet: %s",
                     url,
                     response.status,
                     response.headers.get("Content-Type"),
@@ -129,29 +172,58 @@ class PoolSyncApiClient:
 
                 if response.status == 200:
                     try:
-                        return await response.json(content_type=None)
-                    except (ValueError, aiohttp.ContentTypeError) as err:
+                        json_response = await response.json(content_type=None)
                         _LOGGER.debug(
-                            "Treating non-JSON PATCH response as success for %s. Error: %s. Body: %s",
+                            "Successfully parsed JSON response: %s", json_response
+                        )
+                        return json_response
+                    except (ValueError, aiohttp.ContentTypeError) as err:
+                        if allow_non_json_success:
+                            _LOGGER.debug(
+                                "Treating non-JSON %s response as success for %s. Error: %s. Body: %s",
+                                method,
+                                url,
+                                err,
+                                response_text[:200],
+                            )
+                            return {}
+
+                        _LOGGER.error(
+                            "Failed to decode JSON response from %s despite 200 OK. Error: %s. Body: %s",
                             url,
                             err,
-                            response_text[:200],
+                            response_text,
                         )
-                        return {}
-
+                        raise PoolSyncApiError(
+                            f"Invalid JSON response: {err}",
+                            status_code=response.status,
+                            body=response_text,
+                        ) from err
                 if response.status in (401, 403):
+                    _LOGGER.error(
+                        "Authentication error from %s: %s. Body: %s",
+                        url,
+                        response.status,
+                        response_text,
+                    )
                     raise PoolSyncApiAuthError(
                         f"Authentication failed: {response.status}",
                         status_code=response.status,
                         body=response_text,
                     )
 
+                _LOGGER.error(
+                    "HTTP error from %s: %s - %s. Body: %s",
+                    url,
+                    response.status,
+                    response.reason,
+                    response_text,
+                )
                 raise PoolSyncApiError(
                     f"HTTP error {response.status}: {response.reason}",
                     status_code=response.status,
                     body=response_text,
                 )
-
         except ClientConnectorError as err:
             _LOGGER.error("Network connection error for %s: %s", self._ip_address, err)
             raise PoolSyncApiCommunicationError(
@@ -174,150 +246,6 @@ class PoolSyncApiClient:
                 err,
             )
             raise PoolSyncApiError(f"An unexpected error occurred: {err}") from err
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        password: str | None = None,
-        # data: Optional[Dict[str, Any]] = None, # PUT request for startLink doesn't seem to have a body
-    ) -> dict[str, Any]:
-        """
-        Make an HTTP request to the PoolSync device.
-
-        Args:
-            method: HTTP method (GET, PUT).
-            path: API endpoint path.
-            password: Optional password for authorization.
-
-        Returns:
-            A dictionary containing the JSON response from the API.
-
-        Raises:
-            PoolSyncApiCommunicationError: If there's a network or device communication issue.
-            PoolSyncApiAuthError: If the server returns a 401 or 403 error.
-            PoolSyncApiError: For other HTTP errors or invalid JSON response.
-        """
-        url = f"{self._base_url}{path}"
-        headers = {
-            # "User-Agent": "HomeAssistant-PoolSyncCustom/0.1.0", # Match version in manifest
-            # "Accept": "application/json, text/plain, */*", # Broader accept based on some device behaviors
-            HEADER_USER: USER_HEADER_VALUE,
-            # "Connection": "keep-alive", # As per curl example
-            # "Accept-Encoding": "gzip, deflate, br", # As per curl example
-            # Host header is automatically set by aiohttp
-        }
-        if password:
-            headers[HEADER_AUTHORIZATION] = password
-
-        _LOGGER.debug(
-            "Requesting URL: %s, Method: %s, Headers: %s",
-            url,
-            method,
-            # Avoid logging full password if present
-            {
-                k: (
-                    v[:10] + "..."
-                    if k == HEADER_AUTHORIZATION and v and len(v) > 10
-                    else v
-                )
-                for k, v in headers.items()
-            },
-        )
-
-        try:
-            async with self._session.request(
-                method,
-                url,
-                headers=headers,
-                timeout=REQUEST_TIMEOUT,  # No json=data for these GET/PUTs
-            ) as response:
-                response_text = (
-                    await response.text()
-                )  # Read text first for logging/errors
-                _LOGGER.debug(
-                    "Response from %s: Status: %s, Content-Type: %s, Body snippet: %s",
-                    url,
-                    response.status,
-                    response.headers.get("Content-Type"),
-                    response_text[:200],  # Log a snippet of the response body
-                )
-
-                if response.status == 200:
-                    # PoolSync devices sometimes return non-standard JSON content types like 'text/plain'
-                    # but the body is still JSON. We'll try to parse JSON regardless of content-type if status is 200.
-                    try:
-                        json_response = await response.json(
-                            content_type=None
-                        )  # Try to parse JSON regardless of reported type
-                        _LOGGER.debug(
-                            "Successfully parsed JSON response: %s", json_response
-                        )
-                        return json_response
-                    except (
-                        ValueError,
-                        aiohttp.ContentTypeError,
-                    ) as e:  # Catches json.JSONDecodeError and content type issues
-                        _LOGGER.error(
-                            "Failed to decode JSON response from %s despite 200 OK. Error: %s. Body: %s",
-                            url,
-                            e,
-                            response_text,
-                        )
-                        raise PoolSyncApiError(
-                            f"Invalid JSON response: {e}",
-                            status_code=response.status,
-                            body=response_text,
-                        ) from e
-                elif response.status in (401, 403):
-                    _LOGGER.error(
-                        "Authentication error from %s: %s. Body: %s",
-                        url,
-                        response.status,
-                        response_text,
-                    )
-                    raise PoolSyncApiAuthError(
-                        f"Authentication failed: {response.status}",
-                        status_code=response.status,
-                        body=response_text,
-                    )
-                else:
-                    _LOGGER.error(
-                        "HTTP error from %s: %s - %s. Body: %s",
-                        url,
-                        response.status,
-                        response.reason,
-                        response_text,
-                    )
-                    raise PoolSyncApiError(
-                        f"HTTP error {response.status}: {response.reason}",
-                        status_code=response.status,
-                        body=response_text,
-                    )
-        except ClientConnectorError as e:
-            _LOGGER.error("Network connection error for %s: %s", self._ip_address, e)
-            raise PoolSyncApiCommunicationError(
-                f"Cannot connect to PoolSync device at {self._ip_address}: {e}"
-            ) from e
-        except TimeoutError as e:  # This is for the overall request timeout
-            _LOGGER.error(
-                "Request timed out for %s accessing %s", self._ip_address, url
-            )
-            raise PoolSyncApiCommunicationError(
-                f"Request to {url} timed out after {HTTP_TIMEOUT}s"
-            ) from e
-        except PoolSyncApiError:
-            raise
-        # ClientResponseError is a base for many client-side errors, already caught by status checks.
-        # Catching broader Exception for any other unexpected aiohttp or network issues.
-        except Exception as e:
-            _LOGGER.exception(
-                "An unexpected error occurred during API request to %s for URL %s: %s",
-                self._ip_address,
-                url,
-                e,
-            )
-            raise PoolSyncApiError(f"An unexpected error occurred: {e}") from e
 
     async def start_pushlink(self) -> dict[str, Any]:
         """

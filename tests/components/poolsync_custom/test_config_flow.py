@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -242,6 +243,95 @@ async def test_user_flow_polling_api_error(hass) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "link_failed"
     assert result["errors"] == {"base": "link_failed"}
+
+
+async def test_user_flow_logs_onboarding_success(
+    hass, mocked_setup_entry, caplog
+) -> None:
+    """Test onboarding logs useful milestones during successful setup."""
+    result = await _start_user_flow(hass)
+
+    with (
+        patch(
+            "custom_components.poolsync_custom.config_flow.PoolSyncApiClient.start_pushlink",
+            new=AsyncMock(return_value={"timeRemaining": 120}),
+        ),
+        patch(
+            "custom_components.poolsync_custom.config_flow.PoolSyncApiClient.get_pushlink_status",
+            new=AsyncMock(
+                side_effect=_return_after_yield(
+                    {
+                        CONF_PASSWORD: TEST_PASSWORD,
+                        API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+                    }
+                )
+            ),
+        ),
+        caplog.at_level(
+            logging.INFO, logger="custom_components.poolsync_custom.config_flow"
+        ),
+    ):
+        result = await _submit_user_flow(hass, result["flow_id"])
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert "Starting PoolSync push-link onboarding for 192.168.50.70" in caplog.messages
+    assert "PoolSync push-link onboarding started for 192.168.50.70" in caplog.messages
+    assert (
+        "Polling PoolSync push-link status for 192.168.50.70 for up to 120 seconds"
+        in caplog.messages
+    )
+    assert (
+        "PoolSync onboarding collected credentials for 192.168.50.70 and will finish setup"
+        in caplog.messages
+    )
+    assert (
+        "Completing PoolSync onboarding for 192.168.50.70 with device AABBCCDDEEFF"
+        in caplog.messages
+    )
+
+
+async def test_user_flow_logs_polling_communication_errors(hass, caplog) -> None:
+    """Test onboarding logs communication failures while waiting for push-link."""
+    result = await _start_user_flow(hass)
+
+    with (
+        patch(
+            "custom_components.poolsync_custom.config_flow.PoolSyncApiClient.start_pushlink",
+            new=AsyncMock(return_value={"timeRemaining": 120}),
+        ),
+        patch(
+            "custom_components.poolsync_custom.config_flow.PoolSyncApiClient.get_pushlink_status",
+            new=AsyncMock(
+                side_effect=[
+                    PoolSyncApiCommunicationError("cannot connect"),
+                    {"timeRemaining": 0},
+                ]
+            ),
+        ),
+        caplog.at_level(
+            logging.WARNING, logger="custom_components.poolsync_custom.config_flow"
+        ),
+    ):
+        result = await _submit_user_flow(hass, result["flow_id"])
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "link_timeout"}
+    assert (
+        "Communication error while polling PoolSync push-link status for 192.168.50.70: cannot connect"
+        in caplog.messages
+    )
+    assert (
+        "PoolSync onboarding failed for 192.168.50.70 with reason link_timeout"
+        in caplog.messages
+    )
 
 
 async def test_options_flow_success(hass) -> None:

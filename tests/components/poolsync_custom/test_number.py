@@ -93,7 +93,10 @@ async def test_async_set_native_value_raises_homeassistant_error(hass) -> None:
     )
     entity = _build_entity(hass, api_client)
 
-    with pytest.raises(HomeAssistantError, match="Failed to set chlorinator output"):
+    with pytest.raises(
+        HomeAssistantError,
+        match="Communication failed while setting chlorinator output: cannot connect",
+    ):
         await entity.async_set_native_value(42)
 
     entity.coordinator.async_request_refresh.assert_not_awaited()
