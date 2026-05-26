@@ -41,13 +41,23 @@ def _load_parsed_data(sample_name: str):
         "expected_compressor",
         "expected_mode_context",
         "expected_active_target",
+        "expected_spa_setpoint",
     ),
     [
-        ("t75-heat-pool.json", True, True, True, "heat_pool", 78),
-        ("t75-off-with-flow.json", True, False, False, "off", None),
-        ("t75-off-no-flow.json", False, False, False, "off", None),
-        ("t75-spa-startup-fan-nocompressor.json", True, True, False, "heat_spa", 88),
-        ("t75-heat-spa.json", True, True, True, "heat_spa", 88),
+        ("t75-heat-pool.json", True, True, True, "heat_pool", 78, 88),
+        ("t75-off-with-flow.json", True, False, False, "off", None, 88),
+        ("t75-off-no-flow.json", False, False, False, "off", None, 88),
+        ("t75-heatpump-fault.json", True, False, False, "heat_pool", 78, 90),
+        (
+            "t75-spa-startup-fan-nocompressor.json",
+            True,
+            True,
+            False,
+            "heat_spa",
+            88,
+            88,
+        ),
+        ("t75-heat-spa.json", True, True, True, "heat_spa", 88, 88),
     ],
 )
 def test_t75_heat_pump_runtime_states(
@@ -57,6 +67,7 @@ def test_t75_heat_pump_runtime_states(
     expected_compressor: bool,
     expected_mode_context: str,
     expected_active_target: int | None,
+    expected_spa_setpoint: int,
 ) -> None:
     """Test T75-derived runtime state across observed sample payloads."""
     runtime = get_heat_pump_runtime(_load_parsed_data(sample_name))
@@ -68,7 +79,7 @@ def test_t75_heat_pump_runtime_states(
     assert runtime.mode_context == expected_mode_context
     assert runtime.active_target_temperature == expected_active_target
     assert runtime.pool_setpoint == 78
-    assert runtime.spa_setpoint == 88
+    assert runtime.spa_setpoint == expected_spa_setpoint
 
 
 def test_t75_heat_pump_capabilities_use_model_number() -> None:

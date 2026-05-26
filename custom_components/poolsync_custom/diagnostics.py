@@ -11,7 +11,7 @@ from homeassistant.helpers import device_registry as dr
 
 from . import PoolSyncConfigEntry
 from .const import API_RESPONSE_MAC_ADDRESS, DOMAIN
-from .runtime import ensure_parsed_data, get_heat_pump_runtime
+from .runtime import ensure_parsed_data, get_heat_pump_runtime, get_sensor_value
 
 TO_REDACT = {
     CONF_IP_ADDRESS,
@@ -55,10 +55,12 @@ async def async_get_config_entry_diagnostics(
 
     if coordinator.data is not None:
         result["runtime_data"] = async_redact_data(coordinator.data, TO_REDACT)
+        parsed_data = ensure_parsed_data(coordinator)
 
-        if heat_pump_runtime := get_heat_pump_runtime(ensure_parsed_data(coordinator)):
+        if heat_pump_runtime := get_heat_pump_runtime(parsed_data):
             result["heat_pump_debug"] = {
                 "active_target_temperature": heat_pump_runtime.active_target_temperature,
+                "active_fault_code": get_sensor_value(parsed_data, "hp_fault_code"),
                 "capabilities": {
                     "model_number": heat_pump_runtime.capabilities.model_number,
                     "profile": heat_pump_runtime.capabilities.profile,
@@ -69,6 +71,9 @@ async def async_get_config_entry_diagnostics(
                 },
                 "compressor_running": heat_pump_runtime.compressor_running,
                 "ctrl_flags_raw": heat_pump_runtime.ctrl_flags_raw,
+                "faults_raw": parsed_data.heat_pump.data.get("faults")
+                if parsed_data.heat_pump.data is not None
+                else None,
                 "fan_running": heat_pump_runtime.fan_running,
                 "has_flow": heat_pump_runtime.has_flow,
                 "mode_context": heat_pump_runtime.mode_context,

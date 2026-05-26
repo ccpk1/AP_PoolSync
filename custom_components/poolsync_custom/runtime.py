@@ -283,6 +283,21 @@ def _get_number_value(section: dict[str, Any] | None, key: str) -> int | float |
     return value
 
 
+def _get_first_active_fault_code(section: dict[str, Any] | None) -> int | None:
+    """Return the first non-zero fault code from a device payload."""
+    faults = _get_dict_value(section, "faults")
+    if not isinstance(faults, list):
+        return None
+
+    for fault_code in faults:
+        if isinstance(fault_code, bool) or not isinstance(fault_code, int):
+            continue
+        if fault_code != 0:
+            return fault_code
+
+    return None
+
+
 def _heat_pump_has_flow(ctrl_flags_raw: int) -> bool:
     """Return whether the heat pump reports active water flow."""
     return ctrl_flags_raw != 0
@@ -295,7 +310,7 @@ def _heat_pump_compressor_running(state_flags_raw: int) -> bool:
 
 def _heat_pump_fan_running(state_flags_raw: int) -> bool:
     """Return whether the heat pump reports the fan is running."""
-    return state_flags_raw >= HEAT_PUMP_STATE_FLAGS_ACTIVE
+    return (state_flags_raw & HEAT_PUMP_STATE_FLAGS_ACTIVE) != 0
 
 
 def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -838,6 +853,9 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
         runtime.active_target_temperature
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
+    ),
+    "hp_fault_code": lambda parsed_data: _get_first_active_fault_code(
+        parsed_data.heat_pump.data
     ),
     "hp_pool_setpoint_temp": lambda parsed_data: (
         runtime.pool_setpoint

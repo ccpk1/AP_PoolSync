@@ -135,6 +135,12 @@
       "date_time": {
         "name": "Date and time"
       },
+      "fault_code": {
+        "name": "Fault code",
+        "state": {
+          "8": "HP/HP5"
+        }
+      },
       "firmware_version": {
         "name": "Firmware version"
       },

@@ -63,6 +63,7 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
                     "setpoint": 84,
                     "spaSetpoint": 99,
                 },
+                "faults": [8, 0],
             },
         },
         "deviceType": {"5": "chlorSync", "7": "heatPump"},
@@ -101,6 +102,11 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
         for entity in added_entities
         if entity.entity_description.key == "hp_board_temp"
     )
+    heat_fault_code_sensor = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "hp_fault_code"
+    )
     heat_sensor = next(
         entity
         for entity in added_entities
@@ -122,12 +128,14 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     assert chlor_board_sensor.native_value == 94.63
     assert heat_mode_sensor.native_value == "heat_pool"
     assert heat_board_sensor.native_value == 76.99
+    assert heat_fault_code_sensor.native_value == "8"
     assert heat_sensor.native_value == 84
     assert heat_pool_sensor.native_value == 84
     assert heat_spa_sensor.native_value == 99
     assert chlor_sensor.entity_description.translation_key == "water_temperature"
     assert chlor_board_sensor.entity_description.translation_key == "board_temperature"
     assert heat_board_sensor.entity_description.translation_key == "board_temperature"
+    assert heat_fault_code_sensor.entity_description.translation_key == "fault_code"
     assert heat_sensor.entity_description.translation_key == "active_target_temperature"
     assert (
         heat_pool_sensor.entity_description.translation_key
