@@ -283,6 +283,15 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
     ),
     (
         SensorEntityDescription(
+            key="hp_fault_code",
+            translation_key="fault_code",
+            entity_registry_enabled_default=True,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        str,
+    ),
+    (
+        SensorEntityDescription(
             key="hp_mode",
             translation_key="mode",
             native_unit_of_measurement=None,

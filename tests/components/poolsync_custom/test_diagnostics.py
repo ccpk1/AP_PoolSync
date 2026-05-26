@@ -56,6 +56,7 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
                         "spaSetpoint": 88,
                     },
                     "status": {"ctrlFlags": 13, "stateFlags": 8},
+                    "faults": [8, 0],
                 }
             },
         },
@@ -112,6 +113,7 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     )
     assert diagnostics["heat_pump_debug"] == {
         "active_target_temperature": 88,
+        "active_fault_code": 8,
         "capabilities": {
             "model_number": "075AHDSBLH",
             "profile": "aquacal_heat_only_digital",
@@ -122,6 +124,7 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
         },
         "compressor_running": True,
         "ctrl_flags_raw": 13,
+        "faults_raw": [8, 0],
         "fan_running": True,
         "has_flow": True,
         "mode_context": "heat_spa",
