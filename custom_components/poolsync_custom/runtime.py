@@ -37,7 +37,8 @@ HEAT_PUMP_CONFIG_MODE_HEAT = 1
 HEAT_PUMP_CONFIG_MODE_COOL = 2
 HEAT_PUMP_CONFIG_MODE_AUTO = 3
 HEAT_PUMP_POOL_SPA_MODE_SPA = 1
-HEAT_PUMP_STATE_FLAGS_ACTIVE = 8
+HEAT_PUMP_CTRL_FLAGS_COMPRESSOR = 4
+HEAT_PUMP_CTRL_FLAGS_FAN = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,14 +304,14 @@ def _heat_pump_has_flow(ctrl_flags_raw: int) -> bool:
     return ctrl_flags_raw != 0
 
 
-def _heat_pump_compressor_running(state_flags_raw: int) -> bool:
-    """Return whether the heat pump reports the compressor is running."""
-    return state_flags_raw == HEAT_PUMP_STATE_FLAGS_ACTIVE
+def _heat_pump_compressor_running(ctrl_flags_raw: int) -> bool:
+    """Return whether the heat pump controller has engaged the compressor."""
+    return (ctrl_flags_raw & HEAT_PUMP_CTRL_FLAGS_COMPRESSOR) != 0
 
 
-def _heat_pump_fan_running(state_flags_raw: int) -> bool:
-    """Return whether the heat pump reports the fan is running."""
-    return (state_flags_raw & HEAT_PUMP_STATE_FLAGS_ACTIVE) != 0
+def _heat_pump_fan_running(ctrl_flags_raw: int) -> bool:
+    """Return whether the heat pump controller has engaged the fan."""
+    return (ctrl_flags_raw & HEAT_PUMP_CTRL_FLAGS_FAN) != 0
 
 
 def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -517,11 +518,11 @@ def get_heat_pump_runtime(
         has_flow=_heat_pump_has_flow(ctrl_flags_raw)
         if ctrl_flags_raw is not None
         else None,
-        compressor_running=_heat_pump_compressor_running(state_flags_raw)
-        if state_flags_raw is not None
+        compressor_running=_heat_pump_compressor_running(ctrl_flags_raw)
+        if ctrl_flags_raw is not None
         else None,
-        fan_running=_heat_pump_fan_running(state_flags_raw)
-        if state_flags_raw is not None
+        fan_running=_heat_pump_fan_running(ctrl_flags_raw)
+        if ctrl_flags_raw is not None
         else None,
         mode_value=mode_value,
         pool_spa_mode=pool_spa_mode,
