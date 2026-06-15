@@ -1,5 +1,9 @@
 """Tests for the PoolSync API client."""
 
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 import logging

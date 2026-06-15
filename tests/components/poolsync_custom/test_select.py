@@ -1,5 +1,9 @@
 """Tests for PoolSync select platform."""
 
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, Mock, call

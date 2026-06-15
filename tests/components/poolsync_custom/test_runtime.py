@@ -1,8 +1,13 @@
 """Tests for PoolSync runtime parsing helpers."""
 
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -23,13 +28,27 @@ from custom_components.poolsync_custom.runtime import (
 )
 
 
-def _load_parsed_data(sample_name: str):
-    """Load parsed runtime data from a sample diagnostics export."""
+def _load_diagnostics_json(sample_name: str) -> dict:
+    """Load a diagnostics JSON file, tolerant of trailing commas.
+
+    Home Assistant diagnostic downloads sometimes include trailing commas
+    in the wrapper sections. This helper strips them before parsing so
+    the files can be stored exactly as exported.
+    """
     sample_path = (
         Path(__file__).resolve().parents[2] / "sample_diagnostics" / sample_name
     )
-    with sample_path.open(encoding="utf-8") as sample_file:
-        payload = json.load(sample_file)
+    raw = sample_path.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        cleaned = re.sub(r",\s*([}\]])", r"\1", raw)
+        return json.loads(cleaned)
+
+
+def _load_parsed_data(sample_name: str):
+    """Load parsed runtime data from a sample diagnostics export."""
+    payload = _load_diagnostics_json(sample_name)
     return parse_poolsync_runtime_data(payload["data"]["runtime_data"])
 
 
@@ -79,6 +98,46 @@ def test_t75_heat_pump_runtime_states(
     assert runtime.mode_context == expected_mode_context
     assert runtime.active_target_temperature == expected_active_target
     assert runtime.pool_setpoint == 78
+    assert runtime.spa_setpoint == expected_spa_setpoint
+
+
+@pytest.mark.parametrize(
+    (
+        "sample_name",
+        "expected_flow",
+        "expected_fan",
+        "expected_compressor",
+        "expected_mode_context",
+        "expected_active_target",
+        "expected_pool_setpoint",
+        "expected_spa_setpoint",
+    ),
+    [
+        ("sq160r-heating.json", True, True, True, "heat_pool", 83, 83, 0),
+        ("sq160r-idle.json", True, False, False, "heat_pool", 83, 83, 0),
+        ("sq160r-off.json", False, False, False, "heat_pool", 83, 83, 0),
+    ],
+)
+def test_sq160r_heat_pump_runtime_states(
+    sample_name: str,
+    expected_flow: bool,
+    expected_fan: bool,
+    expected_compressor: bool,
+    expected_mode_context: str,
+    expected_active_target: int | None,
+    expected_pool_setpoint: int,
+    expected_spa_setpoint: int,
+) -> None:
+    """Test SQ160R-derived runtime state across observed sample payloads."""
+    runtime = get_heat_pump_runtime(_load_parsed_data(sample_name))
+
+    assert runtime is not None
+    assert runtime.has_flow is expected_flow
+    assert runtime.fan_running is expected_fan
+    assert runtime.compressor_running is expected_compressor
+    assert runtime.mode_context == expected_mode_context
+    assert runtime.active_target_temperature == expected_active_target
+    assert runtime.pool_setpoint == expected_pool_setpoint
     assert runtime.spa_setpoint == expected_spa_setpoint
 
 
