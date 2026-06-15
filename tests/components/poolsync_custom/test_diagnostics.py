@@ -1,5 +1,9 @@
 """Tests for PoolSync diagnostics."""
 
+# pylint: disable=import-error,no-name-in-module
+
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 from datetime import timedelta
