@@ -129,15 +129,28 @@ When model decode fails, fall back to checking whether `poolSpaMode` and `spaSet
 | Sensor Key | Source Path | Notes |
 |------------|-------------|-------|
 | `hp_water_temp` | `devices[hp_id].status.waterTemp` | °F |
+| `hp_water_temp2` | `devices[hp_id].status.waterTemp2` | °F, outlet/secondary water temp; diagnostic, disabled by default; unavailable when sentinel (-40, 0, 127) |
 | `hp_air_temp` | `devices[hp_id].status.airTemp` | °F |
 | `hp_board_temp` | `devices[hp_id].status.boardTemp` | °F |
+| `hp_ds1_temp` | `devices[hp_id].status.ds1Temp` | °F, defrost sensor 1 (suction/vapor line); diagnostic, disabled by default; unavailable when sentinel |
+| `hp_ds2_temp` | `devices[hp_id].status.ds2Temp` | °F, defrost sensor 2 (liquid line); diagnostic, disabled by default; unavailable when sentinel |
 | `hp_mode` | Derived from `mode` + `poolSpaMode` | e.g. "heat_pool" |
 | `hp_setpoint_temp` | Derived active target | Pool or spa setpoint depending on mode |
 | `hp_pool_setpoint_temp` | `devices[hp_id].config.setpoint` | °F |
 | `hp_spa_setpoint_temp` | `devices[hp_id].config.spaSetpoint` | °F |
 | `hp_fault_code` | `devices[hp_id].faults[]` | First non-zero value |
+| `hp_top_fault_code` | `devices[hp_id].faultCounts[]` | Index of most frequent fault; diagnostic, disabled by default |
+| `hp_top_fault_count` | `devices[hp_id].faultCounts[]` | Count for most frequent fault; diagnostic, disabled by default; TOTAL_INCREASING |
 
-### 2.6 Heat Pump Controls (Write Paths)
+### 2.6 Heat Pump Binary Sensors (beyond those in 2.4)
+
+| Sensor Key | Source Path | Notes |
+|------------|-------------|-------|
+| `heatpump_online` | `devices[hp_id].nodeAttr.online` | Connectivity |
+| `heatpump_fault` | `devices[hp_id].faults[]` | Any non-zero → problem |
+| `heatpump_ext_ctrl` | `devices[hp_id].config.extCtrlMode` | Non-zero → remote control active |
+
+### 2.7 Heat Pump Controls (Write Paths)
 
 | Control | Write Key | API Call |
 |---------|-----------|----------|
@@ -146,7 +159,9 @@ When model decode fails, fall back to checking whether `poolSpaMode` and `spaSet
 | Spa setpoint | `spaSetpoint` | Same endpoint → `config.spaSetpoint` |
 | Active target (number entity) | `setpoint` or `spaSetpoint` | Resolved based on current preset mode |
 
-### 2.7 Climate Entity
+Climate entity min/max temperature limits are read from `devices[hp_id].config.setpointMin` and `setpointMax`, falling back to 40°F / 104°F when the device reports zero (T75). Previously hardcoded.
+
+### 2.8 Climate Entity
 
 `climate.water_thermostat` wraps the above into a standard HA climate entity:
 - **HVAC modes**: off, heat (always), cool (if capable), auto (if heat+cool capable)
@@ -364,7 +379,9 @@ When a field is `0`, `-40`, or `127` and never varies on a given model, it is tr
 
 ### 🔴 HIGH CONFIDENCE — Values change meaningfully with operating state
 
-#### H1. `waterTemp2` — Secondary water temperature
+#### H1. `waterTemp2` — Secondary water temperature ✅
+
+**Status:** Confirmed & built (`sensor.hp_water_temp2` — see section 2.5).
 
 | Model | Off/Idle | Heating | Comp On | Present? |
 |-------|----------|---------|---------|----------|
@@ -374,11 +391,11 @@ When a field is `0`, `-40`, or `127` and never varies on a given model, it is tr
 
 Always within ~0.5°F of `waterTemp`. Likely the outlet-side water temperature sensor (after heat exchanger). ΔT between `waterTemp` and `waterTemp2` when compressor is running would indicate heat transfer rate.
 
-**Proposed:** `sensor` (diagnostic), °F, with `suggested_display_precision=1`.
-
 ---
 
-#### H2. `ds1Temp` / `ds2Temp` — Defrost/refrigerant temperatures
+#### H2. `ds1Temp` / `ds2Temp` — Defrost/refrigerant temperatures ✅
+
+**Status:** Confirmed & built (`sensor.hp_ds1_temp`, `sensor.hp_ds2_temp` — see section 2.5).
 
 | Model | Off/Idle | Heating | Comp On | Notes |
 |-------|----------|---------|---------|-------|
@@ -387,8 +404,6 @@ Always within ~0.5°F of `waterTemp`. Likely the outlet-side water temperature s
 | 090 | 67/67, 64/62 (filtration) | — | 62/57 | ds2 drops ~5°F with compressor on |
 
 In air-source heat pumps, ds1 is typically suction line temperature and ds2 is liquid line temperature. The temperature spread between them changes with compressor load — useful for detecting defrost cycles or low refrigerant.
-
-**Proposed:** Two `sensor` entities (diagnostic, disabled by default), °F.
 
 ---
 
@@ -458,7 +473,9 @@ Distinct from the group-level schedule mode. This is the heat pump's own interna
 
 ---
 
-#### H8. `extCtrlMode` — External/remote control mode
+#### H8. `extCtrlMode` — External/remote control mode ✅
+
+**Status:** Confirmed & built (`binary_sensor.heatpump_ext_ctrl` — see section 2.6).
 
 | Model | Value |
 |-------|-------|
@@ -472,7 +489,9 @@ Always 5 on the two systems running firmware 856 (appFwVersion 61-81). Always 0 
 
 ---
 
-#### H9. `faultCounts[]` — Fault occurrence histogram
+#### H9. `faultCounts[]` — Fault occurrence histogram ✅
+
+**Status:** Confirmed & built (`sensor.hp_top_fault_code`, `sensor.hp_top_fault_count` — see section 2.5).
 
 | Model | Index 1 | Index 3 | Index 12 | Others |
 |-------|---------|---------|----------|--------|
@@ -526,7 +545,9 @@ On the 090 system, these exactly mirror `ds1Temp`/`ds2Temp`. The naming suggests
 
 ---
 
-#### H14. `setpointMin` / `setpointMax` — Device-reported setpoint limits
+#### H14. `setpointMin` / `setpointMax` — Device-reported setpoint limits ✅
+
+**Status:** Confirmed & built (climate entity now reads these dynamically — see section 2.7).
 
 | Model | Min | Max |
 |-------|-----|-----|
