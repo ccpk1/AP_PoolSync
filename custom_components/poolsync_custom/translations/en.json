@@ -89,6 +89,9 @@
       "online": {
         "name": "Online"
       },
+      "remote_control": {
+        "name": "Ext control"
+      },
       "service_mode": {
         "name": "Service mode"
       }
@@ -135,6 +138,12 @@
       "date_time": {
         "name": "Date and time"
       },
+      "defrost_sensor_1_temperature": {
+        "name": "Defrost sensor 1 temperature"
+      },
+      "defrost_sensor_2_temperature": {
+        "name": "Defrost sensor 2 temperature"
+      },
       "fault_code": {
         "name": "Fault code",
         "state": {
@@ -163,6 +172,9 @@
       "output_setting": {
         "name": "Output setting"
       },
+      "outlet_water_temperature": {
+        "name": "Water temperature out"
+      },
       "pool_setpoint_temperature": {
         "name": "Pool setpoint temperature"
       },
@@ -171,6 +183,12 @@
       },
       "spa_setpoint_temperature": {
         "name": "Spa setpoint temperature"
+      },
+      "top_fault_code": {
+        "name": "Top fault code"
+      },
+      "top_fault_count": {
+        "name": "Top fault count"
       },
       "water_temperature": {
         "name": "Water temperature"

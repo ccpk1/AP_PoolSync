@@ -331,6 +331,64 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
+    (
+        SensorEntityDescription(
+            key="hp_water_temp2",
+            translation_key="outlet_water_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_ds1_temp",
+            translation_key="defrost_sensor_1_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_ds2_temp",
+            translation_key="defrost_sensor_2_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_top_fault_code",
+            translation_key="top_fault_code",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_top_fault_count",
+            translation_key="top_fault_count",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        None,
+    ),
 )
 
 
@@ -351,6 +409,7 @@ def _build_sensor_entities(
 async def async_setup_entry(
     _hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
+    """Set up PoolSync sensors from a config entry."""
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     sensors_to_add: list[PoolSyncSensor] = []
     parsed_data = ensure_parsed_data(coordinator)
@@ -362,10 +421,12 @@ async def async_setup_entry(
 
     if not poolsync_data_present or devices is None:
         _LOGGER.warning(
-            "Coordinator %s: Initial data is missing 'poolSync' or 'devices' top-level keys. Sensor setup may be incomplete.",
+            "Coordinator %s: Initial data missing 'poolSync' or 'devices' keys."
+            " Sensor setup may be incomplete.",
             coordinator.name,
         )
-        # Still attempt to add sensors; they will become unavailable if their specific data is missing.
+        # Still attempt to add sensors; they will become unavailable
+        # if their specific data is missing.
 
     heatpump_id = parsed_data.heat_pump.device_id
     chlor_id = parsed_data.chlorinator.device_id
@@ -414,6 +475,8 @@ async def async_setup_entry(
 class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEntity
 ):
+    """Representation of a PoolSync sensor entity."""
+
     _attr_has_entity_name = True
 
     def __init__(
@@ -468,7 +531,9 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         super()._handle_coordinator_update()
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, Any] | None:
         """Return additional state attributes for support-focused sensors."""
         if self.entity_description.key != "wifi_signal_status":
             return None

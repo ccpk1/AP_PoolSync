@@ -5,16 +5,17 @@ from __future__ import annotations
 from typing import Any, cast
 
 from homeassistant.components.climate import (
-    ATTR_PRESET_MODE,
-    ATTR_TEMPERATURE,
     ClimateEntity,
     ClimateEntityDescription,
+)
+from homeassistant.components.climate.const import (
+    ATTR_PRESET_MODE,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -24,12 +25,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     HEAT_PUMP_PRESET_POOL,
+    PoolSyncHeatPumpClimateHvacMode,
     PoolSyncHeatPumpClimatePresetMode,
     ensure_parsed_data,
     get_heat_pump_climate_current_temperature,
     get_heat_pump_climate_hvac_action,
     get_heat_pump_climate_hvac_mode,
     get_heat_pump_climate_hvac_modes,
+    get_heat_pump_climate_max_temp,
+    get_heat_pump_climate_min_temp,
     get_heat_pump_climate_preset_mode,
     get_heat_pump_climate_preset_modes,
     get_heat_pump_climate_target_temperature,
@@ -77,7 +81,7 @@ async def async_setup_entry(
     )
 
 
-class PoolSyncHeatPumpClimateEntity(
+class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], ClimateEntity, RestoreEntity
 ):
     """Representation of the PoolSync heat-pump climate entity."""
@@ -170,6 +174,8 @@ class PoolSyncHeatPumpClimateEntity(
                 self._attr_preset_mode,
             ),
         )
+        self._attr_min_temp = get_heat_pump_climate_min_temp(parsed_data)
+        self._attr_max_temp = get_heat_pump_climate_max_temp(parsed_data)
         self._attr_available = (
             super().available
             and self._attr_current_temperature is not None
@@ -198,7 +204,7 @@ class PoolSyncHeatPumpClimateEntity(
             )
         )
         await self.coordinator.async_set_heat_pump_climate_mode(
-            hvac_mode=hvac_mode.value,
+            hvac_mode=cast(PoolSyncHeatPumpClimateHvacMode, hvac_mode.value),
             preset_mode=target_preset,
         )
 
@@ -246,7 +252,12 @@ class PoolSyncHeatPumpClimateEntity(
 
         self._last_on_preset_mode = cast(PoolSyncHeatPumpClimatePresetMode, preset_mode)
 
-        if self.hvac_mode == HVACMode.OFF:
+        if (hvac_mode := self.hvac_mode) is None:
+            raise HomeAssistantError(
+                "Cannot set preset mode while heat pump mode is unknown"
+            )
+
+        if hvac_mode == HVACMode.OFF:
             self._attr_preset_mode = preset_mode
             self._attr_target_temperature = get_heat_pump_climate_target_temperature(
                 ensure_parsed_data(self.coordinator),
@@ -257,7 +268,7 @@ class PoolSyncHeatPumpClimateEntity(
             return
 
         await self.coordinator.async_set_heat_pump_climate_mode(
-            hvac_mode=self.hvac_mode.value,
+            hvac_mode=cast(PoolSyncHeatPumpClimateHvacMode, hvac_mode.value),
             preset_mode=self._last_on_preset_mode,
         )
 

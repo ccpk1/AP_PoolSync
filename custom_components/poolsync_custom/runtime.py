@@ -205,7 +205,8 @@ class PoolSyncHeatPumpRuntime:
 
 
 _AQUACAL_MODEL_NUMBER_PATTERN = re.compile(
-    r"^(?P<brand>[A-Z]{0,2})(?P<unit>\d{3,4})(?P<voltage>[A-Z])(?P<feature>[A-Z])(?P<control>[A-Z]).+$"
+    r"^(?P<brand>[A-Z]{0,2})(?P<unit>\d{3,4})"
+    r"(?P<voltage>[A-Z])(?P<feature>[A-Z])(?P<control>[A-Z]).+$"
 )
 
 _AQUACAL_FEATURE_PROFILES: dict[str, PoolSyncAquaCalFeatureProfile] = {
@@ -297,6 +298,45 @@ def _get_first_active_fault_code(section: dict[str, Any] | None) -> int | None:
             return fault_code
 
     return None
+
+
+def _get_top_fault_info(
+    section: dict[str, Any] | None,
+) -> tuple[int, int] | None:
+    """Return (code_index, count) for the highest faultCounts entry.
+
+    Returns None when faultCounts is missing, empty, or all-zero.
+    """
+    counts = _get_dict_value(section, "faultCounts")
+    if not isinstance(counts, list) or not counts:
+        return None
+
+    top_index = 0
+    top_count = 0
+    for index, value in enumerate(counts):
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        if value > top_count:
+            top_count = value
+            top_index = index
+
+    if top_count == 0:
+        return None
+    return (top_index, top_count)
+
+
+# Sentinel values used by different PoolSync models to indicate
+# "sensor not present".  Documented values: -40 (090), 0 (T75),
+# 127 (SQ160R).
+_TEMP_SENTINELS = frozenset({-40, 0, 127})
+
+
+def _get_temp_value(section: dict[str, Any] | None, key: str) -> int | float | None:
+    """Return a temperature value, treating known sentinels as unavailable."""
+    value = _get_number_value(section, key)
+    if value is not None and value in _TEMP_SENTINELS:
+        return None
+    return value
 
 
 def _heat_pump_has_flow(ctrl_flags_raw: int) -> bool:
@@ -780,6 +820,9 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "heatpump_fan": lambda parsed_data: (
         runtime.fan_running if (runtime := get_heat_pump_runtime(parsed_data)) else None
     ),
+    "heatpump_ext_ctrl": lambda parsed_data: _get_dict_value(
+        parsed_data.heat_pump.config, "extCtrlMode"
+    ),
 }
 
 
@@ -868,7 +911,42 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
+    "hp_water_temp2": lambda parsed_data: _get_temp_value(
+        parsed_data.heat_pump.status, "waterTemp2"
+    ),
+    "hp_ds1_temp": lambda parsed_data: _get_temp_value(
+        parsed_data.heat_pump.status, "ds1Temp"
+    ),
+    "hp_ds2_temp": lambda parsed_data: _get_temp_value(
+        parsed_data.heat_pump.status, "ds2Temp"
+    ),
+    "hp_top_fault_code": lambda parsed_data: (
+        top[0] if (top := _get_top_fault_info(parsed_data.heat_pump.data)) else None
+    ),
+    "hp_top_fault_count": lambda parsed_data: (
+        top[1] if (top := _get_top_fault_info(parsed_data.heat_pump.data)) else None
+    ),
 }
+
+
+def get_heat_pump_climate_min_temp(
+    parsed_data: PoolSyncParsedData,
+) -> int | float:
+    """Return the device-reported minimum setpoint, or a safe default."""
+    min_temp = _get_number_value(parsed_data.heat_pump.config, "setpointMin")
+    if isinstance(min_temp, (int, float)) and min_temp > 0:
+        return min_temp
+    return 40
+
+
+def get_heat_pump_climate_max_temp(
+    parsed_data: PoolSyncParsedData,
+) -> int | float:
+    """Return the device-reported maximum setpoint, or a safe default."""
+    max_temp = _get_number_value(parsed_data.heat_pump.config, "setpointMax")
+    if isinstance(max_temp, (int, float)) and max_temp > 0:
+        return max_temp
+    return 104
 
 
 def get_number_value(parsed_data: PoolSyncParsedData, key: str) -> Any:

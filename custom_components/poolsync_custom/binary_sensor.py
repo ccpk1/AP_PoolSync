@@ -131,6 +131,14 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
         ),
         None,
     ),
+    (
+        BinarySensorEntityDescription(
+            key="heatpump_ext_ctrl",
+            translation_key="remote_control",
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: bool(v) if isinstance(v, int) else None,
+    ),
 )
 
 
@@ -153,6 +161,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up PoolSync binary sensors from a config entry."""
     del hass
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     binary_sensors_to_add: list[PoolSyncBinarySensor] = []
@@ -162,7 +171,8 @@ async def async_setup_entry(
 
     if not isinstance(data.get("poolSync"), dict) or devices is None:
         _LOGGER.warning(
-            "Coordinator %s: Initial data is missing 'poolSync' or 'devices' top-level keys. Binary sensor setup may be incomplete.",
+            "Coordinator %s: Initial data missing 'poolSync' or 'devices' keys."
+            " Binary sensor setup may be incomplete.",
             coordinator.name,
         )
 
@@ -183,7 +193,8 @@ async def async_setup_entry(
         )
     elif chlor_id and devices is not None:
         _LOGGER.warning(
-            "Coordinator %s data is missing chlorinator device %s. Skipping chlorinator binary sensors.",
+            "Coordinator %s data is missing chlorinator device %s."
+            " Skipping chlorinator binary sensors.",
             coordinator.name,
             chlor_id,
         )
@@ -196,7 +207,8 @@ async def async_setup_entry(
         )
     elif heatpump_id and devices is not None:
         _LOGGER.warning(
-            "Coordinator %s data is missing heat pump device %s. Skipping heat pump binary sensors.",
+            "Coordinator %s data is missing heat pump device %s."
+            " Skipping heat pump binary sensors.",
             coordinator.name,
             heatpump_id,
         )
