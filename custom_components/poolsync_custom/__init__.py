@@ -24,6 +24,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .runtime import get_equipment_runtime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,8 +70,14 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "heatpump_compressor",
             "heatpump_fan",
             "heatpump_ext_ctrl",
+            "heatpump_in_group",
             "temperature_output_control",
             "heat_mode",
+            "pump_rpm",
+            "pump_rpm_control",
+            "pump_priming",
+            "valve_position",
+            "group_info",
         }
     ),
 }
@@ -191,6 +198,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> 
 
     entry.runtime_data = coordinator
     _async_migrate_entity_device_assignments(hass, entry, coordinator)
+
+    # Create equipment devices when equip data is present
+    if isinstance(coordinator.data, dict):
+        parsed_data = coordinator.get_parsed_data()
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is not None and equip_runtime.has_equipment:
+            for equip in equip_runtime.equipment.values():
+                dr.async_get(hass).async_get_or_create(
+                    config_entry_id=entry.entry_id,
+                    **coordinator.get_equipment_device_info(equip),
+                )
 
     entry.async_on_unload(entry.add_update_listener(async_update_options_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

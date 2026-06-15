@@ -74,6 +74,9 @@
       "compressor": {
         "name": "Compressor"
       },
+      "enabled_by_group": {
+        "name": "Enabled by group"
+      },
       "fan": {
         "name": "Fan"
       },
@@ -89,6 +92,9 @@
       "online": {
         "name": "Online"
       },
+      "priming": {
+        "name": "Priming"
+      },
       "remote_control": {
         "name": "Ext control"
       },
@@ -102,6 +108,9 @@
       },
       "output": {
         "name": "Output"
+      },
+      "pump_rpm_control": {
+        "name": "Pump RPM"
       }
     },
     "sensor": {
@@ -156,6 +165,9 @@
       "flow_rate": {
         "name": "Flow rate"
       },
+      "group_info": {
+        "name": "Group info"
+      },
       "hardware_version": {
         "name": "Hardware version"
       },
@@ -178,6 +190,9 @@
       "pool_setpoint_temperature": {
         "name": "Pool setpoint temperature"
       },
+      "pump_rpm": {
+        "name": "Pump RPM"
+      },
       "salt_level": {
         "name": "Salt level"
       },
@@ -189,6 +204,9 @@
       },
       "top_fault_count": {
         "name": "Top fault count"
+      },
+      "valve_position": {
+        "name": "Valve position"
       },
       "water_temperature": {
         "name": "Water temperature"
@@ -215,6 +233,9 @@
           "cool_pool": "Cool Pool",
           "auto_pool": "Auto Pool"
         }
+      },
+      "valve_position": {
+        "name": "Valve position"
       }
     }
   }

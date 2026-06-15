@@ -13,6 +13,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -20,6 +21,7 @@ from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
 from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
+    get_equipment_runtime,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,6 +141,22 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
         ),
         lambda v: bool(v) if isinstance(v, int) else None,
     ),
+    (
+        BinarySensorEntityDescription(
+            key="heatpump_in_group",
+            translation_key="enabled_by_group",
+            entity_registry_enabled_default=True,
+        ),
+        None,
+    ),
+    (
+        BinarySensorEntityDescription(
+            key="pump_priming",
+            translation_key="priming",
+            entity_registry_enabled_default=True,
+        ),
+        None,
+    ),
 )
 
 
@@ -221,6 +239,30 @@ async def async_setup_entry(
             coordinator.name,
         )
 
+    # Equipment binary sensors
+    if equip_runtime := get_equipment_runtime(parsed_data):
+        equip_binary: list[PoolSyncBinarySensor] = []
+        for equip in equip_runtime.equipment.values():
+            device_info = coordinator.get_equipment_device_info(equip)
+            prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
+            if equip.is_pump:
+                for desc, vfn in [
+                    (d, v)
+                    for d, v in BINARY_SENSOR_DESCRIPTIONS_HEATPUMP
+                    if d.key == "pump_priming"
+                ]:
+                    s = PoolSyncBinarySensor(
+                        coordinator,
+                        "controller",
+                        desc,
+                        vfn,
+                        _device_info=device_info,
+                        _unique_id=f"{prefix}{desc.key}",
+                    )
+                    equip_binary.append(s)
+        if equip_binary:
+            async_add_entities(equip_binary)
+
 
 class PoolSyncBinarySensor(
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], BinarySensorEntity
@@ -235,12 +277,17 @@ class PoolSyncBinarySensor(
         role: PoolSyncDeviceInfoRole,
         description: BinarySensorEntityDescription,
         value_fn: Callable[[Any], bool | None] | None = None,
+        *,
+        _device_info: DeviceInfo | None = None,
+        _unique_id: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._value_fn = value_fn
-        self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.get_device_info(role)
+        self._attr_unique_id = _unique_id or (
+            f"{coordinator.mac_address}_{description.key}"
+        )
+        self._attr_device_info = _device_info or coordinator.get_device_info(role)
         self._update_attrs()
 
     @callback

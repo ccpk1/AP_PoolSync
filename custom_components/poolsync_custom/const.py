@@ -52,3 +52,24 @@ PLATFORMS = ["sensor", "binary_sensor", "number", "select", "button", "climate"]
 
 # Option keys
 OPTION_SCAN_INTERVAL = "scan_interval"
+
+# Equipment type constants (from equip[N][0])
+EQUIP_TYPE_VS_PUMP = 0
+EQUIP_TYPE_VALVE = 1
+EQUIP_TYPE_HEAT_PUMP = 3
+
+# Pump RPM multiplier (internal units × 50 = real RPM)
+PUMP_RPM_FACTOR = 50
+
+# Best-guess write key for pump RPM control.
+# Unknown until API traffic is captured; trial-and-error with beta users.
+EQUIP_PUMP_RPM_WRITE_KEY = "rpm"
+
+# Best-guess write key for valve position control.
+EQUIP_VALVE_POSITION_WRITE_KEY = "position"
+
+# Equipment slot indices (confirmed changing values)
+PUMP_IDX_CURRENT_SPEED = 7
+PUMP_IDX_PRIMING_FLAG = 14
+VALVE_IDX_MOVE_TIME = 5
+VALVE_IDX_POSITIONS_START = 8  # Pairs of (name, value) from here onward

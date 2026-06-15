@@ -11,7 +11,14 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     CHLORINATOR_ID,
+    EQUIP_TYPE_HEAT_PUMP,
+    EQUIP_TYPE_VALVE,
+    EQUIP_TYPE_VS_PUMP,
     HEATPUMP_ID,
+    PUMP_IDX_CURRENT_SPEED,
+    PUMP_IDX_PRIMING_FLAG,
+    PUMP_RPM_FACTOR,
+    VALVE_IDX_POSITIONS_START,
     WIFI_RSSI_FAIR_MIN,
     WIFI_RSSI_GOOD_MIN,
 )
@@ -202,6 +209,269 @@ class PoolSyncHeatPumpRuntime:
     pool_setpoint: int | float | None
     spa_setpoint: int | float | None
     active_target_temperature: int | float | None
+
+
+type PoolSyncEquipmentRole = Literal["equipment"]
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSyncEquipmentData:
+    """Parsed view of a single equipment entry from equip[N]."""
+
+    slot_key: str
+    equip_type: int
+    name: str
+    raw: list[Any]
+
+    @property
+    def is_pump(self) -> bool:
+        """Return whether this is a variable-speed pump."""
+        return self.equip_type == EQUIP_TYPE_VS_PUMP
+
+    @property
+    def is_valve(self) -> bool:
+        """Return whether this is a motorized valve."""
+        return self.equip_type == EQUIP_TYPE_VALVE
+
+    def get_int(self, index: int, default: int = 0) -> int:
+        """Safely read an int from a raw array index."""
+        if index < len(self.raw):
+            value = self.raw[index]
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+        return default
+
+    def get_str(self, index: int, default: str = "") -> str:
+        """Safely read a string from a raw array index."""
+        if index < len(self.raw) and isinstance(self.raw[index], str):
+            return self.raw[index]
+        return default
+
+
+@dataclass(frozen=True, slots=True)
+class PoolSyncEquipmentRuntime:
+    """Derived runtime state for all equipment under the heat pump."""
+
+    equipment: dict[str, PoolSyncEquipmentData]
+    raw_groups: dict[str, Any] | None
+
+    @property
+    def has_equipment(self) -> bool:
+        """Return whether any equipment is present."""
+        return len(self.equipment) > 0
+
+    @property
+    def active_group_name(self) -> str | None:
+        """Return the name of the currently active group, if any."""
+        if not isinstance(self.raw_groups, dict):
+            return None
+        for _group_key, group_data in self.raw_groups.items():
+            if not isinstance(group_data, dict):
+                continue
+            config = group_data.get("config")
+            if not isinstance(config, list) or len(config) < 4:
+                continue
+            active_state = config[3]
+            if isinstance(active_state, int) and active_state > 0:
+                name = config[0]
+                return name if isinstance(name, str) else None
+        return None
+
+    @property
+    def active_group_attributes(self) -> dict[str, Any] | None:
+        """Return attributes for the currently active group, or full group dump."""
+        if not isinstance(self.raw_groups, dict):
+            return None
+        result: dict[str, Any] = {}
+        for group_key, group_data in self.raw_groups.items():
+            if not isinstance(group_data, dict):
+                continue
+            config = group_data.get("config")
+            equip = group_data.get("equip")
+            result[group_key] = {
+                "config": config,
+                "equip": equip,
+            }
+        return result
+
+
+def _parse_raw_equipment(
+    raw_equip: dict[str, Any] | None,
+) -> dict[str, PoolSyncEquipmentData]:
+    """Parse device equip dict into typed equipment entries."""
+    if not isinstance(raw_equip, dict):
+        return {}
+
+    result: dict[str, PoolSyncEquipmentData] = {}
+    for slot_key, raw_entry in raw_equip.items():
+        if not isinstance(raw_entry, list) or len(raw_entry) < 2:
+            continue
+        equip_type = raw_entry[0]
+        if isinstance(equip_type, bool) or not isinstance(equip_type, int):
+            continue
+        name = raw_entry[1]
+        if not isinstance(name, str):
+            continue
+        result[slot_key] = PoolSyncEquipmentData(
+            slot_key=slot_key,
+            equip_type=equip_type,
+            name=name,
+            raw=raw_entry,
+        )
+    return result
+
+
+def get_equipment_runtime(
+    parsed_data: PoolSyncParsedData,
+) -> PoolSyncEquipmentRuntime | None:
+    """Return parsed equipment runtime, or None when no equipment present."""
+    if not parsed_data.heat_pump.is_present:
+        return None
+
+    raw_equip = (
+        parsed_data.heat_pump.data.get("equip") if parsed_data.heat_pump.data else None
+    )  # type: ignore[union-attr]
+    equipment = _parse_raw_equipment(raw_equip)
+    if not equipment:
+        return None
+
+    raw_groups = (
+        parsed_data.heat_pump.data.get("groups") if parsed_data.heat_pump.data else None
+    )  # type: ignore[union-attr]
+
+    return PoolSyncEquipmentRuntime(
+        equipment=equipment,
+        raw_groups=raw_groups if isinstance(raw_groups, dict) else None,
+    )
+
+
+def get_pump_rpm(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
+    """Return the current pump RPM from the first VS pump found in equipment."""
+    if equip_runtime is None:
+        return None
+    for equip in equip_runtime.equipment.values():
+        if equip.is_pump:
+            speed = equip.get_int(PUMP_IDX_CURRENT_SPEED)
+            if speed > 0:
+                return speed * PUMP_RPM_FACTOR
+    return None
+
+
+def get_pump_priming(equip_runtime: PoolSyncEquipmentRuntime | None) -> bool | None:
+    """Return whether the first VS pump is in priming mode."""
+    if equip_runtime is None:
+        return None
+    for equip in equip_runtime.equipment.values():
+        if equip.is_pump:
+            return equip.get_int(PUMP_IDX_PRIMING_FLAG) != 0
+    return None
+
+
+def get_pump_rpm_min(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
+    """Return min RPM for the first VS pump."""
+    if equip_runtime is None:
+        return None
+    for equip in equip_runtime.equipment.values():
+        if equip.is_pump:
+            val = equip.get_int(8)
+            return val * PUMP_RPM_FACTOR if val > 0 else None
+    return None
+
+
+def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
+    """Return max RPM for the first VS pump."""
+    if equip_runtime is None:
+        return None
+    for equip in equip_runtime.equipment.values():
+        if equip.is_pump:
+            val = equip.get_int(9)
+            return val * PUMP_RPM_FACTOR if val > 0 else None
+    return None
+
+
+def get_valve_position_name(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> str | None:
+    """Return the current valve position name from the active group."""
+    if equip_runtime is None or equip_runtime.active_group_name is None:
+        return None
+    if not isinstance(equip_runtime.raw_groups, dict):
+        return None
+
+    # Find the valve equipment first to get its position mapping
+    valve: PoolSyncEquipmentData | None = None
+    valve_slot: str | None = None
+    for slot_key, equip in equip_runtime.equipment.items():
+        if equip.is_valve:
+            valve = equip
+            valve_slot = slot_key
+            break
+
+    if valve is None or valve_slot is None:
+        return None
+
+    # Find the active group and read its valve position setting
+    for _group_key, group_data in equip_runtime.raw_groups.items():
+        if not isinstance(group_data, dict):
+            continue
+        config = group_data.get("config")
+        if not isinstance(config, list) or len(config) < 4:
+            continue
+        if not isinstance(config[3], int) or config[3] == 0:
+            continue
+
+        # This is the active group — read valve position
+        equip_map = group_data.get("equip")
+        if not isinstance(equip_map, dict):
+            continue
+        valve_setting = equip_map.get(valve_slot)
+        if not isinstance(valve_setting, list) or len(valve_setting) < 1:
+            continue
+        position_value = valve_setting[0]
+        if not isinstance(position_value, int):
+            continue
+
+        # Map position value through valve's named positions
+        idx = VALVE_IDX_POSITIONS_START
+        while idx + 1 < len(valve.raw):
+            pos_name = valve.raw[idx]
+            pos_val = valve.raw[idx + 1]
+            if isinstance(pos_name, str) and isinstance(pos_val, int):
+                if pos_val == position_value:
+                    return pos_name
+            idx += 2
+        return str(position_value)
+
+    return None
+
+
+def get_valve_position_options(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> list[str] | None:
+    """Return available position names for the first valve."""
+    if equip_runtime is None:
+        return None
+    for equip in equip_runtime.equipment.values():
+        if equip.is_valve:
+            options: list[str] = []
+            idx = VALVE_IDX_POSITIONS_START
+            while idx < len(equip.raw):
+                pos_name = equip.raw[idx]
+                if isinstance(pos_name, str):
+                    options.append(pos_name)
+                idx += 2
+            return options if options else None
+    return None
+
+
+def get_hp_in_group(equip_runtime: PoolSyncEquipmentRuntime | None) -> bool | None:
+    """Return whether the heat pump is enabled by the active group."""
+    if equip_runtime is None:
+        return None
+    hp_equip = equip_runtime.equipment.get("0")
+    if hp_equip is None or hp_equip.equip_type != EQUIP_TYPE_HEAT_PUMP:
+        return None
+    return hp_equip.get_int(7) != 0
 
 
 _AQUACAL_MODEL_NUMBER_PATTERN = re.compile(
@@ -784,6 +1054,9 @@ _NUMBER_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
+    "pump_rpm_control": lambda parsed_data: get_pump_rpm(
+        get_equipment_runtime(parsed_data)
+    ),
 }
 
 
@@ -822,6 +1095,12 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     ),
     "heatpump_ext_ctrl": lambda parsed_data: _get_dict_value(
         parsed_data.heat_pump.config, "extCtrlMode"
+    ),
+    "heatpump_in_group": lambda parsed_data: get_hp_in_group(
+        get_equipment_runtime(parsed_data)
+    ),
+    "pump_priming": lambda parsed_data: get_pump_priming(
+        get_equipment_runtime(parsed_data)
     ),
 }
 
@@ -926,6 +1205,19 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     "hp_top_fault_count": lambda parsed_data: (
         top[1] if (top := _get_top_fault_info(parsed_data.heat_pump.data)) else None
     ),
+    "pump_rpm": lambda parsed_data: get_pump_rpm(get_equipment_runtime(parsed_data)),
+    "pump_rpm_min": lambda parsed_data: get_pump_rpm_min(
+        get_equipment_runtime(parsed_data)
+    ),
+    "pump_rpm_max": lambda parsed_data: get_pump_rpm_max(
+        get_equipment_runtime(parsed_data)
+    ),
+    "valve_position": lambda parsed_data: get_valve_position_name(
+        get_equipment_runtime(parsed_data)
+    ),
+    "group_info": lambda parsed_data: (
+        er.active_group_name if (er := get_equipment_runtime(parsed_data)) else None
+    ),
 }
 
 
@@ -969,8 +1261,11 @@ def get_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
 
 def get_select_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
     """Return a select value from parsed runtime data."""
-    if key != "heat_mode":
-        return None
+    if key == "heat_mode":
+        runtime = get_heat_pump_runtime(parsed_data)
+        return runtime.mode_context if runtime is not None else None
 
-    runtime = get_heat_pump_runtime(parsed_data)
-    return runtime.mode_context if runtime is not None else None
+    if key == "valve_position":
+        return get_valve_position_name(get_equipment_runtime(parsed_data))
+
+    return None

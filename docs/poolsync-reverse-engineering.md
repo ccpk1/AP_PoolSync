@@ -191,42 +191,64 @@ T75 and SQ160R samples have all-null `equip`/`groups`/`schedules` — these stru
 
 **Source:** `devices[0].equip["1"]`
 
+Raw array (actual values from 1750 RPM sample):
 ```
-[0, "CIRCULATION PUMP", 2, 1, 0, 0, 0, curRPM, minRPM, maxRPM, defMax, startRPM, stopRPM, 0, priming]
+[0, "CIRCULATION PUMP", 2, 1, 0, 0, 0, 35, 12, 69, 69, 5, 58, 0, 0]
 ```
 
-| Index | Field | 1750 RPM | 3450 RPM (priming) | 2900 RPM | Unit |
-|-------|-------|----------|---------------------|----------|------|
-| 7 | Current RPM | 35 | 69 | 58 | ×50 = real RPM |
-| 8 | Min RPM | 12 | 12 | 12 | 600 real RPM |
-| 9 | Max RPM | 69 | 69 | 69 | 3450 real RPM |
-| 10 | Default max | 69 | 69 | 69 | 3450 real RPM |
-| 11 | Start RPM | 5 | 5 | 5 | 250 real RPM |
-| 12 | Stop RPM | 58 | 58 | 58 | 2900 real RPM |
-| 14 | Priming flag | 0 | 1 | 0 | bool |
+⚠️ **All field names below are inferred from observed behavior, not from any documentation or API schema.** The data is a positional array with no named keys.
+
+| Index | Inferred purpose | 1750 RPM | 3450 RPM (priming) | 2900 RPM | Basis for inference |
+|-------|-----------------|----------|---------------------|----------|---------------------|
+| 0 | Equipment type | 0 | 0 | 0 | Constant: always 0 |
+| 1 | Display name | "CIRCULATION PUMP" | "CIRCULATION PUMP" | "CIRCULATION PUMP" | String, matches device labeling |
+| 2 | Unknown | 2 | 2 | 2 | Constant; possibly pump class (2=VS) |
+| 3 | Unknown | 1 | 1 | 1 | Constant |
+| 4–6 | Unknown | 0,0,0 | 0,0,0 | 0,0,0 | Always zero in these samples |
+| 7 | **Current speed** | 35 | 69 | 58 | **Changes across samples; ×50 matches filename RPM values** |
+| 8 | Minimum speed | 12 | 12 | 12 | Constant; lowest value seen (12×50=600 RPM) |
+| 9 | Maximum speed | 69 | 69 | 69 | Constant; highest value seen (69×50=3450 RPM) |
+| 10 | Unknown | 69 | 69 | 69 | Same as index 9; possibly default max |
+| 11 | Unknown | 5 | 5 | 5 | Constant; very low (5×50=250 RPM) — possible soft-start |
+| 12 | Unknown | 58 | 58 | 58 | Constant; mid-range (58×50=2900 RPM) |
+| 13 | Unknown | 0 | 0 | 0 | Always zero |
+| 14 | **Flag** | 0 | 1 | 0 | **Correlates with priming state in filename** |
+
+**Only indices 7 and 14 are confirmed to change with operating state.** Indices 8–12 are constant across all three samples — they're likely static capability values (min/max RPM, etc.) but this is unconfirmed. Indices 2–6, 10, and 13 have unknown purpose.
 
 **RPM factor confirmed as ×50:** 35→1750, 58→2900, 69→3450 — all three match the filenames from the user.
 
-**Proposed entities:** `sensor` for current pump RPM, `binary_sensor` for priming, `number` for RPM control.
+**⚠️ Write key gap:** Equipment data is a positional array, not a named object like `config.{key}`. The read-side has no named keys to observe, so the write API key for setting pump speed is unknown. Candidates (`rpm`, `speed`, `pumpSpeed`) are guesses until API traffic is captured or trial-and-error confirms one. The existing write pattern (`PATCH … → config.{key}`) is proven for device-level config keys, but equipment-level writes may use a different path entirely.
+
+**Proposed entities:** `sensor` for current pump RPM (index 7 × 50), `binary_sensor` for priming flag (index 14), `number` for RPM control (requires write key discovery).
 
 #### F2. Motorized Return Valve (equipment type 1)
 
 **Source:** `devices[0].equip["3"]`
 
+Raw array:
 ```
 [1, "RETURN VALVE", 1, 0, 1, 300, 0, 0, "FOUNTAIN", 3, "POOL", 0, 0]
 ```
 
-| Index | Field | Value |
-|-------|-------|-------|
-| 0 | Type | 1 (valve/actuator) |
-| 5 | Move time | 300 ms |
-| 8 | Position 1 name | "FOUNTAIN" |
-| 9 | Position 1 value | 3 |
-| 10 | Position 2 name | "POOL" |
-| 11 | Position 2 value | 0 |
+⚠️ **All field names below are inferred.** Positional array, no named keys.
 
-**Proposed entities:** `select` for position, `sensor` for current position (derived from active group).
+| Index | Inferred purpose | Value | Basis |
+|-------|-----------------|-------|-------|
+| 0 | Equipment type | 1 | Constant: valve/actuator |
+| 1 | Display name | "RETURN VALVE" | String |
+| 2–4 | Unknown | 1, 0, 1 | Constant |
+| 5 | Movement time | 300 | Likely milliseconds for actuator travel |
+| 6–7 | Unknown | 0, 0 | Constant |
+| 8 | Position A name | "FOUNTAIN" | Named position in active groups |
+| 9 | Position A value | 3 | Matches valve setting in WATERFALL/AMBIANCE groups |
+| 10 | Position B name | "POOL" | Named position in active groups |
+| 11 | Position B value | 0 | Matches valve setting in POOL group |
+| 12 | Unknown | 0 | Constant |
+
+**⚠️ Write key gap:** Same issue as F1. The valve position write key is unknown.
+
+**Proposed entities:** `sensor` for current position (from active group's `equip["3"][0]`, mapped through names), `select` for position control (requires write key discovery).
 
 #### F3. Groups as Combined Equipment Scenes
 
@@ -352,7 +374,15 @@ The circulation pump has index 2 = 2. Could mean "variable speed" as opposed to 
 
 #### F14. Equipment Write API Format
 
-The write endpoint `PATCH /api/poolsync?cmd=devices&device={id}` currently sends `config.{key}`. Equipment and group writes may use a different command (`cmd=deviceConfig` or similar) with the equipment slot as a sub-path. Actual API traffic capture needed.
+The write endpoint `PATCH /api/poolsync?cmd=devices&device={id}` currently sends `config.{key}`. This pattern is proven for device-level config keys where the read payload has named objects (`config.setpoint`, `config.mode`, etc.) — the read key and write key match exactly.
+
+Equipment data, however, is stored as **positional arrays** in the read payload (`equip["1"] = [0, "CIRCULATION PUMP", ...]`). There are no named keys to observe and match against. This means:
+
+- We **cannot** determine equipment write keys from diagnostic data alone
+- The key name for setting pump speed or valve position is unknown
+- Candidates (`rpm`, `speed`, `pumpSpeed`, `position`, `valve`) are guesses
+
+**Resolution requires:** API traffic capture between the PoolSync app and device during equipment control operations, or trial-and-error with a willing beta user.
 
 #### F15. Multi-Unit Heat Pump
 

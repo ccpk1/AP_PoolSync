@@ -24,12 +24,17 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
-from .runtime import ensure_parsed_data, get_sensor_value
+from .runtime import (
+    ensure_parsed_data,
+    get_equipment_runtime,
+    get_sensor_value,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -389,6 +394,32 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
+    (
+        SensorEntityDescription(
+            key="pump_rpm",
+            translation_key="pump_rpm",
+            native_unit_of_measurement="RPM",
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="valve_position",
+            translation_key="valve_position",
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="group_info",
+            translation_key="group_info",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=True,
+        ),
+        None,
+    ),
 )
 
 
@@ -471,6 +502,52 @@ async def async_setup_entry(
             "Added %d PoolSync sensors for %s", len(sensors_to_add), coordinator.name
         )
 
+    # Equipment sensors: conditionally created when equip data is present
+    if equip_runtime := get_equipment_runtime(parsed_data):
+        equip_sensors: list[PoolSyncSensor] = []
+        for equip in equip_runtime.equipment.values():
+            device_info = coordinator.get_equipment_device_info(equip)
+            prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
+            if equip.is_pump:
+                for desc, vfn in [
+                    (d, v)
+                    for d, v in SENSOR_DESCRIPTIONS_HEATPUMP
+                    if d.key == "pump_rpm"
+                ]:
+                    s = PoolSyncSensor(
+                        coordinator,
+                        "controller",
+                        desc,
+                        vfn,
+                        _device_info=device_info,
+                        _unique_id=f"{prefix}{desc.key}",
+                    )
+                    equip_sensors.append(s)
+            elif equip.is_valve:
+                for desc, vfn in [
+                    (d, v)
+                    for d, v in SENSOR_DESCRIPTIONS_HEATPUMP
+                    if d.key == "valve_position"
+                ]:
+                    s = PoolSyncSensor(
+                        coordinator,
+                        "controller",
+                        desc,
+                        vfn,
+                        _device_info=device_info,
+                        _unique_id=f"{prefix}{desc.key}",
+                    )
+                    equip_sensors.append(s)
+
+        # Group info sensor on the controller device
+        for desc, vfn in [
+            (d, v) for d, v in SENSOR_DESCRIPTIONS_HEATPUMP if d.key == "group_info"
+        ]:
+            equip_sensors.append(PoolSyncSensor(coordinator, "controller", desc, vfn))
+
+        if equip_sensors:
+            async_add_entities(equip_sensors)
+
 
 class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEntity
@@ -485,12 +562,17 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         role: PoolSyncDeviceInfoRole,
         description: SensorEntityDescription,
         value_fn: Callable[[Any], Any] | None = None,
+        *,
+        _device_info: DeviceInfo | None = None,
+        _unique_id: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._value_fn = value_fn
-        self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.get_device_info(role)
+        self._attr_unique_id = _unique_id or (
+            f"{coordinator.mac_address}_{description.key}"
+        )
+        self._attr_device_info = _device_info or coordinator.get_device_info(role)
         self._update_attrs()
 
     @callback
@@ -535,11 +617,18 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
     ) -> dict[str, Any] | None:
         """Return additional state attributes for support-focused sensors."""
-        if self.entity_description.key != "wifi_signal_status":
+        parsed_data = ensure_parsed_data(self.coordinator)
+
+        if self.entity_description.key == "wifi_signal_status":
+            rssi = get_sensor_value(parsed_data, "wifi_rssi")
+            if isinstance(rssi, (int, float)):
+                return {"rssi_dbm": rssi}
             return None
 
-        rssi = get_sensor_value(ensure_parsed_data(self.coordinator), "wifi_rssi")
-        if not isinstance(rssi, (int, float)):
+        if self.entity_description.key == "group_info":
+            equip_runtime = get_equipment_runtime(parsed_data)
+            if equip_runtime is not None:
+                return equip_runtime.active_group_attributes
             return None
 
-        return {"rssi_dbm": rssi}
+        return None
