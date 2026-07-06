@@ -53,6 +53,7 @@ _DEFAULT_CHLORINATOR_NAME_PATTERN = re.compile(
     r"^ChlorSync(?:\s*(?:™|®|tm))?$",
     re.IGNORECASE,
 )
+_MAX_STALE_TRANSPORT_FAILURES = 3
 
 type PoolSyncDeviceInfoRole = Literal["controller", "chlorinator", "heat_pump"]
 type PoolSyncFailureClass = Literal[
@@ -90,6 +91,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_failure_class: PoolSyncFailureClass | None = None
         self.last_failure_detail: str | None = None
         self.last_failure_context: PoolSyncFailureContext | None = None
+        self._consecutive_transport_failures = 0
 
         logger_name = f"{DOMAIN}({self.mac_address or self._ip_address})"
 
@@ -411,6 +413,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             self.parsed_data = parse_poolsync_runtime_data(data)
+            self._consecutive_transport_failures = 0
             self._clear_last_failure()
             self._log_recovered_if_needed()
             return data
@@ -439,6 +442,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) from err
 
         except PoolSyncApiCommunicationError as err:
+            self._consecutive_transport_failures += 1
             self._set_last_failure(
                 "transport_error",
                 str(err),
@@ -454,6 +458,19 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.name,
                 err,
             )
+            if (
+                isinstance(self.data, dict)
+                and self._consecutive_transport_failures
+                <= _MAX_STALE_TRANSPORT_FAILURES
+            ):
+                _LOGGER.warning(
+                    "Coordinator %s: Keeping last known PoolSync data after transient communication failure %d/%d.",
+                    self.name,
+                    self._consecutive_transport_failures,
+                    _MAX_STALE_TRANSPORT_FAILURES,
+                )
+                return self.data
+
             raise UpdateFailed(
                 f"Error communicating with PoolSync device {self.name}: {err}"
             ) from err
