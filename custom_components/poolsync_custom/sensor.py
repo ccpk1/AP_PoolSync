@@ -24,12 +24,17 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
-from .runtime import ensure_parsed_data, get_sensor_value
+from .runtime import (
+    ensure_parsed_data,
+    get_equipment_runtime,
+    get_sensor_value,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -331,6 +336,90 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
+    (
+        SensorEntityDescription(
+            key="hp_water_temp2",
+            translation_key="outlet_water_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_ds1_temp",
+            translation_key="defrost_sensor_1_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_ds2_temp",
+            translation_key="defrost_sensor_2_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_top_fault_code",
+            translation_key="top_fault_code",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="hp_top_fault_count",
+            translation_key="top_fault_count",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="pump_rpm",
+            translation_key="pump_rpm",
+            native_unit_of_measurement="RPM",
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="valve_position",
+            translation_key="valve_position",
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="group_info",
+            translation_key="group_info",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=True,
+        ),
+        None,
+    ),
 )
 
 
@@ -351,6 +440,7 @@ def _build_sensor_entities(
 async def async_setup_entry(
     _hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
+    """Set up PoolSync sensors from a config entry."""
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     sensors_to_add: list[PoolSyncSensor] = []
     parsed_data = ensure_parsed_data(coordinator)
@@ -362,10 +452,12 @@ async def async_setup_entry(
 
     if not poolsync_data_present or devices is None:
         _LOGGER.warning(
-            "Coordinator %s: Initial data is missing 'poolSync' or 'devices' top-level keys. Sensor setup may be incomplete.",
+            "Coordinator %s: Initial data missing 'poolSync' or 'devices' keys."
+            " Sensor setup may be incomplete.",
             coordinator.name,
         )
-        # Still attempt to add sensors; they will become unavailable if their specific data is missing.
+        # Still attempt to add sensors; they will become unavailable
+        # if their specific data is missing.
 
     heatpump_id = parsed_data.heat_pump.device_id
     chlor_id = parsed_data.chlorinator.device_id
@@ -410,10 +502,58 @@ async def async_setup_entry(
             "Added %d PoolSync sensors for %s", len(sensors_to_add), coordinator.name
         )
 
+    # Equipment sensors: conditionally created when equip data is present
+    if equip_runtime := get_equipment_runtime(parsed_data):
+        equip_sensors: list[PoolSyncSensor] = []
+        for equip in equip_runtime.equipment.values():
+            device_info = coordinator.get_equipment_device_info(equip)
+            prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
+            if equip.is_pump:
+                for desc, vfn in [
+                    (d, v)
+                    for d, v in SENSOR_DESCRIPTIONS_HEATPUMP
+                    if d.key == "pump_rpm"
+                ]:
+                    s = PoolSyncSensor(
+                        coordinator,
+                        "controller",
+                        desc,
+                        vfn,
+                        _device_info=device_info,
+                        _unique_id=f"{prefix}{desc.key}",
+                    )
+                    equip_sensors.append(s)
+            elif equip.is_valve:
+                for desc, vfn in [
+                    (d, v)
+                    for d, v in SENSOR_DESCRIPTIONS_HEATPUMP
+                    if d.key == "valve_position"
+                ]:
+                    s = PoolSyncSensor(
+                        coordinator,
+                        "controller",
+                        desc,
+                        vfn,
+                        _device_info=device_info,
+                        _unique_id=f"{prefix}{desc.key}",
+                    )
+                    equip_sensors.append(s)
+
+        # Group info sensor on the controller device
+        for desc, vfn in [
+            (d, v) for d, v in SENSOR_DESCRIPTIONS_HEATPUMP if d.key == "group_info"
+        ]:
+            equip_sensors.append(PoolSyncSensor(coordinator, "controller", desc, vfn))
+
+        if equip_sensors:
+            async_add_entities(equip_sensors)
+
 
 class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], SensorEntity
 ):
+    """Representation of a PoolSync sensor entity."""
+
     _attr_has_entity_name = True
 
     def __init__(
@@ -422,12 +562,17 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         role: PoolSyncDeviceInfoRole,
         description: SensorEntityDescription,
         value_fn: Callable[[Any], Any] | None = None,
+        *,
+        _device_info: DeviceInfo | None = None,
+        _unique_id: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._value_fn = value_fn
-        self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.get_device_info(role)
+        self._attr_unique_id = _unique_id or (
+            f"{coordinator.mac_address}_{description.key}"
+        )
+        self._attr_device_info = _device_info or coordinator.get_device_info(role)
         self._update_attrs()
 
     @callback
@@ -468,13 +613,22 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         super()._handle_coordinator_update()
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
+    def extra_state_attributes(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> dict[str, Any] | None:
         """Return additional state attributes for support-focused sensors."""
-        if self.entity_description.key != "wifi_signal_status":
+        parsed_data = ensure_parsed_data(self.coordinator)
+
+        if self.entity_description.key == "wifi_signal_status":
+            rssi = get_sensor_value(parsed_data, "wifi_rssi")
+            if isinstance(rssi, (int, float)):
+                return {"rssi_dbm": rssi}
             return None
 
-        rssi = get_sensor_value(ensure_parsed_data(self.coordinator), "wifi_rssi")
-        if not isinstance(rssi, (int, float)):
+        if self.entity_description.key == "group_info":
+            equip_runtime = get_equipment_runtime(parsed_data)
+            if equip_runtime is not None:
+                return equip_runtime.active_group_attributes
             return None
 
-        return {"rssi_dbm": rssi}
+        return None

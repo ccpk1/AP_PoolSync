@@ -85,14 +85,15 @@ def _build_number_entities(
     for description, value_fn in descriptions:
         current_value = get_number_value(parsed_data, description.key)
         if current_value is None:
-            _LOGGER.warning(
-                "NUMBER_PLATFORM: Coordinator %s: Value for number entity %s is None. Entity may be unavailable or show an unexpected state initially.",
+            _LOGGER.debug(
+                "Coordinator %s: Value for number entity %s is None."
+                " Entity will show unavailable until data arrives.",
                 coordinator.name,
                 description.key,
             )
         else:
             _LOGGER.debug(
-                "NUMBER_PLATFORM: Coordinator %s: Initial value for number entity %s is %s.",
+                "Coordinator %s: Initial value for number entity %s is %s.",
                 coordinator.name,
                 description.key,
                 current_value,
@@ -113,32 +114,24 @@ async def async_setup_entry(
     """Set up PoolSync number entities based on a config entry."""
     del hass
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
-    _LOGGER.debug(
-        "NUMBER_PLATFORM: Starting async_setup_entry for %s.", coordinator.name
-    )
+    _LOGGER.debug("Starting number platform setup for %s.", coordinator.name)
 
     number_entities: list[PoolSyncChlorOutputNumberEntity] = []
 
-    _LOGGER.info(
-        "NUMBER_PLATFORM: Starting async_setup_entry for %s.", coordinator.name
-    )
     if not coordinator.data:
-        _LOGGER.warning(
-            "NUMBER_PLATFORM: Coordinator %s has no data. Cannot set up number entities.",
+        _LOGGER.debug(
+            "Coordinator %s has no data. Cannot set up number entities.",
             coordinator.name,
         )
         return
 
     if not isinstance(coordinator.data.get("devices"), dict):
-        _LOGGER.warning(
-            "NUMBER_PLATFORM: Coordinator %s data is missing 'devices' dictionary. Cannot set up Chlorinator Output.",
+        _LOGGER.debug(
+            "Coordinator %s data is missing 'devices' dictionary."
+            " Cannot set up number entities.",
             coordinator.name,
         )
         return
-
-    _LOGGER.debug(
-        "NUMBER_PLATFORM: Coordinator data includes a devices dictionary. Proceeding to create number entities."
-    )
 
     parsed_data = ensure_parsed_data(coordinator)
     heatpump_id = parsed_data.heat_pump.device_id
@@ -151,8 +144,9 @@ async def async_setup_entry(
             )
         )
     elif chlor_id:
-        _LOGGER.warning(
-            "NUMBER_PLATFORM: Coordinator %s data is missing chlorinator device %s. Skipping chlorinator number entities.",
+        _LOGGER.debug(
+            "Coordinator %s data is missing chlorinator device %s."
+            " Skipping chlorinator number entities.",
             coordinator.name,
             chlor_id,
         )
@@ -164,25 +158,24 @@ async def async_setup_entry(
             )
         )
     elif heatpump_id:
-        _LOGGER.warning(
-            "NUMBER_PLATFORM: Coordinator %s data is missing heat pump device %s. Skipping heat pump number entities.",
+        _LOGGER.debug(
+            "Coordinator %s data is missing heat pump device %s."
+            " Skipping heat pump number entities.",
             coordinator.name,
             heatpump_id,
         )
 
     if number_entities:
-        _LOGGER.debug(
-            "NUMBER_PLATFORM: Adding %d number entities.", len(number_entities)
-        )
+        _LOGGER.debug("Adding %d number entities.", len(number_entities))
         async_add_entities(number_entities)
         _LOGGER.info(
-            "NUMBER_PLATFORM: Added %d PoolSync number entities for %s",
+            "Added %d PoolSync number entities for %s",
             len(number_entities),
             coordinator.name,
         )
     else:
-        _LOGGER.warning(
-            "NUMBER_PLATFORM: No number entities were created for %s. Check descriptions and parsed data.",
+        _LOGGER.debug(
+            "No number entities were created for %s.",
             coordinator.name,
         )
 

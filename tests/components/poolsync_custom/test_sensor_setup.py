@@ -454,9 +454,7 @@ async def test_async_setup_entry_warns_on_missing_top_level_keys(hass, caplog) -
 
     await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
 
-    assert (
-        "Initial data is missing 'poolSync' or 'devices' top-level keys" in caplog.text
-    )
+    assert "Initial data missing 'poolSync' or 'devices' keys" in caplog.text
     assert added_entities
 
 

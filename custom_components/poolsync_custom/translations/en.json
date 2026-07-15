@@ -74,6 +74,9 @@
       "compressor": {
         "name": "Compressor"
       },
+      "enabled_by_group": {
+        "name": "Enabled by group"
+      },
       "fan": {
         "name": "Fan"
       },
@@ -89,6 +92,12 @@
       "online": {
         "name": "Online"
       },
+      "priming": {
+        "name": "Priming"
+      },
+      "remote_control": {
+        "name": "Ext control"
+      },
       "service_mode": {
         "name": "Service mode"
       }
@@ -99,6 +108,9 @@
       },
       "output": {
         "name": "Output"
+      },
+      "pump_rpm_control": {
+        "name": "Pump RPM"
       }
     },
     "sensor": {
@@ -135,6 +147,12 @@
       "date_time": {
         "name": "Date and time"
       },
+      "defrost_sensor_1_temperature": {
+        "name": "Defrost sensor 1 temperature"
+      },
+      "defrost_sensor_2_temperature": {
+        "name": "Defrost sensor 2 temperature"
+      },
       "fault_code": {
         "name": "Fault code",
         "state": {
@@ -146,6 +164,9 @@
       },
       "flow_rate": {
         "name": "Flow rate"
+      },
+      "group_info": {
+        "name": "Group info"
       },
       "hardware_version": {
         "name": "Hardware version"
@@ -163,14 +184,29 @@
       "output_setting": {
         "name": "Output setting"
       },
+      "outlet_water_temperature": {
+        "name": "Water temperature out"
+      },
       "pool_setpoint_temperature": {
         "name": "Pool setpoint temperature"
+      },
+      "pump_rpm": {
+        "name": "Pump RPM"
       },
       "salt_level": {
         "name": "Salt level"
       },
       "spa_setpoint_temperature": {
         "name": "Spa setpoint temperature"
+      },
+      "top_fault_code": {
+        "name": "Top fault code"
+      },
+      "top_fault_count": {
+        "name": "Top fault count"
+      },
+      "valve_position": {
+        "name": "Valve position"
       },
       "water_temperature": {
         "name": "Water temperature"
