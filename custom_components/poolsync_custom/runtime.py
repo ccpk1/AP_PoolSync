@@ -1228,8 +1228,7 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
     ),
     "group_info": lambda parsed_data: (
         ",".join(er.active_group_names)
-        if (er := get_equipment_runtime(parsed_data))
-        and er.active_group_names
+        if (er := get_equipment_runtime(parsed_data)) and er.active_group_names
         else None
     ),
 }
