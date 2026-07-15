@@ -318,13 +318,13 @@ class TestActiveGroup:
         """Filtration snapshot: FILTRATION should be active."""
         er = get_equipment_runtime(parsed_090_filtration)
         assert er is not None
-        assert er.active_group_name == "FILTRATION"
+        assert er.active_group_names == ["FILTRATION"]
 
     def test_pool_group_active(self, parsed_090_pool) -> None:
         """Pool snapshot: POOL should be active."""
         er = get_equipment_runtime(parsed_090_pool)
         assert er is not None
-        assert er.active_group_name == "POOL"
+        assert er.active_group_names == ["POOL"]
 
     def test_group_attributes_present(self, parsed_090_filtration) -> None:
         """Group attributes should have entries for all non-null groups."""

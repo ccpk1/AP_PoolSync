@@ -261,10 +261,16 @@ class PoolSyncEquipmentRuntime:
         return len(self.equipment) > 0
 
     @property
-    def active_group_name(self) -> str | None:
-        """Return the name of the currently active group, if any."""
+    def active_group_names(self) -> list[str]:
+        """Return the names of all currently active groups.
+
+        Groups are additive — multiple groups can be active simultaneously.
+        The device merges their equipment settings (highest temp, fastest
+        RPM, lowest valve position).
+        """
         if not isinstance(self.raw_groups, dict):
-            return None
+            return []
+        active: list[str] = []
         for _group_key, group_data in self.raw_groups.items():
             if not isinstance(group_data, dict):
                 continue
@@ -274,8 +280,9 @@ class PoolSyncEquipmentRuntime:
             active_state = config[3]
             if isinstance(active_state, int) and active_state > 0:
                 name = config[0]
-                return name if isinstance(name, str) else None
-        return None
+                if isinstance(name, str):
+                    active.append(name)
+        return active
 
     @property
     def active_group_attributes(self) -> dict[str, Any] | None:
@@ -392,8 +399,12 @@ def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | No
 def get_valve_position_name(
     equip_runtime: PoolSyncEquipmentRuntime | None,
 ) -> str | None:
-    """Return the current valve position name from the active group."""
-    if equip_runtime is None or equip_runtime.active_group_name is None:
+    """Return the current valve position name from active groups.
+
+    When multiple groups are active, the first group that sets the valve
+    position wins (order is undefined by the device).
+    """
+    if equip_runtime is None:
         return None
     if not isinstance(equip_runtime.raw_groups, dict):
         return None
@@ -410,7 +421,7 @@ def get_valve_position_name(
     if valve is None or valve_slot is None:
         return None
 
-    # Find the active group and read its valve position setting
+    # Scan all active groups for a valve position setting
     for _group_key, group_data in equip_runtime.raw_groups.items():
         if not isinstance(group_data, dict):
             continue
@@ -420,7 +431,7 @@ def get_valve_position_name(
         if not isinstance(config[3], int) or config[3] == 0:
             continue
 
-        # This is the active group — read valve position
+        # This is an active group — check for valve setting
         equip_map = group_data.get("equip")
         if not isinstance(equip_map, dict):
             continue
@@ -1216,7 +1227,10 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
         get_equipment_runtime(parsed_data)
     ),
     "group_info": lambda parsed_data: (
-        er.active_group_name if (er := get_equipment_runtime(parsed_data)) else None
+        ",".join(er.active_group_names)
+        if (er := get_equipment_runtime(parsed_data))
+        and er.active_group_names
+        else None
     ),
 }
 
@@ -1261,11 +1275,8 @@ def get_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
 
 def get_select_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
     """Return a select value from parsed runtime data."""
-    if key == "heat_mode":
-        runtime = get_heat_pump_runtime(parsed_data)
-        return runtime.mode_context if runtime is not None else None
+    if key != "heat_mode":
+        return None
 
-    if key == "valve_position":
-        return get_valve_position_name(get_equipment_runtime(parsed_data))
-
-    return None
+    runtime = get_heat_pump_runtime(parsed_data)
+    return runtime.mode_context if runtime is not None else None

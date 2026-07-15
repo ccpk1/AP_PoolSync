@@ -246,9 +246,9 @@ Raw array:
 | 11 | Position B value | 0 | Matches valve setting in POOL group |
 | 12 | Unknown | 0 | Constant |
 
-**⚠️ Write key gap:** Same issue as F1. The valve position write key is unknown.
+**⚠️ Write key gap:** Same issue as F1. Additionally, user feedback (2026-07-15) indicates **valve position is not independently controllable** — it's a side effect of group membership. Changing the valve requires changing which groups are active. An independent write control would not work.
 
-**Proposed entities:** `sensor` for current position (from active group's `equip["3"][0]`, mapped through names), `select` for position control (requires write key discovery).
+**Proposed entities:** `sensor` for current position (from active group's `equip["3"][0]`, mapped through names). No select control.
 
 #### F3. Groups as Combined Equipment Scenes
 
@@ -273,9 +273,9 @@ Group equip sub-object maps equipment IDs to settings for that group:
 | AMBIANCE | [44, 0] | 2200 | [3, 0] = FOUNTAIN | — |
 | CLEANER | [69, 0] | 3450 | — | — |
 
-**Mutual exclusion confirmed:** When POOL group is active (index 3 = 2), FILTRATION is inactive (index 3 = 0). When FILTRATION is active (index 3 = 1), POOL is inactive (index 3 = 0).
+**⚠️ User feedback (2026-07-15): Groups are additive, not mutually exclusive.** Multiple groups can be active simultaneously. The device merges settings from all active groups (highest temperature, fastest pump RPM, and an unknown merge strategy for valve positions). Our initial "mutual exclusion" conclusion was based on three snapshots that happened to only have one group active at a time.
 
-**Proposed entities:** `select` for active group, `sensor` for active group name.
+**Proposed entities:** `sensor` for active group names (comma-separated). `select` for group activation (deferred — requires API key discovery).
 
 #### F4. Heat Pump Active-in-Group Flag
 

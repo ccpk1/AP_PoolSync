@@ -22,11 +22,9 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
     EQUIP_PUMP_RPM_WRITE_KEY,
-    EQUIP_VALVE_POSITION_WRITE_KEY,
     MANUFACTURER,
     MODEL,
     PUMP_RPM_FACTOR,
-    VALVE_IDX_POSITIONS_START,
 )
 from .runtime import (
     HEAT_PUMP_CONFIG_MODE_AUTO,
@@ -47,7 +45,6 @@ from .runtime import (
     PoolSyncHeatPumpModeContext,
     PoolSyncParsedData,
     ensure_parsed_data,
-    get_equipment_runtime,
     get_heat_pump_climate_preset_mode,
     get_heat_pump_runtime,
     get_role_data,
@@ -684,46 +681,3 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
         except Exception as err:
             self._raise_write_error("pump RPM", err)
-
-    async def async_set_valve_position(self, position: str) -> None:
-        """Set the valve position via the heat pump device config."""
-        if not self.password:
-            raise HomeAssistantError("API password not available")
-
-        parsed_data = self.get_parsed_data()
-        if parsed_data.heat_pump.device_id is None:
-            raise HomeAssistantError("Valve write target is not available")
-
-        equip_runtime = get_equipment_runtime(parsed_data)
-        if equip_runtime is None:
-            raise HomeAssistantError("No equipment data available")
-
-        # Find the position value for the given name
-        position_value: int | None = None
-        for equip in equip_runtime.equipment.values():
-            if equip.is_valve:
-                idx = VALVE_IDX_POSITIONS_START
-                while idx + 1 < len(equip.raw):
-                    if (
-                        isinstance(equip.raw[idx], str)
-                        and equip.raw[idx] == position
-                        and isinstance(equip.raw[idx + 1], int)
-                    ):
-                        position_value = equip.raw[idx + 1]
-                        break
-                    idx += 2
-                break
-
-        if position_value is None:
-            raise HomeAssistantError(f"Unknown valve position: {position}")
-
-        try:
-            await self.api_client.async_set_device_config_value(
-                device_id=parsed_data.heat_pump.device_id,
-                key_id=EQUIP_VALVE_POSITION_WRITE_KEY,
-                value=position_value,
-                password=self.password,
-            )
-            await self.async_request_refresh()
-        except Exception as err:
-            self._raise_write_error("valve position", err)

@@ -233,9 +233,6 @@
           "cool_pool": "Cool Pool",
           "auto_pool": "Auto Pool"
         }
-      },
-      "valve_position": {
-        "name": "Valve position"
       }
     }
   }

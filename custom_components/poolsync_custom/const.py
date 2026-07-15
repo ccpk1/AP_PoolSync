@@ -65,9 +65,6 @@ PUMP_RPM_FACTOR = 50
 # Unknown until API traffic is captured; trial-and-error with beta users.
 EQUIP_PUMP_RPM_WRITE_KEY = "rpm"
 
-# Best-guess write key for valve position control.
-EQUIP_VALVE_POSITION_WRITE_KEY = "position"
-
 # Equipment slot indices (confirmed changing values)
 PUMP_IDX_CURRENT_SPEED = 7
 PUMP_IDX_PRIMING_FLAG = 14
