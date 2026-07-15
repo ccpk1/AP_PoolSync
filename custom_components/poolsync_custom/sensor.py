@@ -66,7 +66,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
         SensorEntityDescription(
             key="water_temp",
             translation_key="water_temperature",
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
