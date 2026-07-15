@@ -225,7 +225,9 @@ class PoolSyncApiClient:
                     body=response_text,
                 )
         except ClientConnectorError as err:
-            _LOGGER.error("Network connection error for %s: %s", self._ip_address, err)
+            _LOGGER.warning(
+                "Network connection error for %s: %s", self._ip_address, err
+            )
             raise PoolSyncApiCommunicationError(
                 f"Cannot connect to PoolSync device at {self._ip_address}: {err}"
             ) from err
@@ -237,6 +239,8 @@ class PoolSyncApiClient:
                 f"Request to {url} timed out after {HTTP_TIMEOUT}s"
             ) from err
         except ClientError as err:
+            # Catches remaining aiohttp ClientError subclasses not covered above
+            # (e.g. ServerDisconnectedError, ClientPayloadError).
             _LOGGER.warning(
                 "HTTP client communication error for %s accessing %s: %s",
                 self._ip_address,
