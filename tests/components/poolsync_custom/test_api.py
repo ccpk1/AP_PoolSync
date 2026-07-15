@@ -10,6 +10,7 @@ import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from aiohttp.client_exceptions import ServerDisconnectedError
 
 from custom_components.poolsync_custom.api import (
     PoolSyncApiAuthError,
@@ -114,6 +115,17 @@ async def test_request_raises_timeout_as_communication_error() -> None:
         await client._request("GET", "/api/poolsync?cmd=test")
 
     assert f"http://{TEST_IP_ADDRESS}/api/poolsync?cmd=test" in str(err.value)
+
+
+async def test_request_raises_client_disconnect_as_communication_error() -> None:
+    """Test aiohttp disconnects are surfaced as communication errors."""
+    session = Mock()
+    session.request.side_effect = ServerDisconnectedError
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    with pytest.raises(PoolSyncApiCommunicationError, match="Communication error"):
+        await client._request("GET", "/api/poolsync?cmd=test")
 
 
 async def test_request_raises_non_auth_http_error_with_status_and_body() -> None:

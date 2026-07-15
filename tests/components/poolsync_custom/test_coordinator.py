@@ -107,6 +107,40 @@ async def test_refresh_classifies_transport_failure(hass) -> None:
     }
 
 
+async def test_refresh_keeps_stale_data_for_transient_transport_failures(hass) -> None:
+    """Test short transport outages keep the last known device data."""
+    api_client = Mock()
+    previous_data = {"poolSync": {}, "devices": {}}
+    api_client.get_all_data = AsyncMock(
+        side_effect=[
+            previous_data,
+            PoolSyncApiCommunicationError("connection reset"),
+            PoolSyncApiCommunicationError("connection reset"),
+            PoolSyncApiCommunicationError("connection reset"),
+            PoolSyncApiCommunicationError("connection reset"),
+        ]
+    )
+    coordinator = _build_coordinator(hass, api_client)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data == previous_data
+    assert coordinator.last_update_success
+
+    for _ in range(3):
+        await coordinator.async_refresh()
+        assert coordinator.data == previous_data
+        assert coordinator.last_update_success
+        assert coordinator.last_failure_class == "transport_error"
+        assert coordinator.last_failure_detail == "connection reset"
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data == previous_data
+    assert coordinator.last_update_success is False
+    assert coordinator.last_failure_class == "transport_error"
+
+
 async def test_refresh_classifies_auth_failure(hass) -> None:
     """Test auth failures are recorded as auth errors."""
     api_client = Mock()

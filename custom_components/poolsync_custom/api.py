@@ -8,7 +8,7 @@ from typing import Any
 
 import aiohttp
 from aiohttp import DummyCookieJar
-from aiohttp.client_exceptions import ClientConnectorError
+from aiohttp.client_exceptions import ClientConnectorError, ClientError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -235,6 +235,16 @@ class PoolSyncApiClient:
             )
             raise PoolSyncApiCommunicationError(
                 f"Request to {url} timed out after {HTTP_TIMEOUT}s"
+            ) from err
+        except ClientError as err:
+            _LOGGER.warning(
+                "HTTP client communication error for %s accessing %s: %s",
+                self._ip_address,
+                url,
+                err,
+            )
+            raise PoolSyncApiCommunicationError(
+                f"Communication error talking to PoolSync device at {self._ip_address}: {err}"
             ) from err
         except PoolSyncApiError:
             raise
