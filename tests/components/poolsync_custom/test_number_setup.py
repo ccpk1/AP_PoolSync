@@ -32,7 +32,7 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
     coordinator.get_device_info = Mock(
-        side_effect=lambda role: {
+        side_effect=lambda role, index=0: {
             "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
         }
     )

@@ -65,20 +65,28 @@ async def async_setup_entry(
     coordinator = cast(PoolSyncDataUpdateCoordinator, entry.runtime_data)
     parsed_data = ensure_parsed_data(coordinator)
 
-    if not parsed_data.heat_pump.is_present:
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices:
         return
 
-    async_add_entities(
-        [
+    entities: list[PoolSyncHeatPumpClimateEntity] = []
+    for index, device in enumerate(hp_devices):
+        if not device.is_present:
+            continue
+        entities.append(
             PoolSyncHeatPumpClimateEntity(
                 coordinator,
                 ClimateEntityDescription(
                     key="water_thermostat",
                     translation_key="water_thermostat",
                 ),
+                device_index=index,
+                device_node_addr=device.node_addr,
             )
-        ]
-    )
+        )
+
+    if entities:
+        async_add_entities(entities)
 
 
 class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -102,16 +110,32 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: ClimateEntityDescription,
+        device_index: int = 0,
+        device_node_addr: int | None = None,
     ) -> None:
         """Initialize the heat-pump climate entity."""
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.get_device_info("heat_pump")
+        self._device_index = device_index
+        self._device_node_addr = device_node_addr
+        self._attr_unique_id = self._build_unique_id(
+            coordinator.mac_address, description.key
+        )
+        self._attr_device_info = coordinator.get_device_info(
+            "heat_pump", index=device_index
+        )
         self._last_on_preset_mode: PoolSyncHeatPumpClimatePresetMode = (
             HEAT_PUMP_PRESET_POOL
         )
         self._update_attrs()
+
+    def _build_unique_id(self, mac_address: str, key: str) -> str:
+        """Build a stable unique ID, preserving BC for first-instance entities."""
+        if self._device_index == 0:
+            return f"{mac_address}_{key}"
+        if self._device_node_addr is not None:
+            return f"{mac_address}_heat_pump_{self._device_node_addr}_{key}"
+        return f"{mac_address}_heat_pump_{self._device_index}_{key}"
 
     async def async_added_to_hass(self) -> None:
         """Restore last preset state when the entity is added."""
@@ -206,6 +230,7 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
         await self.coordinator.async_set_heat_pump_climate_mode(
             hvac_mode=cast(PoolSyncHeatPumpClimateHvacMode, hvac_mode.value),
             preset_mode=target_preset,
+            index=self._device_index,
         )
 
     def set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -270,6 +295,7 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
         await self.coordinator.async_set_heat_pump_climate_mode(
             hvac_mode=cast(PoolSyncHeatPumpClimateHvacMode, hvac_mode.value),
             preset_mode=self._last_on_preset_mode,
+            index=self._device_index,
         )
 
     def set_preset_mode(self, preset_mode: str) -> None:
@@ -290,6 +316,7 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
                 PoolSyncHeatPumpClimatePresetMode,
                 self.preset_mode or self._last_on_preset_mode,
             ),
+            index=self._device_index,
         )
 
     def set_temperature(self, **kwargs: Any) -> None:

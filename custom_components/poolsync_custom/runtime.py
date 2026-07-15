@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,11 +11,9 @@ from typing import Any, Literal, cast
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
-    CHLORINATOR_ID,
     EQUIP_TYPE_HEAT_PUMP,
     EQUIP_TYPE_VALVE,
     EQUIP_TYPE_VS_PUMP,
-    HEATPUMP_ID,
     PUMP_IDX_CURRENT_SPEED,
     PUMP_IDX_PRIMING_FLAG,
     PUMP_RPM_FACTOR,
@@ -23,7 +22,9 @@ from .const import (
     WIFI_RSSI_GOOD_MIN,
 )
 
-type PoolSyncDeviceRole = Literal["chlorinator", "heat_pump"]
+_LOGGER = logging.getLogger(__name__)
+
+type PoolSyncDeviceRole = str
 type PoolSyncHeatPumpModeContext = Literal[
     "off", "heat_pool", "heat_spa", "cool_pool", "auto_pool"
 ]
@@ -46,6 +47,38 @@ HEAT_PUMP_CONFIG_MODE_AUTO = 3
 HEAT_PUMP_POOL_SPA_MODE_SPA = 1
 HEAT_PUMP_CTRL_FLAGS_COMPRESSOR = 4
 HEAT_PUMP_CTRL_FLAGS_FAN = 8
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceTypeInfo:
+    """Metadata for a known PoolSync device type."""
+
+    api_device_type: str
+    role_key: str
+    default_name: str
+    default_model: str
+
+
+DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeInfo] = {
+    "chlorSync": DeviceTypeInfo(
+        api_device_type="chlorSync",
+        role_key="chlorinator",
+        default_name="ChlorSync",
+        default_model="ChlorSync",
+    ),
+    "heatPump": DeviceTypeInfo(
+        api_device_type="heatPump",
+        role_key="heat_pump",
+        default_name="Heat Pump",
+        default_model="Heat Pump",
+    ),
+}
+
+# Reverse lookup: role_key → DeviceTypeInfo
+# Built from DEVICE_TYPE_REGISTRY so it stays in sync automatically.
+ROLE_KEY_REGISTRY: dict[str, DeviceTypeInfo] = {
+    info.role_key: info for info in DEVICE_TYPE_REGISTRY.values()
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +132,8 @@ class PoolSyncDeviceRoleData:
     role: PoolSyncDeviceRole
     device_id: str | None
     data: dict[str, Any] | None
+    node_addr: int | None = None
+    index: int = 0
 
     @property
     def is_detected(self) -> bool:
@@ -148,8 +183,23 @@ class PoolSyncParsedData:
     """Normalized read model for the latest PoolSync payload."""
 
     system: PoolSyncSystemData
-    chlorinator: PoolSyncDeviceRoleData
-    heat_pump: PoolSyncDeviceRoleData
+    devices: dict[str, list[PoolSyncDeviceRoleData]]
+
+    @property
+    def chlorinator(self) -> PoolSyncDeviceRoleData:
+        """Return the first chlorinator device, or an empty sentinel."""
+        devices = self.devices.get("chlorinator", [])
+        if devices:
+            return devices[0]
+        return PoolSyncDeviceRoleData(role="chlorinator", device_id=None, data=None)
+
+    @property
+    def heat_pump(self) -> PoolSyncDeviceRoleData:
+        """Return the first heat pump device, or an empty sentinel."""
+        devices = self.devices.get("heat_pump", [])
+        if devices:
+            return devices[0]
+        return PoolSyncDeviceRoleData(role="heat_pump", device_id=None, data=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,19 +382,17 @@ def get_equipment_runtime(
     parsed_data: PoolSyncParsedData,
 ) -> PoolSyncEquipmentRuntime | None:
     """Return parsed equipment runtime, or None when no equipment present."""
-    if not parsed_data.heat_pump.is_present:
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices or not hp_devices[0].is_present:
         return None
 
-    raw_equip = (
-        parsed_data.heat_pump.data.get("equip") if parsed_data.heat_pump.data else None
-    )  # type: ignore[union-attr]
+    hp_data = hp_devices[0].data
+    raw_equip = hp_data.get("equip") if hp_data else None
     equipment = _parse_raw_equipment(raw_equip)
     if not equipment:
         return None
 
-    raw_groups = (
-        parsed_data.heat_pump.data.get("groups") if parsed_data.heat_pump.data else None
-    )  # type: ignore[union-attr]
+    raw_groups = hp_data.get("groups") if hp_data else None
 
     return PoolSyncEquipmentRuntime(
         equipment=equipment,
@@ -539,10 +587,15 @@ def ensure_parsed_data(
 
 
 def get_role_data(
-    parsed_data: PoolSyncParsedData, role: PoolSyncDeviceRole
-) -> PoolSyncDeviceRoleData:
-    """Return normalized data for a known device role."""
-    return parsed_data.chlorinator if role == "chlorinator" else parsed_data.heat_pump
+    parsed_data: PoolSyncParsedData,
+    role_key: str,
+    index: int = 0,
+) -> PoolSyncDeviceRoleData | None:
+    """Return normalized data for a device role at a given index."""
+    devices = parsed_data.devices.get(role_key, [])
+    if index < len(devices):
+        return devices[index]
+    return None
 
 
 def _get_dict_value(section: dict[str, Any] | None, key: str) -> Any:
@@ -635,23 +688,93 @@ def _heat_pump_fan_running(ctrl_flags_raw: int) -> bool:
     return (ctrl_flags_raw & HEAT_PUMP_CTRL_FLAGS_FAN) != 0
 
 
-def _resolve_device_role_ids(data: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Resolve heat pump and chlorinator device IDs from payload data."""
-    heatpump_id: str | None = HEATPUMP_ID
-    chlorinator_id: str | None = CHLORINATOR_ID
+def _resolve_device_types(data: dict[str, Any]) -> dict[str, list[str]]:
+    """Resolve all known device types from the deviceType map.
 
-    if isinstance(data.get("deviceType"), dict):
-        device_types = cast(dict[str, str], data["deviceType"])
-        heatpump_id = next(
-            (key for key, value in device_types.items() if value == "heatPump"),
-            None,
-        )
-        chlorinator_id = next(
-            (key for key, value in device_types.items() if value == "chlorSync"),
-            None,
-        )
+    Returns {role_key: [device_id, ...]} for every registered device type
+    found in the API payload. Unknown device types are logged and skipped.
+    Device iteration is sorted by numeric key for deterministic ordering.
+    """
+    result: dict[str, list[str]] = {}
 
-    return heatpump_id, chlorinator_id
+    device_types = data.get("deviceType")
+    if not isinstance(device_types, dict):
+        return result
+
+    for device_id in sorted(
+        device_types,
+        key=lambda k: int(k) if isinstance(k, str) and k.isdigit() else k,
+    ):
+        api_type = device_types[device_id]
+        if not isinstance(api_type, str):
+            continue
+
+        info = DEVICE_TYPE_REGISTRY.get(api_type)
+        if info is None:
+            _LOGGER.debug(
+                "Unrecognized PoolSync device type %r at key %s",
+                api_type,
+                device_id,
+            )
+            continue
+
+        result.setdefault(info.role_key, []).append(device_id)
+
+    return result
+
+
+def _extract_node_addr(device_data: dict[str, Any] | None) -> int | None:
+    """Extract nodeAddr from a device payload, if present."""
+    if device_data is None:
+        return None
+    node_attr = device_data.get("nodeAttr")
+    if isinstance(node_attr, dict):
+        addr = node_attr.get("nodeAddr")
+        if isinstance(addr, int):
+            return addr
+    return None
+
+
+def _resolve_device(
+    parsed_data: PoolSyncParsedData,
+    role_key: str | None,
+    index: int = 0,
+) -> PoolSyncDeviceRoleData | None:
+    """Resolve a specific device by role key and index."""
+    if role_key is None:
+        return None
+    devices = parsed_data.devices.get(role_key, [])
+    if index < len(devices):
+        return devices[index]
+    return None
+
+
+def _dv(
+    role_key: str, section_attr: str, field: str, index: int = 0
+) -> Callable[..., Any]:
+    """Return a value getter for a device-scoped field.
+
+    Accepts extra keyword arguments (role_key, index) from the public
+    getter functions so it can be called through the standard lookup path.
+    When kwargs contain a non-None role_key or non-zero index, those
+    override the factory defaults.
+
+    Usage: _dv("chlorinator", "status", "waterTemp")
+           _dv("chlorinator", "status", "waterTemp", index=1)
+    """
+
+    def _getter(
+        parsed_data: PoolSyncParsedData,
+        **kwargs: Any,
+    ) -> Any:
+        effective_role = kwargs.get("role_key") or role_key
+        effective_index = kwargs.get("index", 0) or index
+        device = _resolve_device(parsed_data, effective_role, effective_index)
+        if device is None:
+            return None
+        return _get_dict_value(getattr(device, section_attr), field)
+
+    return _getter
 
 
 def _decode_aquacal_model_profile(
@@ -702,35 +825,33 @@ def parse_poolsync_runtime_data(data: dict[str, Any]) -> PoolSyncParsedData:
         else None
     )
 
-    heatpump_id, chlorinator_id = _resolve_device_role_ids(data)
+    device_type_map = _resolve_device_types(data)
+    parsed_devices: dict[str, list[PoolSyncDeviceRoleData]] = {}
 
-    chlorinator_data = (
-        cast(dict[str, Any], devices[chlorinator_id])
-        if chlorinator_id is not None
-        and chlorinator_id in devices
-        and isinstance(devices.get(chlorinator_id), dict)
-        else None
-    )
-    heatpump_data = (
-        cast(dict[str, Any], devices[heatpump_id])
-        if heatpump_id is not None
-        and heatpump_id in devices
-        and isinstance(devices.get(heatpump_id), dict)
-        else None
-    )
+    for role_key, device_ids in device_type_map.items():
+        role_devices: list[PoolSyncDeviceRoleData] = []
+        for index, device_id in enumerate(device_ids):
+            device_data = (
+                cast(dict[str, Any], devices[device_id])
+                if device_id in devices and isinstance(devices.get(device_id), dict)
+                else None
+            )
+            node_addr = _extract_node_addr(device_data)
+
+            role_devices.append(
+                PoolSyncDeviceRoleData(
+                    role=role_key,
+                    device_id=device_id,
+                    data=device_data,
+                    node_addr=node_addr,
+                    index=index,
+                )
+            )
+        parsed_devices[role_key] = role_devices
 
     return PoolSyncParsedData(
         system=PoolSyncSystemData(system_data),
-        chlorinator=PoolSyncDeviceRoleData(
-            role="chlorinator",
-            device_id=chlorinator_id,
-            data=chlorinator_data,
-        ),
-        heat_pump=PoolSyncDeviceRoleData(
-            role="heat_pump",
-            device_id=heatpump_id,
-            data=heatpump_data,
-        ),
+        devices=parsed_devices,
     )
 
 
@@ -738,14 +859,15 @@ def get_heat_pump_capabilities(
     parsed_data: PoolSyncParsedData,
 ) -> PoolSyncHeatPumpCapabilities | None:
     """Return the capability profile for the parsed heat pump."""
-    if not parsed_data.heat_pump.is_present:
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices or not hp_devices[0].is_present:
         return None
 
-    model_number = _get_dict_value(parsed_data.heat_pump.system, "modelNum")
+    model_number = _get_dict_value(hp_devices[0].system, "modelNum")
     if not isinstance(model_number, str):
         model_number = None
 
-    config = parsed_data.heat_pump.config
+    config = hp_devices[0].config
     model_profile = _decode_aquacal_model_profile(model_number)
 
     payload_supports_pool_spa_mode = (
@@ -784,19 +906,22 @@ def get_heat_pump_runtime(
     parsed_data: PoolSyncParsedData,
 ) -> PoolSyncHeatPumpRuntime | None:
     """Return derived runtime state for the parsed heat pump."""
-    if not parsed_data.heat_pump.is_present:
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices or not hp_devices[0].is_present:
         return None
 
     capabilities = get_heat_pump_capabilities(parsed_data)
     if capabilities is None:
         return None
 
-    ctrl_flags_raw = _get_int_value(parsed_data.heat_pump.status, "ctrlFlags")
-    state_flags_raw = _get_int_value(parsed_data.heat_pump.status, "stateFlags")
-    mode_value = _get_int_value(parsed_data.heat_pump.config, "mode")
-    pool_spa_mode = _get_int_value(parsed_data.heat_pump.config, "poolSpaMode")
-    pool_setpoint = _get_number_value(parsed_data.heat_pump.config, "setpoint")
-    spa_setpoint = _get_number_value(parsed_data.heat_pump.config, "spaSetpoint")
+    hp_status = hp_devices[0].status
+    hp_config = hp_devices[0].config
+    ctrl_flags_raw = _get_int_value(hp_status, "ctrlFlags")
+    state_flags_raw = _get_int_value(hp_status, "stateFlags")
+    mode_value = _get_int_value(hp_config, "mode")
+    pool_spa_mode = _get_int_value(hp_config, "poolSpaMode")
+    pool_setpoint = _get_number_value(hp_config, "setpoint")
+    spa_setpoint = _get_number_value(hp_config, "spaSetpoint")
 
     if mode_value is None:
         mode_context = None
@@ -1004,7 +1129,10 @@ def get_heat_pump_climate_current_temperature(
     parsed_data: PoolSyncParsedData,
 ) -> int | float | None:
     """Return the current climate temperature for the heat pump."""
-    return _get_number_value(parsed_data.heat_pump.status, "waterTemp")
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices or not hp_devices[0].is_present:
+        return None
+    return _get_number_value(hp_devices[0].status, "waterTemp")
 
 
 def get_heat_pump_climate_target_temperature(
@@ -1046,187 +1174,163 @@ def get_wifi_signal_status(
     return "poor"
 
 
-_NUMBER_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
-    "chlor_output_control": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.config, "chlorOutput"
-    ),
-    "temperature_output_control": lambda parsed_data: (
+_NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
+    "chlor_output_control": _dv("chlorinator", "config", "chlorOutput"),
+    "temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.active_target_temperature
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "pool_temperature_output_control": lambda parsed_data: (
+    "pool_temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.pool_setpoint
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "spa_temperature_output_control": lambda parsed_data: (
+    "spa_temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.spa_setpoint
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "pump_rpm_control": lambda parsed_data: get_pump_rpm(
+    "pump_rpm_control": lambda parsed_data, **kwargs: get_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
 }
 
 
-_BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
-    "poolsync_online": lambda parsed_data: _get_dict_value(
+_BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
+    "poolsync_online": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.status, "online"
     ),
-    "service_mode_active": lambda parsed_data: _get_dict_value(
+    "service_mode_active": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.config, "serviceMode"
     ),
-    "system_fault": lambda parsed_data: _get_dict_value(
+    "system_fault": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.data, "faults"
     ),
-    "chlorsync_online": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.node_attr, "online"
-    ),
-    "chlorsync_fault": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.data, "faults"
-    ),
-    "heatpump_online": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.node_attr, "online"
-    ),
-    "heatpump_fault": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.data, "faults"
-    ),
-    "heatpump_flow": lambda parsed_data: (
+    "chlorsync_online": _dv("chlorinator", "node_attr", "online"),
+    "chlorsync_fault": _dv("chlorinator", "data", "faults"),
+    "heatpump_online": _dv("heat_pump", "node_attr", "online"),
+    "heatpump_fault": _dv("heat_pump", "data", "faults"),
+    "heatpump_flow": lambda parsed_data, **kwargs: (
         runtime.has_flow if (runtime := get_heat_pump_runtime(parsed_data)) else None
     ),
-    "heatpump_compressor": lambda parsed_data: (
+    "heatpump_compressor": lambda parsed_data, **kwargs: (
         runtime.compressor_running
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "heatpump_fan": lambda parsed_data: (
+    "heatpump_fan": lambda parsed_data, **kwargs: (
         runtime.fan_running if (runtime := get_heat_pump_runtime(parsed_data)) else None
     ),
-    "heatpump_ext_ctrl": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.config, "extCtrlMode"
-    ),
-    "heatpump_in_group": lambda parsed_data: get_hp_in_group(
+    "heatpump_ext_ctrl": _dv("heat_pump", "config", "extCtrlMode"),
+    "heatpump_in_group": lambda parsed_data, **kwargs: get_hp_in_group(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_priming": lambda parsed_data: get_pump_priming(
+    "pump_priming": lambda parsed_data, **kwargs: get_pump_priming(
         get_equipment_runtime(parsed_data)
     ),
 }
 
 
-_SENSOR_VALUE_GETTERS: dict[str, Callable[[PoolSyncParsedData], Any]] = {
-    "board_temp": lambda parsed_data: _get_dict_value(
+_SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
+    "board_temp": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.status, "boardTemp"
     ),
-    "wifi_rssi": lambda parsed_data: _get_dict_value(parsed_data.system.status, "rssi"),
-    "wifi_signal_status": get_wifi_signal_status,
-    "system_datetime": lambda parsed_data: _get_dict_value(
+    "wifi_rssi": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.status, "rssi"
+    ),
+    "wifi_signal_status": lambda parsed_data, **kwargs: get_wifi_signal_status(
+        parsed_data
+    ),
+    "system_datetime": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.status, "dateTime"
     ),
-    "firmware_version": lambda parsed_data: _get_dict_value(
+    "firmware_version": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.system, "fwVersion"
     ),
-    "hardware_version": lambda parsed_data: _get_dict_value(
+    "hardware_version": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.system, "hwVersion"
     ),
     # The device-reported upTimeSecs never seemed to reset, even after reboot and
     # full power removal, so we intentionally do not expose it as a sensor.
-    "water_temp": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "waterTemp"
-    ),
-    "salt_ppm": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "saltPPM"
-    ),
-    "chlor_board_temp": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "boardTemp"
-    ),
-    "flow_rate": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "flowRate"
-    ),
-    "chlor_output_setting": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.config, "chlorOutput"
-    ),
-    "boost_remaining": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "boostRemaining"
-    ),
-    "cell_fwd_current": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "fwdCurrent"
-    ),
-    "cell_rev_current": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "revCurrent"
-    ),
-    "cell_output_voltage": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.status, "outVoltage"
-    ),
-    "cell_serial_number": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.system, "cellSerialNum"
-    ),
-    "cell_firmware_version": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.system, "cellFwVersion"
-    ),
-    "cell_hardware_version": lambda parsed_data: _get_dict_value(
-        parsed_data.chlorinator.system, "cellHwVersion"
-    ),
-    "hp_water_temp": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.status, "waterTemp"
-    ),
-    "hp_air_temp": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.status, "airTemp"
-    ),
-    "hp_board_temp": lambda parsed_data: _get_dict_value(
-        parsed_data.heat_pump.status, "boardTemp"
-    ),
-    "hp_mode": lambda parsed_data: (
+    "water_temp": _dv("chlorinator", "status", "waterTemp"),
+    "salt_ppm": _dv("chlorinator", "status", "saltPPM"),
+    "chlor_board_temp": _dv("chlorinator", "status", "boardTemp"),
+    "flow_rate": _dv("chlorinator", "status", "flowRate"),
+    "chlor_output_setting": _dv("chlorinator", "config", "chlorOutput"),
+    "boost_remaining": _dv("chlorinator", "status", "boostRemaining"),
+    "cell_fwd_current": _dv("chlorinator", "status", "fwdCurrent"),
+    "cell_rev_current": _dv("chlorinator", "status", "revCurrent"),
+    "cell_output_voltage": _dv("chlorinator", "status", "outVoltage"),
+    "cell_serial_number": _dv("chlorinator", "system", "cellSerialNum"),
+    "cell_firmware_version": _dv("chlorinator", "system", "cellFwVersion"),
+    "cell_hardware_version": _dv("chlorinator", "system", "cellHwVersion"),
+    "hp_water_temp": _dv("heat_pump", "status", "waterTemp"),
+    "hp_air_temp": _dv("heat_pump", "status", "airTemp"),
+    "hp_board_temp": _dv("heat_pump", "status", "boardTemp"),
+    "hp_mode": lambda parsed_data, **kwargs: (
         runtime.mode_context
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "hp_setpoint_temp": lambda parsed_data: (
+    "hp_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.active_target_temperature
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "hp_fault_code": lambda parsed_data: _get_first_active_fault_code(
-        parsed_data.heat_pump.data
+    "hp_fault_code": lambda parsed_data, **kwargs: _get_first_active_fault_code(
+        hp_devices[0].data
+        if (hp_devices := parsed_data.devices.get("heat_pump", []))
+        else None
     ),
-    "hp_pool_setpoint_temp": lambda parsed_data: (
+    "hp_pool_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.pool_setpoint
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "hp_spa_setpoint_temp": lambda parsed_data: (
+    "hp_spa_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.spa_setpoint
         if (runtime := get_heat_pump_runtime(parsed_data))
         else None
     ),
-    "hp_water_temp2": lambda parsed_data: _get_temp_value(
-        parsed_data.heat_pump.status, "waterTemp2"
+    "hp_water_temp2": _dv("heat_pump", "status", "waterTemp2"),
+    "hp_ds1_temp": _dv("heat_pump", "status", "ds1Temp"),
+    "hp_ds2_temp": _dv("heat_pump", "status", "ds2Temp"),
+    "hp_top_fault_code": lambda parsed_data, **kwargs: (
+        top[0]
+        if (
+            top := _get_top_fault_info(
+                hp_devices[0].data
+                if (hp_devices := parsed_data.devices.get("heat_pump", []))
+                else None
+            )
+        )
+        else None
     ),
-    "hp_ds1_temp": lambda parsed_data: _get_temp_value(
-        parsed_data.heat_pump.status, "ds1Temp"
+    "hp_top_fault_count": lambda parsed_data, **kwargs: (
+        top[1]
+        if (
+            top := _get_top_fault_info(
+                hp_devices[0].data
+                if (hp_devices := parsed_data.devices.get("heat_pump", []))
+                else None
+            )
+        )
+        else None
     ),
-    "hp_ds2_temp": lambda parsed_data: _get_temp_value(
-        parsed_data.heat_pump.status, "ds2Temp"
-    ),
-    "hp_top_fault_code": lambda parsed_data: (
-        top[0] if (top := _get_top_fault_info(parsed_data.heat_pump.data)) else None
-    ),
-    "hp_top_fault_count": lambda parsed_data: (
-        top[1] if (top := _get_top_fault_info(parsed_data.heat_pump.data)) else None
-    ),
-    "pump_rpm": lambda parsed_data: get_pump_rpm(get_equipment_runtime(parsed_data)),
-    "pump_rpm_min": lambda parsed_data: get_pump_rpm_min(
+    "pump_rpm": lambda parsed_data, **kwargs: get_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_rpm_max": lambda parsed_data: get_pump_rpm_max(
+    "pump_rpm_min": lambda parsed_data, **kwargs: get_pump_rpm_min(
         get_equipment_runtime(parsed_data)
     ),
-    "valve_position": lambda parsed_data: get_valve_position_name(
+    "pump_rpm_max": lambda parsed_data, **kwargs: get_pump_rpm_max(
         get_equipment_runtime(parsed_data)
     ),
-    "group_info": lambda parsed_data: (
+    "valve_position": lambda parsed_data, **kwargs: get_valve_position_name(
+        get_equipment_runtime(parsed_data)
+    ),
+    "group_info": lambda parsed_data, **kwargs: (
         ",".join(er.active_group_names)
         if (er := get_equipment_runtime(parsed_data)) and er.active_group_names
         else None
@@ -1238,7 +1342,10 @@ def get_heat_pump_climate_min_temp(
     parsed_data: PoolSyncParsedData,
 ) -> int | float:
     """Return the device-reported minimum setpoint, or a safe default."""
-    min_temp = _get_number_value(parsed_data.heat_pump.config, "setpointMin")
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices or not hp_devices[0].is_present:
+        return 40
+    min_temp = _get_number_value(hp_devices[0].config, "setpointMin")
     if isinstance(min_temp, (int, float)) and min_temp > 0:
         return min_temp
     return 40
@@ -1248,28 +1355,67 @@ def get_heat_pump_climate_max_temp(
     parsed_data: PoolSyncParsedData,
 ) -> int | float:
     """Return the device-reported maximum setpoint, or a safe default."""
-    max_temp = _get_number_value(parsed_data.heat_pump.config, "setpointMax")
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices or not hp_devices[0].is_present:
+        return 104
+    max_temp = _get_number_value(hp_devices[0].config, "setpointMax")
     if isinstance(max_temp, (int, float)) and max_temp > 0:
         return max_temp
     return 104
 
 
-def get_number_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
+def _get_device_raw_value(
+    parsed_data: PoolSyncParsedData,
+    role_key: str,
+    index: int,
+    section_attr: str,
+    field: str,
+) -> Any:
+    """Read a field from a specific device's section."""
+    device = _resolve_device(parsed_data, role_key, index)
+    if device is None:
+        return None
+    section = getattr(device, section_attr)
+    return _get_dict_value(section, field)
+
+
+def get_number_value(
+    parsed_data: PoolSyncParsedData,
+    key: str,
+    role_key: str | None = None,
+    index: int = 0,
+) -> Any:
     """Return a number value from parsed runtime data."""
     getter = _NUMBER_VALUE_GETTERS.get(key)
-    return getter(parsed_data) if getter is not None else None
+    if getter is None:
+        return None
+    return getter(parsed_data, role_key=role_key, index=index)
 
 
-def get_binary_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
+def get_binary_sensor_value(
+    parsed_data: PoolSyncParsedData,
+    key: str,
+    role_key: str | None = None,
+    index: int = 0,
+) -> Any:
     """Return a binary sensor source value from parsed runtime data."""
     getter = _BINARY_SENSOR_VALUE_GETTERS.get(key)
-    return getter(parsed_data) if getter is not None else None
+    if getter is None:
+        return None
+    return getter(parsed_data, role_key=role_key, index=index)
 
 
-def get_sensor_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
+def get_sensor_value(
+    parsed_data: PoolSyncParsedData,
+    key: str,
+    role_key: str | None = None,
+    index: int = 0,
+) -> Any:
     """Return a sensor source value from parsed runtime data."""
     getter = _SENSOR_VALUE_GETTERS.get(key)
-    return getter(parsed_data) if getter is not None else None
+    if getter is None:
+        return None
+    return getter(parsed_data, role_key=role_key, index=index)
 
 
 def get_select_value(parsed_data: PoolSyncParsedData, key: str) -> Any:

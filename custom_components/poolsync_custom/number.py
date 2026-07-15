@@ -75,9 +75,11 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
 def _build_number_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[NumberDescription],
-    role: PoolSyncDeviceInfoRole,
+    role: str,
+    device_index: int = 0,
+    device_node_addr: int | None = None,
 ) -> list[PoolSyncChlorOutputNumberEntity]:
-    """Build number entities for a specific PoolSync device."""
+    """Build number entities for a specific PoolSync device instance."""
     number_entities: list[PoolSyncChlorOutputNumberEntity] = []
 
     parsed_data = ensure_parsed_data(coordinator)
@@ -100,7 +102,14 @@ def _build_number_entities(
             )
 
         number_entities.append(
-            PoolSyncChlorOutputNumberEntity(coordinator, role, description, value_fn)
+            PoolSyncChlorOutputNumberEntity(
+                coordinator,
+                role,
+                description,
+                value_fn,
+                _device_index=device_index,
+                _device_node_addr=device_node_addr,
+            )
         )
 
     return number_entities
@@ -134,36 +143,44 @@ async def async_setup_entry(
         return
 
     parsed_data = ensure_parsed_data(coordinator)
-    heatpump_id = parsed_data.heat_pump.device_id
-    chlor_id = parsed_data.chlorinator.device_id
 
-    if chlor_id and parsed_data.chlorinator.is_present:
-        number_entities.extend(
-            _build_number_entities(
-                coordinator, NUMBER_DESCRIPTIONS_CHLOR, "chlorinator"
+    for index, device in enumerate(parsed_data.devices.get("chlorinator", [])):
+        if device.is_present:
+            number_entities.extend(
+                _build_number_entities(
+                    coordinator,
+                    NUMBER_DESCRIPTIONS_CHLOR,
+                    "chlorinator",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
             )
-        )
-    elif chlor_id:
-        _LOGGER.debug(
-            "Coordinator %s data is missing chlorinator device %s."
-            " Skipping chlorinator number entities.",
-            coordinator.name,
-            chlor_id,
-        )
+        else:
+            _LOGGER.debug(
+                "Coordinator %s data is missing chlorinator device %s."
+                " Skipping chlorinator number entities.",
+                coordinator.name,
+                device.device_id,
+            )
 
-    if heatpump_id and parsed_data.heat_pump.is_present:
-        number_entities.extend(
-            _build_number_entities(
-                coordinator, NUMBER_DESCRIPTIONS_HEATPUMP_F, "heat_pump"
+    for index, device in enumerate(parsed_data.devices.get("heat_pump", [])):
+        if device.is_present:
+            number_entities.extend(
+                _build_number_entities(
+                    coordinator,
+                    NUMBER_DESCRIPTIONS_HEATPUMP_F,
+                    "heat_pump",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
             )
-        )
-    elif heatpump_id:
-        _LOGGER.debug(
-            "Coordinator %s data is missing heat pump device %s."
-            " Skipping heat pump number entities.",
-            coordinator.name,
-            heatpump_id,
-        )
+        else:
+            _LOGGER.debug(
+                "Coordinator %s data is missing heat pump device %s."
+                " Skipping heat pump number entities.",
+                coordinator.name,
+                device.device_id,
+            )
 
     if number_entities:
         _LOGGER.debug("Adding %d number entities.", len(number_entities))
@@ -190,9 +207,12 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     def __init__(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
-        role: PoolSyncDeviceInfoRole,
+        role: str,
         description: NumberEntityDescription,
         value_fn: Callable[[Any], Any] | None = None,
+        *,
+        _device_index: int = 0,
+        _device_node_addr: int | None = None,
     ) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
@@ -200,9 +220,14 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._value_fn = (
             value_fn  # Not used for native_value here, but kept for pattern consistency
         )
+        self._role_key = role
+        self._device_index = _device_index
+        self._device_node_addr = _device_node_addr
 
-        self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.get_device_info(role)
+        self._attr_unique_id = self._build_unique_id(
+            coordinator.mac_address, role, description.key
+        )
+        self._attr_device_info = coordinator.get_device_info(role, index=_device_index)
         self._update_attrs()
 
         _LOGGER.debug(
@@ -211,12 +236,27 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             self._attr_unique_id,
         )
 
+    def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
+        """Build a stable unique ID, preserving BC for first-instance entities."""
+        if role in ("chlorinator", "heat_pump") and self._device_index == 0:
+            return f"{mac_address}_{key}"
+        if self._device_node_addr is not None:
+            return f"{mac_address}_{role}_{self._device_node_addr}_{key}"
+        return f"{mac_address}_{role}_{self._device_index}_{key}"
+
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
-        value = get_number_value(
-            ensure_parsed_data(self.coordinator), self.entity_description.key
-        )
+        parsed_data = ensure_parsed_data(self.coordinator)
+        if self._device_index > 0:
+            value = get_number_value(
+                parsed_data,
+                self.entity_description.key,
+                role_key=self._role_key,
+                index=self._device_index,
+            )
+        else:
+            value = get_number_value(parsed_data, self.entity_description.key)
         if value is None:
             self._attr_native_value = None
             self._attr_available = False
@@ -253,10 +293,11 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         new_value = int(value)
 
         _LOGGER.info(
-            "NUMBER_ENTITY %s: Attempting to set native_value to %d (from HA UI float value: %f)",
+            "NUMBER_ENTITY %s: Attempting to set native_value to %d (from HA UI float value: %f, device_index: %d)",
             self.entity_description.key,
             new_value,
             value,
+            self._device_index,
         )
 
         if not self.coordinator.password:
@@ -272,7 +313,12 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
                     f"Unsupported number command: {self.entity_description.key}"
                 )
 
-            await getattr(self.coordinator, method_name)(new_value)
+            if self._device_index > 0:
+                await getattr(self.coordinator, method_name)(
+                    new_value, index=self._device_index
+                )
+            else:
+                await getattr(self.coordinator, method_name)(new_value)
 
             _LOGGER.info(
                 "NUMBER_ENTITY %s: Successfully set value to %d and requested refresh.",
