@@ -70,3 +70,6 @@ PUMP_IDX_CURRENT_SPEED = 7
 PUMP_IDX_PRIMING_FLAG = 14
 VALVE_IDX_MOVE_TIME = 5
 VALVE_IDX_POSITIONS_START = 8  # Pairs of (name, value) from here onward
+
+# Group config array indices
+GROUP_IDX_STATE = 3

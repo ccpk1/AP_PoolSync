@@ -1196,6 +1196,10 @@ def get_wifi_signal_status(
 
 _NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "chlor_output_control": _dv("chlorinator", "config", "chlorOutput"),
+    "chem_ph_setpoint": _dv("chem_sync", "config", "phSetpoint"),
+    "chem_orp_setpoint": _dv("chem_sync", "config", "orpSetpoint"),
+    "chem_feed_rate": _dv("chem_sync", "config", "feedRate"),
+    "chem_max_daily_feed": _dv("chem_sync", "config", "maxDailyFeed"),
     "temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.active_target_temperature
         if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
@@ -1475,12 +1479,28 @@ def get_sensor_value(
     return getter(parsed_data, role_key=role_key, index=index)
 
 
+def get_chem_sync_mode_options() -> list[str]:
+    """Return ChemSync system mode options."""
+    return ["off", "auto", "manual"]
+
+
 def get_select_value(
     parsed_data: PoolSyncParsedData,
     key: str,
+    *,
+    role_key: str | None = None,
     index: int = 0,
 ) -> Any:
     """Return a select value from parsed runtime data."""
+    if key == "chem_sys_mode" and role_key == "chem_sync":
+        raw_value = _dv("chem_sync", "config", "sysMode")(
+            parsed_data, role_key="chem_sync", index=index
+        )
+        options = get_chem_sync_mode_options()
+        if isinstance(raw_value, int) and 0 <= raw_value < len(options):
+            return options[raw_value]
+        return None
+
     if key != "heat_mode":
         return None
 

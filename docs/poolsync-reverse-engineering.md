@@ -4,6 +4,355 @@ Reference document tracking what we know, what we've built, and what we suspect.
 
 ---
 
+## 0a. Source: Android App (APK) Analysis
+
+The official PoolSync Android app (v4.73, package `com.poolconnect.sync`) was obtained from APKPure and analysed to extract API protocol details.
+
+**Method:**
+1. Downloaded the XAPK bundle and decompiled the base APK with `JADX`
+2. The main application bundle (`assets/index.android.bundle`) was identified as **Hermes bytecode** (React Native 0.85.3, Hermes v98)
+3. Disassembled to Hermes assembly with [`hermes-dec`](https://github.com/P1sec/hermes-dec) (v0.1.5): `hbctool disasm index.android.bundle output.hasm`
+4. The Hermes assembly (68 MB, ~1M lines) preserves string constants, function names, and instruction patterns — enough to reconstruct API endpoints and request formats without recovering full JavaScript logic
+
+**Status:** Early-stage exploration. The disassembly reveals API endpoint strings, HTTP header patterns, and function names. Full decompilation to readable JS is limited by Hermes bytecode version (98) and the absence of a sourcemap. Deeper analysis may yield additional protocol details as techniques improve.
+
+---
+
+## 0b. Live API Probing & Decompiled Endpoint Map (Preliminary)
+
+A live T75 heat pump (fw 860, hw 2.0) was probed via the local HTTP API. Additionally, the Hermes-disassembled Android app bundle revealed the complete set of API functions and their HTTP methods. **These findings are preliminary** — only one firmware version has been live-tested, and behaviour may vary across models and firmware revisions.
+
+### Live-tested (fw 860, T75 heat pump only — no additional devices)
+
+#### GET requests
+
+| Method | Endpoint | Result |
+|--------|----------|--------|
+| `GET` | `/api/poolsync?cmd=poolSync` | ✅ Returns controller status, `deviceType` map. Auth via `Authorization: {password}` works |
+| `GET` | `/api/poolsync?cmd=poolSync&all` | ✅ Same response; `&all` has no observable difference on this firmware |
+| `GET` | `/api/poolsync?cmd=devices&device=0` | ❌ 401 Unauthorized |
+| `GET` | `/api/poolsync?cmd=devices&device=9984` | ❌ 401 Unauthorized |
+| `GET` | `/api/dongle/*` | ❌ "This URI does not exist" |
+
+#### PATCH write tests (confirmed working)
+
+The `User` header is **required** for PATCH requests alongside `Authorization`. All payload formats below returned HTTP 200 on fw 860. Note: the T75 has no groups or ChemSync/ChlorSync hardware, so these tests only confirm the device accepts the JSON format at the HTTP layer — they do not confirm the writes have a functional effect. The ESP32 acts as a pass-through gateway, accepting any well-formed JSON body.
+
+| Payload | HTTP Result | Purpose |
+|---------|-------------|---------|
+| `{"config": {"mode": 1}}` | ✅ 200 | Device config write (proven in production) |
+| `{"config": {"chlorOutput": 50}}` | ✅ 200 | Chlorinator output write |
+| `{"groups": {"0": {"config": ["POOL",0,192,1,172800,0,1,1]}}}` | ✅ 200 | Full group config array replacement |
+| `{"groups": {"0": {"config": {"3": 1}}}}` | ✅ 200 | Sparse group state toggle |
+| `{"groups": {"2": {"config": [...], "equip": {"1": [35,0]}}}}` | ✅ 200 | Group config + equipment mapping |
+| `{"primePump": 1}` | ✅ 200 | Action command |
+| `{"equip": {"1": {"7": 58}}}` | ✅ 200 | Equipment array index write |
+
+**Required PATCH headers:**
+```
+Authorization: {password}
+User: {userSub or static UUID}
+Content-Type: application/json
+```
+
+### Decompiled function-to-method map (from APK, not live-tested)
+
+Functions that build HTTP requests, with their methods, inferred from Hermes assembly:
+
+| Function | Method | Endpoint | Notes |
+|----------|--------|----------|-------|
+| `getSync` | `GET` | `?cmd=poolSync` or `?cmd=poolSync&all` | Read all controller+device data |
+| `getDevice` | `GET` | `?cmd=devices&device={id}` | Read single device (401 on fw 860) |
+| `checkChangeStatus` | `GET` | `?cmd=changeStatus` | May check device status |
+| `checkPushLinking` | `GET` | `?cmd=pushLink&...` | Poll push-link state |
+| `updateSync` | `PATCH` | `?cmd=poolSync` | Controller-level write |
+| `updateDevice` | `PATCH` | `?cmd=devices&device={id}` | Device-level config write |
+| `putDevice` | `PUT` | `/api/dongle/devices/{id}` | Full device state replace (dongle API) |
+| `putDongleState` | `PUT` | `/api/dongle/state` | Dongle state update |
+| `startPushLinking` | `POST`/`PUT` | `/api/dongle/link` | Initiate push-link pairing |
+| `endPushLinking` | `PATCH` | `?cmd=pushLink&end` | End push-link session |
+| `restartDevice` | `PUT` | `/api/dongle/software_restart` | Software restart |
+| `factoryReset` | `DELETE`/`PUT` | `?cmd=factoryReset` / `/api/dongle/factory_reset` | Factory reset |
+| `discoverDevices` | `GET`/`PUT` | `/api/dongle/discover_devices` | Scan for attached devices |
+| `sendWiFiCredentials` | `PUT` | `/api/dongle/wifi/setup` | Provision WiFi |
+| `getWiFiDevices` | `GET` | `/api/dongle/wifi/list` | List WiFi networks |
+| `resetHash` | `DELETE`/`POST` | *(unknown)* | Auth hash reset |
+
+All requests use the same header pattern:
+```
+Authorization: {psToken}
+User: {userSub or static UUID}
+Content-Type: application/json  (only on requests with a body)
+```
+
+The `User` header is **mandatory** for PATCH requests — the device returns 401 without it. GET requests appear to work with `Authorization` alone. The integration uses a static UUID (`b167ecc8-87ce-47da-9b7d-cab632a2eeba`) for the `User` header, which matches the app's `userSub` parameter for local-only requests.
+
+**Key observation:** On fw 860, `devices` in the response is an integer count (`devices: 1`) rather than a device dict. Whether this is firmware-specific or requires a different request pattern is unknown.
+
+**Key note on `updateDevice` vs `putDevice`:** The app has *two* write paths — `updateDevice` (PATCH → `?cmd=devices&device={id}`) for partial updates, and `putDevice` (PUT → `/api/dongle/devices/{id}` or cloud `thingsAPI.updateShadow`) for full state replacement. Our current `setDeviceConfigValue` write method uses the PATCH path, matching `updateDevice`. The PUT/dongle path is likely for initial provisioning, not runtime control.
+
+### 0c. Complete Field Name Mappings (from APK Decompilation)
+
+The decompiled app contains a master mapping object (`DEVICES`) that translates between internal constant names and API data paths. Every readable sensor and writable config field is defined here. The mapping uses dot-separated paths into the per-device data object:
+
+- `status.{field}` → readable sensor values
+- `config.{field}` → writable configuration values
+- `system.{field}` → device metadata (model, serial, firmware)
+- `stats[{index}]` → runtime counter arrays
+- `nodeAttr.{field}` → connection/identity fields
+
+**Note on the write path:** The `updateDevice` function sends `JSON.stringify(payload)` as the body where payload is an object whose keys correspond to the API paths below. For config writes tested so far, the payload shape `{"config": {field: value}}` works. The app's internal write pipeline may construct the payload differently (using the full DEVICES mapping object and `merge` to batch changes), but the PATCH endpoint accepts partial `{"config": {key: value}}` bodies.
+
+#### Controller-level paths (`poolSync.*`)
+
+| Constant | API Path | Type | Notes |
+|----------|----------|------|-------|
+| `SYNC_NAME` | `poolSync.config.name` | Read | Device name from config |
+| `SYNC_ONLINE` | `poolSync.status.online` | Read | Bool |
+| `SYNC_BOARD_TEMP` | `poolSync.status.boardTemp` | Read | °C |
+| `SYNC_FW_VERSION` | `poolSync.system.fwVersion` | Read | Firmware number |
+| `SYNC_HW_VERSION` | `poolSync.system.hwVersion` | Read | Hardware version |
+| `SYNC_BSSID` | `poolSync.system.bssid` | Read | WiFi BSSID |
+| `SYNC_FLAGS` | `poolSync.status.flags` | Read | Status flags |
+| `SYNC_FAULTS` | `poolSync.faults` | Read | Fault code |
+| `SYNC_OPT_INS` | `poolSync.config.optIns` | Read | Option flags |
+| `SYNC_SETUP_MODE` | `poolSync.config.setupMode` | Read | Setup mode flag |
+| `SYNC_SERVICE_MODE` | `poolSync.config.serviceMode` | Read | Service mode flag |
+| `SYNC_BRIGHTNESS` | `poolSync.config.brightness` | Read | Display brightness |
+| `SYNC_LATITUDE` | `poolSync.config.latitude` | Read | GPS latitude |
+| `SYNC_LONGITUDE` | `poolSync.config.longitude` | Read | GPS longitude |
+| `SYNC_UI_PID` | `poolSync.status.remoteUiPid` | Read | Remote UI process ID |
+| `SYNC_UI_VERSION` | `poolSync.status.remoteUiVersion` | Read | Remote UI version |
+| `AUTHORIZED` | `poolSync.config.authorized` | Read/Write? | Authorization status |
+| `IS_WATCHING` | `poolSync.config.isWatching` | Read | Watchdog flag |
+| `TIME_ZONE` | `poolSync.config.timeZone` | Read | IANA timezone |
+| `TIME` | `poolSync.status.dateTime` | Read | Device date/time string |
+
+#### Heat Pump paths (`devices[{id}].*`)
+
+| Constant | API Path | Type | Notes |
+|----------|----------|------|-------|
+| `DEVICE_PID` | `nodeAttr.pid` | Read | Product ID |
+| `DEVICE_NAME` | `nodeAttr.name` | Read | Display name |
+| `DEVICE_NODE_ADDR` | `nodeAttr.nodeAddr` | Read | RS-485 node address |
+| `DEVICE_IDMP_ADDR` | `nodeAttr.idmpAddr` | Read | IDMP address |
+| `DEVICE_ONLINE` | `nodeAttr.online` | Read | Bool |
+| `DEVICE_FLAGS` | `nodeAttr.flags` | Read | Status flags |
+| `DEVICE_BOOT_MODE` | `nodeAttr.bootMode` | Read | Boot mode |
+| `DEVICE_FW_PROGRESS` | `nodeAttr.fwUpdProg` | Read | FW update progress |
+| `DEVICE_FW_RESULT` | `nodeAttr.fwUpdResult` | Read | FW update result |
+| `DEVICE_FAULTS` | `faults` | Read | Fault code |
+| `DEVICE_FAULT_COUNTS` | `faultCounts` | Read | Fault counter array |
+| `DEVICE_STATS` | `stats` | Read | Stats array |
+| `DEVICE_BOARD_TEMP` | `status.boardTemp` | Read | °C |
+| `HP_WATER_TEMP` | `status.waterTemp` | Read | °F |
+| `HP_WATER_TEMP_TWO` | `status.waterTemp2` | Read | °F |
+| `HP_WATER_TEMP_THREE` | `status.waterTemp3` | Read | °F |
+| `HP_AIR_TEMP` | `status.airTemp` | Read | °F |
+| `HP_AMBIENT_AIR_TEMP` | `status.ambientAirTemp` | Read | °F |
+| `HP_SOLAR_TEMP` | `status.solarTemp` | Read | °F |
+| `HP_DS1_TEMP` | `status.ds1Temp` | Read | Defrost sensor 1 |
+| `HP_DS2_TEMP` | `status.ds2Temp` | Read | Defrost sensor 2 |
+| `HP_DS3_TEMP` | `status.ds3Temp` | Read | Defrost sensor 3 |
+| `HP_COMP_RPM` | `status.compRPM` | Read | Compressor RPM |
+| `HP_FLOW_PERIOD` | `status.flowPeriod` | Read | Flow sensor period |
+| `HP_OUTLET_TEMP` | `status.outletTemp` | Read | °F |
+| `HP_GEO_INLET` | `status.geoInlet` | Read | Geothermal inlet |
+| `HP_GEO_OUTLET` | `status.geoOutlet` | Read | Geothermal outlet |
+| `HP_PRESSURE_ONE` | `status.pressure1` | Read | Pressure sensor 1 |
+| `HP_PRESSURE_TWO` | `status.pressure2` | Read | Pressure sensor 2 |
+| `HP_WATER_SENSOR_ONE` | `status.ws1Temp` | Read | Water sensor 1 |
+| `HP_WATER_SENSOR_TWO` | `status.ws2Temp` | Read | Water sensor 2 |
+| `HP_STATE_FLAGS` | `status.stateFlags` | Read | State flags |
+| `HP_CTRL_FLAGS` | `status.ctrlFlags` | Read | Control flags |
+| `HP_BOARD_TEMP` | `status.boardTemp` | Read | °C |
+| `HP_MODE` | `config.mode` | Read/Write | Operating mode |
+| `HP_SPA_MODE` | `config.poolSpaMode` | Read/Write | Pool/Spa selection |
+| `HP_POOL_SETPOINT` | `config.setpoint` | Read/Write | Target temp |
+| `HP_SPA_SETPOINT` | `config.spaSetpoint` | Read/Write | Spa target temp |
+| `HP_EFFICIENCY_MODE` | `config.efficiencyMode` | Read/Write | Efficiency mode |
+| `HP_TURBO_BOOST` | `config.turboBoost` | Read/Write | Turbo boost flag |
+| `HP_SERVICE_MODE` | `config.serviceMode` | Read/Write | Service mode |
+| `HP_SCHED_MODE` | `config.schedMode` | Read/Write | Schedule mode |
+| `HP_SCHED_AWAY_END` | `config.schedAwayEnd` | Read/Write | Away end time |
+| `HP_MULTI_UNIT_MODE` | `config.multiUnitMode` | Read/Write | Multi-unit mode |
+| `HP_MULTI_UNIT_ADDRESS` | `config.multiUnitAddr` | Read/Write | Multi-unit address |
+| `HP_GAS_BOOST` | `config.gasBoost` | Read/Write | Gas boost flag |
+| `HP_BACKUP_HEAT_MODE` | `config.backupHeatMode` | Read/Write | Backup heat mode |
+| `HP_BACKUP_HEAT_START_TIME` | `config.backupHeatStartTime` | Read/Write | Backup heat start |
+| `HP_BACKUP_HEAT_STOP_TIME` | `config.backupHeatStopTime` | Read/Write | Backup heat stop |
+| `HP_SOLAR_MODE` | `config.solarMode` | Read/Write | Solar mode |
+| `HP_SOLAR_SETPOINT` | `config.solarSetpoint` | Read/Write | Solar target |
+| `HP_SETPOINT_MIN` | `config.setpointMin` | Read | Min setpoint |
+| `HP_SETPOINT_MAX` | `config.setpointMax` | Read | Max setpoint |
+| `HP_SERIAL_NUM` | `system.serialNum` | Read | Serial number |
+| `HP_MODEL_NUM` | `system.modelNum` | Read | Model number |
+| `HP_HW_VERSION` | `system.hwVersion` | Read | Hardware version |
+| `HP_FW_VERSION` | `system.appFwVersion` | Read | App firmware |
+| `HP_BL_VERSION` | `system.blFwVersion` | Read | Bootloader firmware |
+| `HP_DISP_FW_VERSION` | `system.dispFwVersion` | Read | Display firmware |
+| `HP_COMP_MODEL_NUM` | `system.compModelNum` | Read | Compressor model |
+| `HP_EQUIPMENT` | `equip` | Read | Equipment sub-object |
+| `HP_GROUPS` | `groups` | Read | Groups sub-object |
+| `HP_SCHEDULES` | `schedules` | Read | Schedules sub-object |
+| `HP_FAULTS` | `faults` | Read | Fault array |
+| `HP_FAULT_COUNTS` | `faultCounts` | Read | Fault count array |
+| `HP_EXTERNAL_CONTROL` | `config.extCtrlMode` | Read/Write | External control mode |
+
+#### ChlorSync paths (`devices[{id}].*`)
+
+| Constant | API Path | Type | Notes |
+|----------|----------|------|-------|
+| `CHLOR_WATER_TEMP` | `status.waterTemp` | Read | °F |
+| `CHLOR_SALT_PPM` | `status.saltPPM` | Read | Salt level |
+| `CHLOR_OUTPUT` | `config.chlorOutput` | Read/Write | Output % |
+| `CHLOR_FWD_CURRENT` | `status.fwdCurrent` | Read | Forward current |
+| `CHLOR_REV_CURRENT` | `status.revCurrent` | Read | Reverse current |
+| `CHLOR_AMPS` | `status.amps` | Read | Amperage |
+| `CHLOR_CELL_LIFE` | `status.cellLife` | Read | Cell life remaining |
+| `CHLOR_FLAGS` | `status.flags` | Read | Status flags |
+| `CHLOR_STATE_FLAGS` | `status.stateFlags` | Read | State flags |
+| `CHLOR_CTRL_FLAGS` | `status.ctrlFlags` | Read | Control flags |
+| `CHLOR_BOARD_TEMP` | `status.boardTemp` | Read | °C |
+| `CHLOR_OUT_VOLTAGE` | `status.outVoltage` | Read | Output voltage |
+| `CHLOR_CELL_RAIL_VOLTAGE` | `status.cellRailVoltage` | Read | Cell rail voltage |
+| `CHLOR_CELL_RAW_SALT_ADC` | `status.cellRawSaltADC` | Read | Raw salt ADC |
+| `CHLOR_FLOW_RATE` | `status.flowRate` | Read | Flow rate |
+| `CHLOR_TEMP_COMP_OUTPUT` | `status.tempCompOutput` | Read | Temp comp output % |
+| `CHLOR_BOOST_REMAINING` | `status.boostRemaining` | Read | Boost time remaining |
+| `CHLOR_REVERSE_REMAINING` | `status.reverseRemaining` | Read | Reverse time remaining |
+| `CHLOR_BOOST_ENABLE` | `config.boostEnable` | Read/Write | Boost on/off |
+| `CHLOR_POLARITY_CHANGE_TIME` | `config.polarityChangeTime` | Read/Write | Polarity interval |
+| `CHLOR_TEMP_COMP_ENABLE` | `config.tempCompEnable` | Read/Write | Temp comp on/off |
+| `CHLOR_TEMP_UNITS` | `config.tempUnits` | Read/Write | °F/°C |
+| `CHLOR_USER_SALT_CALIB` | `config.userSaltCalib` | Read/Write | Salt calibration |
+| `CHLOR_USER_TEMP_CALIB` | `config.userTempCalib` | Read/Write | Temp calibration |
+| `CHLOR_GALLONS` | `config.gallons` | Read/Write | Pool size |
+| `CHLOR_PROX_SENSOR_ENABLE` | `config.proxSensorEnable` | Read/Write | Proximity sensor |
+| `CHLOR_POOL_COVER_CTRL` | `config.poolCoverCtrl` | Read/Write | Cover control |
+| `CHLOR_ORP_INPUT_CTRL` | `config.orpInputCtrl` | Read/Write | ORP input control |
+| `CHLOR_AUX_INPUT_ENABLE` | `config.auxInputEnable` | Read/Write | Aux input |
+| `CHLOR_DEMO_MODE` | `config.demoMode` | Read/Write | Demo mode |
+| `CHLOR_SERVICE_MODE` | `config.serviceMode` | Read/Write | Service mode |
+| `CHLOR_WEIGHT_VOLUME_UNITS` | `config.weightVolumeUnits` | Read/Write | Units |
+| `CHLOR_DATE_FORMAT` | `config.dateFormat` | Read/Write | Date format |
+| `CHLOR_TIME_FORMAT` | `config.timeFormat` | Read/Write | Time format |
+| `CHLOR_USER_LOCK_CODE` | `config.userLockCode` | Read/Write | Lock code |
+| `CHLOR_USER_LOCK_CODE_ENABLE` | `config.userLockCodeEnable` | Read/Write | Lock enable |
+| `CHLOR_NUM_BLADES` | `system.numBlades` | Read | Cell blade count |
+| `CHLOR_CELL_SERIAL_NUM` | `system.cellSerialNum` | Read | Cell serial |
+| `CHLOR_CELL_FW_VERSION` | `system.cellFwVersion` | Read | Cell firmware |
+| `CHLOR_CELL_HW_VERSION` | `system.cellHwVersion` | Read | Cell hardware |
+| `CHLOR_CELL_CALIB` | `system.cellCalib` | Read | Cell calibration |
+| `CHLOR_DRV_FW_VERSION` | `system.drvFwVersion` | Read | Driver firmware |
+| `CHLOR_DRV_BL_FW_VERSION` | `system.drvBlFwVersion` | Read | Driver bootloader |
+| `CHLOR_DRV_HW_VERSION` | `system.drvHwVersion` | Read | Driver hardware |
+| `CHLOR_DRV_MODEL_NUM` | `system.drvModelNum` | Read | Driver model |
+| `CHLOR_DRV_SERIAL_NUM` | `system.drvSerialNum` | Read | Driver serial |
+| `CHLOR_MAX_CURRENT` | `system.maxCurrent` | Read | Max current rating |
+| `CHLOR_MODEL_NUM` | `system.modelNum` | Read | Model number |
+| `CHLOR_SERIAL_NUM` | `system.serialNum` | Read | Serial number |
+| `CHLOR_FW_VERSION` | `system.fwVersion` | Read | Firmware version |
+| `CHLOR_HW_VERSION` | `system.hwVersion` | Read | Hardware version |
+| `CHLOR_CELL_CYCLE_TIME` | `stats[0]` | Read | Cycle time counter |
+| `CHLOR_CELL_COUNTER` | `stats[1]` | Read | Cell counter |
+| `CHLOR_CELL_DIR` | `stats[2]` | Read | Polarity direction |
+| `CHLOR_CELL_DIR_COUNTER` | `stats[3]` | Read | Direction counter |
+| `CHLOR_DRIVER_ON_TIME` | `stats[4]` | Read | Driver on time |
+| `CHLOR_DRIVER_DRIVE_TIME` | `stats[5]` | Read | Driver drive time |
+| `CHLOR_CELL_ON_TIME` | `stats[6]` | Read | Cell on time |
+| `CHLOR_CELL_DRIVE_TIME` | `stats[7]` | Read | Cell drive time |
+| `CHLOR_CELL_OVER_SALT_TIME` | `stats[8]` | Read | Over-salt time |
+| `CHLOR_CELL_UNDER_SALT_TIME` | `stats[9]` | Read | Under-salt time |
+| `CHLOR_SYSTEM_RESETS` | `stats[10]` | Read | Reset count |
+| `CHLOR_SYSTEM_UPTIME` | `stats[11]` | Read | Uptime counter |
+| `CHLOR_DEBUG_FLAGS` | `stats[12]` | Read | Debug flags |
+| `CHLOR_FAULT_COUNT_0_3` | `stats[13]` | Read | Faults 0-3 |
+| `CHLOR_FAULT_COUNT_4_7` | `stats[14]` | Read | Faults 4-7 |
+| `CHLOR_FAULT_COUNT_8_11` | `stats[15]` | Read | Faults 8-11 |
+| `CHLOR_FAULT_COUNT_12_15` | `stats[16]` | Read | Faults 12-15 |
+| `CHLOR_FAULT_COUNT_16_19` | `stats[17]` | Read | Faults 16-19 |
+| `CHLOR_FAULT_COUNT_20_23` | `stats[18]` | Read | Faults 20-23 |
+| `CHLOR_CFG_CP_BOARDS` | `config.cfgCpBoards` | Read/Write | CP board config |
+| `CHLOR_MEASURE_SALT` | `measureSalt` | Action | Trigger salt measure |
+| `CHLOR_CLEAR_CELL_LIFE` | `clearCellLife` | Action | Reset cell life |
+
+#### ChemSync paths (`devices[{id}].*`)
+
+| Constant | API Path | Type | Notes |
+|----------|----------|------|-------|
+| `CHEM_PH` | `status.ph` | Read | pH reading |
+| `CHEM_ORP` | `status.orp` | Read | ORP reading (mV) |
+| `CHEM_ACID_CONSUMED` | `status.acidConsumed` | Read | Acid consumption |
+| `CHEM_BOARD_TEMP` | `status.boardTemp` | Read | °C |
+| `CHEM_BOOST_REMAINING` | `status.boostRemaining` | Read | Boost time left |
+| `CHEM_FLAGS` | `status.flags` | Read | Status flags |
+| `CHEM_PH_SETPOINT` | `config.phSetpoint` | Read/Write | pH target |
+| `CHEM_PH_MIN` | `config.phMin` | Read/Write | pH min limit |
+| `CHEM_PH_MAX` | `config.phMax` | Read/Write | pH max limit |
+| `CHEM_PH_ENABLED` | `config.phEnabled` | Read/Write | pH control on/off |
+| `CHEM_PH_OFFSET` | `config.phOffset` | Read/Write | pH probe offset |
+| `CHEM_ORP_SETPOINT` | `config.orpSetpoint` | Read/Write | ORP target (mV) |
+| `CHEM_ORP_ENABLED` | `config.orpEnabled` | Read/Write | ORP control on/off |
+| `CHEM_FEED_RATE` | `config.feedRate` | Read/Write | Feed pump rate |
+| `CHEM_FEED_AMOUNT` | `config.feedAmount` | Read/Write | Feed amount |
+| `CHEM_FEED_RATE_UNITS` | `config.feedRateUnits` | Read/Write | Feed rate units |
+| `CHEM_MAX_DAILY_FEED` | `config.maxDailyFeed` | Read/Write | Max daily feed |
+| `CHEM_FLOW_SENSOR_ENABLE` | `config.flowSensorEnable` | Read/Write | Flow sensor on/off |
+| `CHEM_FLOW_POLARITY` | `config.flowPolarity` | Read/Write | Flow polarity |
+| `CHEM_SYS_MODE` | `config.sysMode` | Read/Write | System mode |
+| `CHEM_MANUAL_MODE` | `config.manualMode` | Read/Write | Manual mode |
+| `CHEM_IDMP_ADDRESSES` | `config.idmpAddrs` | Read/Write | IDMP addresses |
+| `CHEM_ACID_TANK_ALERT_AMOUNT` | `config.acidTankAlertAmount` | Read/Write | Tank alert threshold |
+| `CHEM_FW_VERSION` | `system.fwVersion` | Read | Firmware version |
+| `CHEM_HW_VERSION` | `system.hwVersion` | Read | Hardware version |
+| `CHEM_SERIAL_NUM` | `system.serialNum` | Read | Serial number |
+| `CHEM_MODEL_NUM` | `system.modelNum` | Read | Model number |
+| `CHEM_SYSTEM_RESETS` | `stats[0]` | Read | Reset count |
+| `CHEM_SYSTEM_UPTIME` | `stats[1]` | Read | Uptime counter |
+| `CHEM_FLOW_RUNTIME` | `stats[2]` | Read | Flow runtime |
+| `CHEM_FEED_PUMP_RUNTIME` | `stats[3]` | Read | Feed pump runtime |
+| `CHEM_TOTAL_ACID_DELIVERY` | `stats[4]` | Read | Total acid delivered |
+| `CHEM_TOTAL_CHLORINE_DEMAND_TIME` | `stats[5]` | Read | Total Cl demand time |
+| `CHEM_FAULT_COUNT_0_3` | `stats[6]` | Read | Faults 0-3 |
+| `CHEM_FAULT_COUNT_4_7` | `stats[7]` | Read | Faults 4-7 |
+| `CHEM_FAULT_COUNT_8_11` | `stats[8]` | Read | Faults 8-11 |
+| `CHEM_TANK_FEED_RUNTIME` | `stats[9]` | Read | Tank feed runtime |
+| `CHEM_STATS_FUTURE_1` through `5` | `stats[10-14]` | Read | Unknown/unused |
+| `CHEM_BOOST` | `boost` | Action | Trigger boost cycle |
+| `CHEM_PRIME_PUMP` | `primePump` | Action | Prime feed pump |
+| `CHEM_REFILL_TANK` | `refillTank` | Action | Refill acid tank |
+
+> **⚠️ Action payload note:** Action fields (`boost`, `primePump`, `refillTank`, `clearCellLife`, `measureSalt`) use the same `PATCH ?cmd=devices&device={id}` endpoint as config writes. Live testing on fw 860 confirmed `{"primePump": 1}` returns HTTP 200, so the plain `{"actionName": value}` format is accepted. Whether the action actually executes depends on the target device supporting it.
+
+#### Equipment (positional array indices)
+
+Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPMENT_*` constants map array indices:
+
+| Constant | Array Index | Meaning |
+|----------|-------------|---------|
+| `VIRTUAL_EQUIPMENT_TYPE` | `[0]` | Equipment type code |
+| `VIRTUAL_EQUIPMENT_NAME` | `[1]` | Display name string |
+| `VIRTUAL_EQUIPMENT_NAME_ID` | `[2]` | Name ID |
+| `VIRTUAL_EQUIPMENT_SUB_TYPE` | `[3]` | Sub-type code |
+| `VIRTUAL_EQUIPMENT_PORT` | `[4]` | Port number |
+| `VIRTUAL_EQUIPMENT_TIME_START` | `[5]` | Timer start |
+| `VIRTUAL_EQUIPMENT_TIME_LEFT` | `[6]` | Timer remaining |
+| `VIRTUAL_EQUIPMENT_STATE` | `[7]` | On/off state |
+
+#### Default display names
+
+The app defines these default names for device types:
+
+| Constant | Value | Device Type |
+|----------|-------|-------------|
+| `SYNC_DEFAULT_NAME` | `PoolSync®` | Controller |
+| `HP_DEFAULT_NAME` | `Heat Pump` | Heat pump |
+| `CHLOR_DEFAULT_NAME` | `Chlorinator` | ChlorSync |
+| `CHEM_DEFAULT_NAME` | `Chem Controller` | ChemSync |
+
+---
+
 ## 0. Architecture: Device Type Registry & Multi-Device Model
 
 ### 0.1 Device Type Registry
@@ -419,13 +768,13 @@ Group equip sub-object maps equipment IDs to settings for that group:
 
 #### F6. Group index 3 Active State Semantics
 
+Any positive value is considered active (the app checks `config[3] > 0`). What distinct values 1, 2, etc. mean is unclear — they may encode priority, activation source (manual vs schedule), or a sub-state. User testing confirmed groups are additive, so state values do not imply mutual exclusion.
+
 | Value | Meaning | Evidence |
 |-------|---------|----------|
 | 0 | Inactive | All non-active groups across all 3 samples |
-| 1 | Active (filtration/circulation only) | FILTRATION group in files 1 and 2 |
-| 2 | Active with heat demand | POOL group in file 3 (mode=1, compressor on) |
-
-The value 2 may indicate "active + heat pump enabled" specifically for the POOL group.
+| 1 | Active | FILTRATION group in files 1 and 2 |
+| 2 | Active (different priority/source) | POOL group in file 3 (mode=1, compressor on) |
 
 #### F7. Group Schedules Exist Per-Group
 

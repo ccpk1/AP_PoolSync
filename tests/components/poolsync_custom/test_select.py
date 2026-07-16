@@ -174,7 +174,7 @@ async def test_async_select_option_rejects_unsupported_value(hass) -> None:
         ),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported heat pump mode"):
+    with pytest.raises(HomeAssistantError, match="Unsupported option"):
         await entity.async_select_option("auto_pool")
 
 

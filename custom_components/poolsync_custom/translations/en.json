@@ -55,6 +55,15 @@
     "button": {
       "manual_refresh": {
         "name": "Refresh data"
+      },
+      "chem_prime_pump": {
+        "name": "Prime feed pump"
+      },
+      "chem_boost": {
+        "name": "Boost"
+      },
+      "chlor_clear_cell_life": {
+        "name": "Clear cell life"
       }
     },
     "climate": {
@@ -102,6 +111,19 @@
         "name": "Service mode"
       }
     },
+    "select": {
+      "mode": {
+        "name": "Mode"
+      },
+      "chem_sys_mode": {
+        "name": "System mode"
+      }
+    },
+    "switch": {
+      "group": {
+        "name": "Group"
+      }
+    },
     "number": {
       "active_target_temperature": {
         "name": "Active target temperature"
@@ -111,6 +133,18 @@
       },
       "pump_rpm_control": {
         "name": "Pump RPM"
+      },
+      "ph_setpoint": {
+        "name": "pH setpoint"
+      },
+      "orp_setpoint": {
+        "name": "ORP setpoint"
+      },
+      "feed_rate": {
+        "name": "Feed rate"
+      },
+      "max_daily_feed": {
+        "name": "Max daily feed"
       }
     },
     "sensor": {

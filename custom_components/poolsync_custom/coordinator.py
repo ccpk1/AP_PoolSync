@@ -23,6 +23,7 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
     EQUIP_PUMP_RPM_WRITE_KEY,
+    GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
     PUMP_RPM_FACTOR,
@@ -247,7 +248,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     password=self.password,
                 )
             await self.async_request_refresh()
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error(description, err)
 
     async def async_set_chlorinator_output(self, value: int, index: int = 0) -> None:
@@ -409,6 +410,78 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         raise HomeAssistantError(f"Unsupported climate HVAC mode: {hvac_mode}")
 
+    async def async_set_chem_config(self, key: str, value: int, index: int = 0) -> None:
+        """Set a ChemSync configuration value by entity key.
+
+        Maps entity keys to API config field names.
+        """
+        _key_map: dict[str, str] = {
+            "chem_ph_setpoint": "phSetpoint",
+            "chem_orp_setpoint": "orpSetpoint",
+            "chem_feed_rate": "feedRate",
+            "chem_max_daily_feed": "maxDailyFeed",
+        }
+        key_id = _key_map.get(key)
+        if key_id is None:
+            raise HomeAssistantError(f"Unsupported ChemSync config key: {key}")
+        await self._async_write_role_config(
+            role="chem_sync",
+            key_id=key_id,
+            value=value,
+            description=f"ChemSync {key_id}",
+            index=index,
+        )
+
+    async def async_chem_prime_pump(self, index: int = 0) -> None:
+        """Trigger ChemSync prime pump action."""
+        device_id = self._get_write_role_device_id(
+            role="chem_sync", description="ChemSync prime pump", index=index
+        )
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=device_id,
+                key_id="primePump",
+                value=1,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("ChemSync prime pump", err)
+
+    async def async_chem_boost(self, index: int = 0) -> None:
+        """Trigger ChemSync boost action."""
+        device_id = self._get_write_role_device_id(
+            role="chem_sync", description="ChemSync boost", index=index
+        )
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=device_id,
+                key_id="boost",
+                value=1,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("ChemSync boost", err)
+
+    async def async_chlor_clear_cell_life(self, index: int = 0) -> None:
+        """Trigger ChlorSync clear cell life action."""
+        device_id = self._get_write_role_device_id(
+            role="chlorinator",
+            description="ChlorSync clear cell life",
+            index=index,
+        )
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=device_id,
+                key_id="clearCellLife",
+                value=1,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("ChlorSync clear cell life", err)
+
     async def _async_update_data(self) -> dict[str, Any]:
         """
         Fetch data from the PoolSync device API.
@@ -532,7 +605,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             raise UpdateFailed(f"API error for {self.name}: {err}") from err
 
-        except Exception as err:
+        except Exception as err:  # pylint: disable=broad-exception-caught
             self._set_last_failure(
                 "unexpected_error",
                 str(err),
@@ -792,5 +865,29 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 password=self.password,
             )
             await self.async_request_refresh()
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error("pump RPM", err)
+
+    async def async_set_group_state(
+        self, group_id: str, state: bool, index: int = 0
+    ) -> None:
+        """Turn a group on or off by setting its state in config[3]."""
+        role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
+        if role_data is None or role_data.device_id is None:
+            raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=role_data.device_id,
+                key_id="group_state",
+                value=1 if state else 0,
+                password=self.password,
+                json_data_override={
+                    "groups": {
+                        group_id: {"config": {str(GROUP_IDX_STATE): 1 if state else 0}}
+                    }
+                },
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error(f"group {group_id} state", err)
