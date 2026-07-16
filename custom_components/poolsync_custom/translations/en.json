@@ -221,6 +221,15 @@
       },
       "wifi_signal_strength": {
         "name": "Wi-Fi signal strength"
+      },
+      "ph": {
+        "name": "pH"
+      },
+      "orp": {
+        "name": "ORP"
+      },
+      "acid_consumed": {
+        "name": "Acid consumed"
       }
     },
     "select": {

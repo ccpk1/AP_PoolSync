@@ -72,6 +72,12 @@ DEVICE_TYPE_REGISTRY: dict[str, DeviceTypeInfo] = {
         default_name="Heat Pump",
         default_model="Heat Pump",
     ),
+    "chemSync": DeviceTypeInfo(
+        api_device_type="chemSync",
+        role_key="chem_sync",
+        default_name="ChemSync",
+        default_model="ChemSync",
+    ),
 }
 
 # Reverse lookup: role_key → DeviceTypeInfo
@@ -703,7 +709,9 @@ def _resolve_device_types(data: dict[str, Any]) -> dict[str, list[str]]:
 
     for device_id in sorted(
         device_types,
-        key=lambda k: int(k) if isinstance(k, str) and k.isdigit() else k,
+        key=lambda k: (
+            (0, int(k)) if isinstance(k, str) and k.isdigit() else (1, str(k))
+        ),
     ):
         api_type = device_types[device_id]
         if not isinstance(api_type, str):
@@ -857,17 +865,18 @@ def parse_poolsync_runtime_data(data: dict[str, Any]) -> PoolSyncParsedData:
 
 def get_heat_pump_capabilities(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> PoolSyncHeatPumpCapabilities | None:
     """Return the capability profile for the parsed heat pump."""
     hp_devices = parsed_data.devices.get("heat_pump", [])
-    if not hp_devices or not hp_devices[0].is_present:
+    if not hp_devices or not hp_devices[index].is_present:
         return None
 
-    model_number = _get_dict_value(hp_devices[0].system, "modelNum")
+    model_number = _get_dict_value(hp_devices[index].system, "modelNum")
     if not isinstance(model_number, str):
         model_number = None
 
-    config = hp_devices[0].config
+    config = hp_devices[index].config
     model_profile = _decode_aquacal_model_profile(model_number)
 
     payload_supports_pool_spa_mode = (
@@ -904,18 +913,19 @@ def get_heat_pump_capabilities(
 
 def get_heat_pump_runtime(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> PoolSyncHeatPumpRuntime | None:
     """Return derived runtime state for the parsed heat pump."""
     hp_devices = parsed_data.devices.get("heat_pump", [])
-    if not hp_devices or not hp_devices[0].is_present:
+    if not hp_devices or not hp_devices[index].is_present:
         return None
 
-    capabilities = get_heat_pump_capabilities(parsed_data)
+    capabilities = get_heat_pump_capabilities(parsed_data, index=index)
     if capabilities is None:
         return None
 
-    hp_status = hp_devices[0].status
-    hp_config = hp_devices[0].config
+    hp_status = hp_devices[index].status
+    hp_config = hp_devices[index].config
     ctrl_flags_raw = _get_int_value(hp_status, "ctrlFlags")
     state_flags_raw = _get_int_value(hp_status, "stateFlags")
     mode_value = _get_int_value(hp_config, "mode")
@@ -979,9 +989,12 @@ def get_heat_pump_runtime(
     )
 
 
-def get_heat_pump_mode_options(parsed_data: PoolSyncParsedData) -> list[str]:
+def get_heat_pump_mode_options(
+    parsed_data: PoolSyncParsedData,
+    index: int = 0,
+) -> list[str]:
     """Return supported heat-pump mode options for the current device."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None:
         return []
 
@@ -1015,9 +1028,10 @@ def get_heat_pump_mode_options(parsed_data: PoolSyncParsedData) -> list[str]:
 
 def get_heat_pump_climate_preset_modes(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> list[PoolSyncHeatPumpClimatePresetMode]:
     """Return the supported climate preset modes for the heat pump."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None:
         return []
 
@@ -1029,9 +1043,10 @@ def get_heat_pump_climate_preset_modes(
 
 def get_heat_pump_climate_preset_mode(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> PoolSyncHeatPumpClimatePresetMode | None:
     """Return the active climate preset mode for the heat pump."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None:
         return None
 
@@ -1050,9 +1065,10 @@ def get_heat_pump_climate_preset_mode(
 
 def get_heat_pump_climate_hvac_modes(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> list[PoolSyncHeatPumpClimateHvacMode]:
     """Return the supported climate HVAC modes for the heat pump."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None:
         return []
 
@@ -1080,9 +1096,10 @@ def get_heat_pump_climate_hvac_modes(
 
 def get_heat_pump_climate_hvac_mode(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> PoolSyncHeatPumpClimateHvacMode | None:
     """Return the active climate HVAC mode for the heat pump."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None or runtime.mode_context is None:
         return None
 
@@ -1100,9 +1117,10 @@ def get_heat_pump_climate_hvac_mode(
 
 def get_heat_pump_climate_hvac_action(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> PoolSyncHeatPumpClimateHvacAction | None:
     """Return the active climate HVAC action for the heat pump."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None or runtime.mode_context is None:
         return None
 
@@ -1119,7 +1137,7 @@ def get_heat_pump_climate_hvac_action(
         if not runtime.compressor_running:
             return "idle"
         if runtime.capabilities.supports_cooling:
-            return None
+            return "cooling"
         return "heating"
 
     return None
@@ -1127,20 +1145,22 @@ def get_heat_pump_climate_hvac_action(
 
 def get_heat_pump_climate_current_temperature(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> int | float | None:
     """Return the current climate temperature for the heat pump."""
     hp_devices = parsed_data.devices.get("heat_pump", [])
-    if not hp_devices or not hp_devices[0].is_present:
+    if not hp_devices or not hp_devices[index].is_present:
         return None
-    return _get_number_value(hp_devices[0].status, "waterTemp")
+    return _get_number_value(hp_devices[index].status, "waterTemp")
 
 
 def get_heat_pump_climate_target_temperature(
     parsed_data: PoolSyncParsedData,
     preset_mode: PoolSyncHeatPumpClimatePresetMode | None = None,
+    index: int = 0,
 ) -> int | float | None:
     """Return the climate target temperature for the active or selected body."""
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None:
         return None
 
@@ -1178,17 +1198,17 @@ _NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "chlor_output_control": _dv("chlorinator", "config", "chlorOutput"),
     "temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.active_target_temperature
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "pool_temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.pool_setpoint
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "spa_temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.spa_setpoint
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "pump_rpm_control": lambda parsed_data, **kwargs: get_pump_rpm(
@@ -1209,18 +1229,25 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     ),
     "chlorsync_online": _dv("chlorinator", "node_attr", "online"),
     "chlorsync_fault": _dv("chlorinator", "data", "faults"),
+    "chem_sync_online": _dv("chem_sync", "node_attr", "online"),
+    "chem_sync_fault": _dv("chem_sync", "data", "faults"),
+    "chem_sync_flow": _dv("chem_sync", "config", "flowSensorEnable"),
     "heatpump_online": _dv("heat_pump", "node_attr", "online"),
     "heatpump_fault": _dv("heat_pump", "data", "faults"),
     "heatpump_flow": lambda parsed_data, **kwargs: (
-        runtime.has_flow if (runtime := get_heat_pump_runtime(parsed_data)) else None
+        runtime.has_flow
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
+        else None
     ),
     "heatpump_compressor": lambda parsed_data, **kwargs: (
         runtime.compressor_running
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "heatpump_fan": lambda parsed_data, **kwargs: (
-        runtime.fan_running if (runtime := get_heat_pump_runtime(parsed_data)) else None
+        runtime.fan_running
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
+        else None
     ),
     "heatpump_ext_ctrl": _dv("heat_pump", "config", "extCtrlMode"),
     "heatpump_in_group": lambda parsed_data, **kwargs: get_hp_in_group(
@@ -1265,32 +1292,37 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "cell_serial_number": _dv("chlorinator", "system", "cellSerialNum"),
     "cell_firmware_version": _dv("chlorinator", "system", "cellFwVersion"),
     "cell_hardware_version": _dv("chlorinator", "system", "cellHwVersion"),
+    "chem_ph": _dv("chem_sync", "status", "ph"),
+    "chem_orp": _dv("chem_sync", "status", "orp"),
+    "chem_board_temp": _dv("chem_sync", "status", "boardTemp"),
+    "chem_acid_consumed": _dv("chem_sync", "status", "acidConsumed"),
     "hp_water_temp": _dv("heat_pump", "status", "waterTemp"),
     "hp_air_temp": _dv("heat_pump", "status", "airTemp"),
     "hp_board_temp": _dv("heat_pump", "status", "boardTemp"),
     "hp_mode": lambda parsed_data, **kwargs: (
         runtime.mode_context
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "hp_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.active_target_temperature
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "hp_fault_code": lambda parsed_data, **kwargs: _get_first_active_fault_code(
-        hp_devices[0].data
+        hp_devices[idx].data
         if (hp_devices := parsed_data.devices.get("heat_pump", []))
+        and (idx := kwargs.get("index", 0)) < len(hp_devices)
         else None
     ),
     "hp_pool_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.pool_setpoint
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "hp_spa_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.spa_setpoint
-        if (runtime := get_heat_pump_runtime(parsed_data))
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
     "hp_water_temp2": _dv("heat_pump", "status", "waterTemp2"),
@@ -1300,8 +1332,9 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         top[0]
         if (
             top := _get_top_fault_info(
-                hp_devices[0].data
+                hp_devices[idx].data
                 if (hp_devices := parsed_data.devices.get("heat_pump", []))
+                and (idx := kwargs.get("index", 0)) < len(hp_devices)
                 else None
             )
         )
@@ -1311,8 +1344,9 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         top[1]
         if (
             top := _get_top_fault_info(
-                hp_devices[0].data
+                hp_devices[idx].data
                 if (hp_devices := parsed_data.devices.get("heat_pump", []))
+                and (idx := kwargs.get("index", 0)) < len(hp_devices)
                 else None
             )
         )
@@ -1340,12 +1374,13 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
 
 def get_heat_pump_climate_min_temp(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> int | float:
     """Return the device-reported minimum setpoint, or a safe default."""
     hp_devices = parsed_data.devices.get("heat_pump", [])
-    if not hp_devices or not hp_devices[0].is_present:
+    if not hp_devices or not hp_devices[index].is_present:
         return 40
-    min_temp = _get_number_value(hp_devices[0].config, "setpointMin")
+    min_temp = _get_number_value(hp_devices[index].config, "setpointMin")
     if isinstance(min_temp, (int, float)) and min_temp > 0:
         return min_temp
     return 40
@@ -1353,12 +1388,13 @@ def get_heat_pump_climate_min_temp(
 
 def get_heat_pump_climate_max_temp(
     parsed_data: PoolSyncParsedData,
+    index: int = 0,
 ) -> int | float:
     """Return the device-reported maximum setpoint, or a safe default."""
     hp_devices = parsed_data.devices.get("heat_pump", [])
-    if not hp_devices or not hp_devices[0].is_present:
+    if not hp_devices or not hp_devices[index].is_present:
         return 104
-    max_temp = _get_number_value(hp_devices[0].config, "setpointMax")
+    max_temp = _get_number_value(hp_devices[index].config, "setpointMax")
     if isinstance(max_temp, (int, float)) and max_temp > 0:
         return max_temp
     return 104
@@ -1418,10 +1454,14 @@ def get_sensor_value(
     return getter(parsed_data, role_key=role_key, index=index)
 
 
-def get_select_value(parsed_data: PoolSyncParsedData, key: str) -> Any:
+def get_select_value(
+    parsed_data: PoolSyncParsedData,
+    key: str,
+    index: int = 0,
+) -> Any:
     """Return a select value from parsed runtime data."""
     if key != "heat_mode":
         return None
 
-    runtime = get_heat_pump_runtime(parsed_data)
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
     return runtime.mode_context if runtime is not None else None

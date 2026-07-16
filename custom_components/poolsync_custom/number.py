@@ -26,7 +26,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
+from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import ensure_parsed_data, get_number_value
 
 _LOGGER = logging.getLogger(__name__)

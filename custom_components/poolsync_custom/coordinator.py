@@ -27,7 +27,6 @@ from .const import (
     PUMP_RPM_FACTOR,
 )
 from .runtime import (
-    ROLE_KEY_REGISTRY,
     HEAT_PUMP_CONFIG_MODE_AUTO,
     HEAT_PUMP_CONFIG_MODE_COOL,
     HEAT_PUMP_CONFIG_MODE_HEAT,
@@ -39,6 +38,7 @@ from .runtime import (
     HEAT_PUMP_POOL_SPA_MODE_SPA,
     HEAT_PUMP_PRESET_POOL,
     HEAT_PUMP_PRESET_SPA,
+    ROLE_KEY_REGISTRY,
     PoolSyncDeviceRole,
     PoolSyncEquipmentData,
     PoolSyncHeatPumpClimateHvacMode,
@@ -250,7 +250,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     password=self.password,
                 )
             await self.async_request_refresh()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             self._raise_write_error(description, err)
 
     async def async_set_chlorinator_output(self, value: int, index: int = 0) -> None:
@@ -352,6 +352,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             role="heat_pump",
             updates=updates,
             description="heat pump mode",
+            index=index,
         )
 
     async def async_set_heat_pump_climate_mode(
@@ -663,7 +664,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         index: int,
         all_names: list[str],
     ) -> str:
-        """Return a unique friendly name, appending a suffix for duplicates."""
+        """Return a unique friendly name, appending a suffix for duplicates.
+
+        Using role_key for potential future type-specific dedup logic.
+        """
+        _ = role_key  # Reserved for future type-specific dedup
         if index == 0:
             return base_name
         count = sum(1 for name in all_names[: index + 1] if name == base_name)
@@ -705,7 +710,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if dev.node_attr and isinstance(dev.node_attr.get("name"), str)
                     else default_name
                 )
-                all_raw_names.append(self._normalize_attached_name(raw, role_key))
+                all_raw_names.append(self._normalize_attached_name(raw, role_key))  # type: ignore[arg-type]
 
         if (
             node_attr is not None
@@ -782,5 +787,5 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 password=self.password,
             )
             await self.async_request_refresh()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             self._raise_write_error("pump RPM", err)

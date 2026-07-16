@@ -17,7 +17,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
+from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
@@ -85,6 +85,37 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
             entity_registry_enabled_default=True,
         ),
         lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
+    ),
+)
+BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[
+    BinarySensorDescription,
+    ...,
+] = (
+    (
+        BinarySensorEntityDescription(
+            key="chem_sync_online",
+            translation_key="node_connected",
+            device_class=BinarySensorDeviceClass.CONNECTIVITY,
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: bool(v) if isinstance(v, (bool, int)) else None,
+    ),
+    (
+        BinarySensorEntityDescription(
+            key="chem_sync_fault",
+            translation_key="fault",
+            device_class=BinarySensorDeviceClass.PROBLEM,
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
+    ),
+    (
+        BinarySensorEntityDescription(
+            key="chem_sync_flow",
+            translation_key="flow",
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: bool(v) if isinstance(v, (bool, int)) else None,
     ),
 )
 BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
@@ -245,6 +276,25 @@ async def async_setup_entry(
             _LOGGER.warning(
                 "Coordinator %s data is missing heat pump device %s."
                 " Skipping heat pump binary sensors.",
+                coordinator.name,
+                device.device_id,
+            )
+
+    for index, device in enumerate(parsed_data.devices.get("chem_sync", [])):
+        if device.is_present:
+            binary_sensors_to_add.extend(
+                _build_binary_sensors(
+                    coordinator,
+                    BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC,
+                    "chem_sync",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
+            )
+        elif devices is not None:
+            _LOGGER.warning(
+                "Coordinator %s data is missing chem_sync device %s."
+                " Skipping chem_sync binary sensors.",
                 coordinator.name,
                 device.device_id,
             )

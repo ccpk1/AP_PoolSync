@@ -1,11 +1,13 @@
 # Implementation Plan: Multi-Device Architecture Refactor
 
+> **Status:** Phase 1 ✅ Complete | Phase 2 ✅ Complete | Code review fixes ✅ Complete | Doc updates pending
+
 ## Overview
 
 This document describes a phased refactor of the PoolSync integration's device model to support:
 
-- **Phase 1 (Issue #2):** Multiple devices of the same type (e.g., two ChlorSync chlorinators; multiple heat pumps)
-- **Phase 2 (Issue #1):** New device types (e.g., ChemSync pH/ORP)
+- **Phase 1 (Issue #2):** Multiple devices of the same type (e.g., two ChlorSync chlorinators; multiple heat pumps) — **Implemented**
+- **Phase 2 (Issue #1):** New device types (e.g., ChemSync pH/ORP) — **Implemented**
 
 The architecture replaces the current hardcoded-role approach with a registration-driven model that is self-documenting, type-safe, and extensible without touching multiple files.
 

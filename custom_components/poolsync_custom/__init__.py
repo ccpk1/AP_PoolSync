@@ -49,6 +49,17 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "chlor_output_control",
         }
     ),
+    "chem_sync": frozenset(
+        {
+            "chem_ph",
+            "chem_orp",
+            "chem_board_temp",
+            "chem_acid_consumed",
+            "chem_sync_online",
+            "chem_sync_fault",
+            "chem_sync_flow",
+        }
+    ),
     "heat_pump": frozenset(
         {
             "hp_water_temp",
@@ -132,7 +143,7 @@ def _async_migrate_entity_device_assignments(
 
     role_device_ids: dict[str, str] = {}
     for role_key, device_list in parsed_data.devices.items():
-        if role_key not in ("chlorinator", "heat_pump"):
+        if role_key not in ("chlorinator", "heat_pump", "chem_sync"):
             continue
         for index, device in enumerate(device_list):
             if device.device_id is None:

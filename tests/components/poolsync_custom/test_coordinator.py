@@ -652,11 +652,13 @@ async def test_heat_pump_mode_context_writes_supported_contexts(hass) -> None:
             role="heat_pump",
             updates={"mode": 2, "poolSpaMode": 0},
             description="heat pump mode",
+            index=0,
         ),
         call(
             role="heat_pump",
             updates={"mode": 3, "poolSpaMode": 0},
             description="heat pump mode",
+            index=0,
         ),
     ]
 

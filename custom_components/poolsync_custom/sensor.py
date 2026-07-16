@@ -22,6 +22,7 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfTemperature,
+    UnitOfVolume,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -29,7 +30,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
+from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     ensure_parsed_data,
     get_equipment_runtime,
@@ -182,6 +183,50 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             translation_key="cell_hardware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+)
+SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
+    (
+        SensorEntityDescription(
+            key="chem_ph",
+            translation_key="ph",
+            device_class=SensorDeviceClass.PH,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=2,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_orp",
+            translation_key="orp",
+            native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_board_temp",
+            translation_key="board_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_acid_consumed",
+            translation_key="acid_consumed",
+            native_unit_of_measurement=UnitOfVolume.FLUID_OUNCES,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
         ),
         None,
     ),
@@ -504,6 +549,24 @@ async def async_setup_entry(
         elif has_devices:
             _LOGGER.warning(
                 "Coordinator %s data is missing heat pump device %s. Skipping heat pump sensors.",
+                coordinator.name,
+                device.device_id,
+            )
+
+    for index, device in enumerate(parsed_data.devices.get("chem_sync", [])):
+        if device.is_present:
+            sensors_to_add.extend(
+                _build_sensor_entities(
+                    coordinator,
+                    SENSOR_DESCRIPTIONS_CHEMSYNC,
+                    "chem_sync",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
+            )
+        elif has_devices:
+            _LOGGER.warning(
+                "Coordinator %s data is missing chem_sync device %s. Skipping chem_sync sensors.",
                 coordinator.name,
                 device.device_id,
             )

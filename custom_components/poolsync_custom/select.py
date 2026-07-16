@@ -95,9 +95,11 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        self._attr_options = get_heat_pump_mode_options(parsed_data)
+        self._attr_options = get_heat_pump_mode_options(
+            parsed_data, index=self._device_index
+        )
         self._attr_current_option = get_select_value(
-            parsed_data, self.entity_description.key
+            parsed_data, self.entity_description.key, index=self._device_index
         )
         self._attr_available = (
             super().available

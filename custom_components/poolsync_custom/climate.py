@@ -159,25 +159,30 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
             )
             self._attr_preset_mode = preset_mode
             self._attr_target_temperature = get_heat_pump_climate_target_temperature(
-                ensure_parsed_data(self.coordinator), self._last_on_preset_mode
+                ensure_parsed_data(self.coordinator),
+                self._last_on_preset_mode,
+                index=self._device_index,
             )
 
     @callback
     def _update_attrs(self) -> None:
         """Update cached climate attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
+        hp_index = self._device_index
 
-        hvac_modes = get_heat_pump_climate_hvac_modes(parsed_data)
+        hvac_modes = get_heat_pump_climate_hvac_modes(parsed_data, index=hp_index)
         self._attr_hvac_modes = [_HVAC_MODE_MAP[mode] for mode in hvac_modes]
 
-        preset_modes = get_heat_pump_climate_preset_modes(parsed_data)
+        preset_modes = get_heat_pump_climate_preset_modes(parsed_data, index=hp_index)
         self._attr_preset_modes = list(preset_modes)
 
-        runtime_preset_mode = get_heat_pump_climate_preset_mode(parsed_data)
+        runtime_preset_mode = get_heat_pump_climate_preset_mode(
+            parsed_data, index=hp_index
+        )
         if runtime_preset_mode is not None:
             self._last_on_preset_mode = runtime_preset_mode
 
-        hvac_mode = get_heat_pump_climate_hvac_mode(parsed_data)
+        hvac_mode = get_heat_pump_climate_hvac_mode(parsed_data, index=hp_index)
         self._attr_hvac_mode = _HVAC_MODE_MAP.get(hvac_mode) if hvac_mode else None
 
         if self._attr_hvac_mode == HVACMode.OFF:
@@ -186,10 +191,10 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
             self._attr_preset_mode = runtime_preset_mode
 
         self._attr_hvac_action = _HVAC_ACTION_MAP.get(
-            get_heat_pump_climate_hvac_action(parsed_data) or ""
+            get_heat_pump_climate_hvac_action(parsed_data, index=hp_index) or ""
         )
         self._attr_current_temperature = get_heat_pump_climate_current_temperature(
-            parsed_data
+            parsed_data, index=hp_index
         )
         self._attr_target_temperature = get_heat_pump_climate_target_temperature(
             parsed_data,
@@ -197,9 +202,14 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
                 PoolSyncHeatPumpClimatePresetMode | None,
                 self._attr_preset_mode,
             ),
+            index=hp_index,
         )
-        self._attr_min_temp = get_heat_pump_climate_min_temp(parsed_data)
-        self._attr_max_temp = get_heat_pump_climate_max_temp(parsed_data)
+        self._attr_min_temp = get_heat_pump_climate_min_temp(
+            parsed_data, index=hp_index
+        )
+        self._attr_max_temp = get_heat_pump_climate_max_temp(
+            parsed_data, index=hp_index
+        )
         self._attr_available = (
             super().available
             and self._attr_current_temperature is not None
