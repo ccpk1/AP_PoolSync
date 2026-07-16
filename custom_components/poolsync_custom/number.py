@@ -42,6 +42,7 @@ PARALLEL_UPDATES = 0  # Coordinator-based updates
 _WRITE_METHODS: dict[str, str] = {
     "chlor_output_control": "async_set_chlorinator_output",
     "temperature_output_control": "async_set_heat_pump_active_target",
+    "pump_rpm_control": "async_set_pump_rpm",
     "chem_ph_setpoint": "async_set_chem_config",
     "chem_orp_setpoint": "async_set_chem_config",
     "chem_max_daily_feed": "async_set_chem_config",
