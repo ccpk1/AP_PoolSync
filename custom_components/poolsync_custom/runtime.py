@@ -289,6 +289,11 @@ class PoolSyncEquipmentData:
         """Return whether this is a motorized valve."""
         return self.equip_type == EQUIP_TYPE_VALVE
 
+    @property
+    def is_heat_pump(self) -> bool:
+        """Return whether this is a heat pump equipment entry."""
+        return self.equip_type == EQUIP_TYPE_HEAT_PUMP
+
     def get_int(self, index: int, default: int = 0) -> int:
         """Safely read an int from a raw array index."""
         if index < len(self.raw):
