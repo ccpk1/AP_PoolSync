@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -629,9 +630,13 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sw_version = system_info.get("fwVersion")
             hw_version = system_info.get("hwVersion")
 
+        identifier = self._get_controller_identifier()
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
+
         return DeviceInfo(
-            identifiers={self._get_controller_identifier()},
-            name=self._get_controller_name(parsed_data),
+            identifiers={identifier},
+            name=self._get_controller_name(parsed_data) if existing is None else None,
             manufacturer=MANUFACTURER,
             model=MODEL,
             sw_version=str(sw_version) if sw_version is not None else None,
@@ -736,11 +741,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "drvHwVersion"
                 )
 
+        identifier = self._get_device_identifier(
+            role_key, node_addr=node_addr, index=index
+        )
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
+
         return DeviceInfo(
-            identifiers={
-                self._get_device_identifier(role_key, node_addr=node_addr, index=index)
-            },
-            name=device_name,
+            identifiers={identifier},
+            name=device_name if existing is None else None,
             manufacturer=MANUFACTURER,
             model=str(model_name) if model_name else default_model,
             sw_version=str(sw_version) if sw_version is not None else None,
@@ -751,9 +760,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
         """Build device info for an equipment entry."""
         identifier = (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
         return DeviceInfo(
             identifiers={identifier},
-            name=equip.name,
+            name=equip.name if existing is None else None,
             manufacturer=MANUFACTURER,
             via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
         )
