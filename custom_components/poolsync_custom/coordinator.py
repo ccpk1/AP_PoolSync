@@ -214,7 +214,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         role: PoolSyncDeviceRole,
         key_id: str,
-        value: int,
+        value: int | float,
         description: str,
         index: int = 0,
     ) -> None:
@@ -418,7 +418,6 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _key_map: dict[str, str] = {
             "chem_ph_setpoint": "phSetpoint",
             "chem_orp_setpoint": "orpSetpoint",
-            "chem_feed_rate": "feedRate",
             "chem_max_daily_feed": "maxDailyFeed",
         }
         key_id = _key_map.get(key)
@@ -664,6 +663,45 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return (domain, f"{self.mac_address}_{role_key}_{node_addr}")
         return (domain, f"{self.mac_address}_{role_key}_{index}")
 
+    def _build_device_info(
+        self,
+        *,
+        identifier: tuple[str, str],
+        name: str | None = None,
+        model: str | None = None,
+        sw_version: str | None = None,
+        hw_version: str | None = None,
+        configuration_url: str | None = None,
+        via_device: tuple[str, str] | None = None,
+    ) -> DeviceInfo:
+        """Build DeviceInfo, only setting name when the device doesn't exist yet.
+
+        Passing name for an existing device would overwrite any user-
+        customized name in the device registry. We omit name for existing
+        entries to preserve user customizations.
+        """
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
+
+        info: dict[str, Any] = {
+            "identifiers": {identifier},
+            "manufacturer": MANUFACTURER,
+        }
+        if name is not None and (existing is None or existing.name is None):
+            info["name"] = name
+        if model is not None:
+            info["model"] = model
+        if sw_version is not None:
+            info["sw_version"] = sw_version
+        if hw_version is not None:
+            info["hw_version"] = hw_version
+        if configuration_url is not None:
+            info["configuration_url"] = configuration_url
+        if via_device is not None:
+            info["via_device"] = via_device
+
+        return DeviceInfo(**info)
+
     def _get_controller_name(self, parsed_data: PoolSyncParsedData | None) -> str:
         """Return the best available controller device name.
 
@@ -703,24 +741,14 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sw_version = system_info.get("fwVersion")
             hw_version = system_info.get("hwVersion")
 
-        identifier = self._get_controller_identifier()
-        device_registry = dr.async_get(self.hass)
-        existing = device_registry.async_get_device(identifiers={identifier})
-
-        info: dict[str, Any] = {
-            "identifiers": {identifier},
-            "manufacturer": MANUFACTURER,
-            "model": MODEL,
-            "configuration_url": f"http://{self._ip_address}",
-        }
-        if existing is None:
-            info["name"] = self._get_controller_name(parsed_data)
-        if sw_version is not None:
-            info["sw_version"] = str(sw_version)
-        if hw_version is not None:
-            info["hw_version"] = str(hw_version)
-
-        return DeviceInfo(**info)
+        return self._build_device_info(
+            identifier=self._get_controller_identifier(),
+            name=self._get_controller_name(parsed_data),
+            model=MODEL,
+            sw_version=str(sw_version) if sw_version is not None else None,
+            hw_version=str(hw_version) if hw_version is not None else None,
+            configuration_url=f"http://{self._ip_address}",
+        )
 
     def _normalize_attached_name(self, name: str, role_key: str) -> str:
         """Normalize known vendor default attached-device names."""
@@ -822,33 +850,21 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         identifier = self._get_device_identifier(
             role_key, node_addr=node_addr, index=index
         )
-        device_registry = dr.async_get(self.hass)
-        existing = device_registry.async_get_device(identifiers={identifier})
 
-        info: dict[str, Any] = {
-            "identifiers": {identifier},
-            "manufacturer": MANUFACTURER,
-            "model": str(model_name) if model_name else default_model,
-            "via_device": self._get_controller_identifier(),
-        }
-        if existing is None:
-            info["name"] = device_name
-        if sw_version is not None:
-            info["sw_version"] = str(sw_version)
-        if hw_version is not None:
-            info["hw_version"] = str(hw_version)
-
-        return DeviceInfo(**info)
+        return self._build_device_info(
+            identifier=identifier,
+            name=device_name,
+            model=str(model_name) if model_name else default_model,
+            sw_version=str(sw_version) if sw_version is not None else None,
+            hw_version=str(hw_version) if hw_version is not None else None,
+            via_device=self._get_controller_identifier(),
+        )
 
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
         """Build device info for an equipment entry."""
-        identifier = (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
-        device_registry = dr.async_get(self.hass)
-        existing = device_registry.async_get_device(identifiers={identifier})
-        return DeviceInfo(
-            identifiers={identifier},
-            name=equip.name if existing is None else None,
-            manufacturer=MANUFACTURER,
+        return self._build_device_info(
+            identifier=(DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}"),
+            name=equip.name,
             via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
         )
 

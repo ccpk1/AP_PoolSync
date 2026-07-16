@@ -187,6 +187,56 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
+    (
+        SensorEntityDescription(
+            key="cell_rail_voltage",
+            translation_key="cell_rail_voltage",
+            native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+            device_class=SensorDeviceClass.VOLTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="temp_comp_output",
+            translation_key="temperature_compensation_output",
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="drv_model_num",
+            translation_key="driver_model_number",
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="drv_fw_version",
+            translation_key="driver_firmware_version",
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="drv_hw_version",
+            translation_key="driver_hardware_version",
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
 )
 SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
     (
@@ -226,8 +276,36 @@ SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
             key="chem_acid_consumed",
             translation_key="acid_consumed",
             native_unit_of_measurement=UnitOfVolume.FLUID_OUNCES,
+            device_class=SensorDeviceClass.VOLUME,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_fw_version",
+            translation_key="chem_firmware_version",
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_hw_version",
+            translation_key="chem_hardware_version",
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_model_num",
+            translation_key="chem_model_number",
+            entity_registry_enabled_default=False,
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
         None,
     ),

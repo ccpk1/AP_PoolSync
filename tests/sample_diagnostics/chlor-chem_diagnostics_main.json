@@ -1,0 +1,288 @@
+{
+  "config_entry_id": "01KXKGB3NNHA8000VE0NTFDNTY",
+  "data": {
+    "home_assistant": {
+      "arch": "aarch64",
+      "dev": false,
+      "docker": true,
+      "hassio": true,
+      "installation_type": "Home Assistant OS",
+      "os_name": "Linux",
+      "os_version": "6.18.37-haos",
+      "python_version": "3.14.6",
+      "timezone": "America/Nassau",
+      "version": "2026.7.2",
+      "virtualenv": false,
+      "container_arch": "aarch64",
+      "supervisor": "2026.07.3",
+      "host_os": "Home Assistant OS 18.1",
+      "docker_version": "29.5.3",
+      "chassis": "embedded",
+      "run_as_root": true
+    },
+    "custom_components": {
+      "poolsync_custom": {
+        "documentation": "https://github.com/ccpk1/AP_PoolSync",
+        "version": "1.0.4",
+        "requirements": []
+      }
+    },
+    "integration_manifest": {
+      "domain": "poolsync_custom",
+      "name": "PoolSync Custom",
+      "documentation": "https://github.com/ccpk1/AP_PoolSync",
+      "iot_class": "local_polling",
+      "issue_tracker": "https://github.com/ccpk1/AP_PoolSync/issues",
+      "codeowners": ["ccpk1"],
+      "config_flow": true,
+      "version": "1.0.4",
+      "dependencies": [],
+      "loggers": ["custom_components.poolsync_custom"],
+      "is_built_in": false,
+      "overwrites_built_in": false
+    },
+    "data": {
+      "config_entry": {
+        "created_at": "2026-07-15T18:24:05.302187+00:00",
+        "data": {
+          "ip_address": "**REDACTED**",
+          "password": "**REDACTED**",
+          "macAddress": "**REDACTED**"
+        },
+        "discovery_keys": {},
+        "disabled_by": null,
+        "domain": "poolsync_custom",
+        "entry_id": "01KXKGB3NNHA8000VE0NTFDNTY",
+        "minor_version": 1,
+        "modified_at": "2026-07-15T18:24:05.302196+00:00",
+        "options": {},
+        "pref_disable_new_entities": false,
+        "pref_disable_polling": false,
+        "source": "user",
+        "subentries": [],
+        "title": "PoolSync (A99A4C)",
+        "unique_id": "C05D89A99A4C",
+        "version": 1
+      },
+      "coordinator": {
+        "last_failure_class": null,
+        "last_failure_context": null,
+        "last_failure_detail": null,
+        "last_update_success": true,
+        "last_exception": null,
+        "name": "poolsync_custom(C05D89A99A4C)",
+        "update_interval_seconds": 120
+      },
+      "runtime_data": {
+        "poolSync": {
+          "status": {
+            "online": true,
+            "flags": 0,
+            "rssi": -76,
+            "boardTemp": 36,
+            "dateTime": "Thu Jul 16 08:29:25 2026",
+            "remoteUiPid": 4096,
+            "remoteUiVersion": 0
+          },
+          "system": {
+            "macAddr": "**REDACTED**",
+            "bssid": "**REDACTED**",
+            "fwVersion": 860,
+            "hwVersion": "3.0"
+          },
+          "config": {
+            "name": "PoolSync®",
+            "setupMode": 0,
+            "serviceMode": 0,
+            "brightness": 4,
+            "timeZone": "EST5EDT,M3.2.0,M11.1.0",
+            "latitude": "**REDACTED**",
+            "longitude": "**REDACTED**",
+            "optIns": 4294967292,
+            "isWatching": 29735717
+          },
+          "faults": 0,
+          "stats": {
+            "numPowerups": 32,
+            "lastEsp32ResetReason": 3,
+            "restartHistory": "09080908",
+            "wifiDisconnects": 8,
+            "awsDisconnects": 83,
+            "systemRestarts": 31,
+            "numAwsIotTxMessages": 2325,
+            "numAwsIotRxMessages": 54,
+            "numDeviceOffline": 10491,
+            "lastOfflineDevPid": 9730,
+            "lastOfflineDevAddr": 18,
+            "numDeviceCmdErrResp": 2985,
+            "numDeviceMsgNoResp": 724253,
+            "minRssi": -95,
+            "maxRssi": -64,
+            "minBoardTemp": 33,
+            "maxBoardTemp": 44,
+            "upTimeSecs": 2681307
+          }
+        },
+        "devices": {
+          "0": {
+            "nodeAttr": {
+              "name": "Chemistry",
+              "pid": 10752,
+              "nodeAddr": 21,
+              "idmpAddr": 0,
+              "online": true,
+              "flags": 0,
+              "bootMode": 2,
+              "fwUpdProg": 0,
+              "fwUpdResult": 0
+            },
+            "status": {
+              "flags": 368,
+              "ph": 8.48,
+              "orp": 723,
+              "boostRemaining": 0,
+              "acidConsumed": 1941,
+              "boardTemp": 109.52
+            },
+            "system": {
+              "fwVersion": 533,
+              "hwVersion": "F",
+              "modelNum": "ChemSync",
+              "serialNum": "**REDACTED**"
+            },
+            "config": {
+              "sysMode": 3,
+              "phEnabled": true,
+              "phSetpoint": 7.2,
+              "phMin": 7.2,
+              "phMax": 7.8,
+              "phOffset": 0.02,
+              "orpEnabled": true,
+              "orpSetpoint": 650,
+              "feedRate": 87662,
+              "feedRateUnits": 0,
+              "feedAmount": 0,
+              "maxDailyFeed": 100,
+              "flowSensorEnable": true,
+              "flowPolarity": 0,
+              "acidTankAlertAmount": 640,
+              "manualMode": true,
+              "idmpAddrs": [0, 0, 0, 0, 0, 0, 0, 0]
+            },
+            "faults": [4]
+          },
+          "1": {
+            "nodeAttr": {
+              "name": "Chlorinator",
+              "pid": 9730,
+              "nodeAddr": 18,
+              "idmpAddr": 0,
+              "online": true,
+              "flags": 0,
+              "bootMode": 2,
+              "fwUpdProg": 0,
+              "fwUpdResult": 0
+            },
+            "config": {
+              "chlorOutput": 0,
+              "poolCoverCtrl": true,
+              "tempCompEnable": false,
+              "userSaltCalib": 0,
+              "gallons": 60000,
+              "polarityChangeTime": 48,
+              "orpInputCtrl": false
+            },
+            "status": {
+              "flags": 642,
+              "waterTemp": 93.32,
+              "boardTemp": 95.12,
+              "maxBoardTemp": 175.05,
+              "tempCompOutput": 0,
+              "fwdCurrent": 884,
+              "revCurrent": 884,
+              "outVoltage": 639,
+              "cellRailVoltage": 4959,
+              "saltPPM": 3686,
+              "cellRawSaltADC": 721,
+              "boostRemaining": 0
+            },
+            "system": {
+              "drvModelNum": "PCR0002A",
+              "drvSerialNum": "**REDACTED**",
+              "drvFwVersion": 773,
+              "drvBlFwVersion": 256,
+              "drvHwVersion": "A",
+              "numBlades": 0,
+              "cellFwVersion": 9,
+              "cellHwVersion": 66,
+              "cellSerialNum": "**REDACTED**"
+            },
+            "faults": [0]
+          },
+          "2": {
+            "nodeAttr": {
+              "name": "Chlorinator",
+              "pid": 9730,
+              "nodeAddr": 19,
+              "idmpAddr": 0,
+              "online": true,
+              "flags": 0,
+              "bootMode": 2,
+              "fwUpdProg": 0,
+              "fwUpdResult": 0
+            },
+            "config": {
+              "chlorOutput": 0,
+              "poolCoverCtrl": true,
+              "tempCompEnable": true,
+              "userSaltCalib": 304,
+              "gallons": 60000,
+              "polarityChangeTime": 48,
+              "orpInputCtrl": false
+            },
+            "status": {
+              "flags": 642,
+              "waterTemp": 94.69,
+              "boardTemp": 94.63,
+              "maxBoardTemp": 164.76,
+              "tempCompOutput": 0,
+              "fwdCurrent": 1240,
+              "revCurrent": 1135,
+              "outVoltage": 546,
+              "cellRailVoltage": 4860,
+              "saltPPM": 3853,
+              "cellRawSaltADC": 729,
+              "boostRemaining": 0
+            },
+            "system": {
+              "drvModelNum": "",
+              "drvSerialNum": "",
+              "drvFwVersion": 773,
+              "drvBlFwVersion": 256,
+              "drvHwVersion": "A",
+              "numBlades": 0,
+              "cellFwVersion": 9,
+              "cellHwVersion": 66,
+              "cellSerialNum": "**REDACTED**"
+            },
+            "faults": [0]
+          }
+        },
+        "deviceType": {
+          "0": "chemSync",
+          "1": "chlorSync",
+          "2": "chlorSync"
+        }
+      },
+      "device": {
+        "entry_type": null,
+        "hw_version": "3.0",
+        "manufacturer": "AutoPilot",
+        "model": "PoolSync",
+        "name": "PoolSync",
+        "name_by_user": null,
+        "sw_version": "860"
+      }
+    }
+  }
+}

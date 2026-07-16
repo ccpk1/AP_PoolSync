@@ -140,9 +140,6 @@
       "orp_setpoint": {
         "name": "ORP setpoint"
       },
-      "feed_rate": {
-        "name": "Feed rate"
-      },
       "max_daily_feed": {
         "name": "Max daily feed"
       }
@@ -169,6 +166,9 @@
       "cell_hardware_version": {
         "name": "Cell hardware version"
       },
+      "cell_rail_voltage": {
+        "name": "Cell rail voltage"
+      },
       "cell_output_voltage": {
         "name": "Cell output voltage"
       },
@@ -178,6 +178,15 @@
       "cell_serial_number": {
         "name": "Cell serial number"
       },
+      "chem_firmware_version": {
+        "name": "Firmware version"
+      },
+      "chem_hardware_version": {
+        "name": "Hardware version"
+      },
+      "chem_model_number": {
+        "name": "Model number"
+      },
       "date_time": {
         "name": "Date and time"
       },
@@ -186,6 +195,15 @@
       },
       "defrost_sensor_2_temperature": {
         "name": "Defrost sensor 2 temperature"
+      },
+      "driver_firmware_version": {
+        "name": "Driver firmware version"
+      },
+      "driver_hardware_version": {
+        "name": "Driver hardware version"
+      },
+      "driver_model_number": {
+        "name": "Driver model number"
       },
       "fault_code": {
         "name": "Fault code",
@@ -232,6 +250,9 @@
       },
       "spa_setpoint_temperature": {
         "name": "Spa setpoint temperature"
+      },
+      "temperature_compensation_output": {
+        "name": "Temp compensation output"
       },
       "top_fault_code": {
         "name": "Top fault code"
