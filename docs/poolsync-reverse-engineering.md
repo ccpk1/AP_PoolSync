@@ -4,6 +4,61 @@ Reference document tracking what we know, what we've built, and what we suspect.
 
 ---
 
+## 0. Architecture: Device Type Registry & Multi-Device Model
+
+### 0.1 Device Type Registry
+
+Device role resolution is driven by a `DEVICE_TYPE_REGISTRY` dict in `runtime.py` — a single source of truth mapping API `deviceType` strings to internal metadata:
+
+```python
+DEVICE_TYPE_REGISTRY = {
+    "chlorSync": DeviceTypeInfo(role_key="chlorinator", ...),
+    "heatPump":  DeviceTypeInfo(role_key="heat_pump", ...),
+    "chemSync":  DeviceTypeInfo(role_key="chem_sync", ...),
+}
+```
+
+A reverse `ROLE_KEY_REGISTRY` provides O(1) lookup from `role_key` → `DeviceTypeInfo`. Adding a new device type is a single block addition. Unrecognized `deviceType` values are logged at DEBUG and gracefully skipped.
+
+### 0.2 Parsed Data Model
+
+`PoolSyncParsedData` stores devices in a dict keyed by `role_key`:
+
+```python
+@dataclass
+class PoolSyncParsedData:
+    system: PoolSyncSystemData
+    devices: dict[str, list[PoolSyncDeviceRoleData]]
+```
+
+Each `PoolSyncDeviceRoleData` includes `node_addr` (from `nodeAttr.nodeAddr`) and `index` (ordinal position within the role) for stable disambiguation.
+
+### 0.3 Device Identification
+
+Device registry identifiers and entity unique IDs follow this pattern:
+
+| Instance | Device Identifier | Entity Unique ID |
+|----------|------------------|-----------------|
+| First chlorinator | `{mac}_chlorinator` | `{mac}_water_temp` |
+| Second chlorinator | `{mac}_chlorinator_19` | `{mac}_chlorinator_19_water_temp` |
+| First heat pump | `{mac}_heat_pump` | `{mac}_hp_water_temp` |
+| ChemSync | `{mac}_chem_sync_21` | `{mac}_chem_sync_21_chem_ph` |
+
+The first instance of legacy roles (`chlorinator`, `heat_pump`) keeps its existing identifier format for backward compatibility. Subsequent instances append `nodeAddr`. Newer types (e.g., `chem_sync`) always use the disambiguated format.
+
+### 0.4 Value Getter Factory
+
+Device-scoped value getters are created via the `_dv()` factory:
+
+```python
+"water_temp": _dv("chlorinator", "status", "waterTemp"),
+"chem_ph":    _dv("chem_sync", "status", "ph"),
+```
+
+The factory accepts a closure-time `index` parameter and runtime kwargs override (`role_key`, `index`) from the public `get_sensor_value()` / `get_binary_sensor_value()` / `get_number_value()` functions.
+
+---
+
 ## 1. Implemented: Device Pairing & System Sensors
 
 All of these are built and tested. Data source for each is noted.
@@ -39,7 +94,18 @@ All sourced from `data.poolSync.*` in the all-data response.
 | `service_mode_active` | `poolSync.config.serviceMode` | Non-zero → true |
 | `system_fault` | `poolSync.faults` | Non-zero → true |
 
-### 1.4 ChlorSync Sensors (if device role detected via `deviceType`)
+### 1.4 ChlorSync Sensors (one set per detected device)
+
+When one or more `"chlorSync"` entries are found in the `deviceType` map, sensors are created for each device. The first chlorinator keeps backward-compatible entity IDs; subsequent ones append `nodeAddr` to their unique IDs. Example unique IDs:
+
+| Instance | Sensor Example |
+|----------|---------------|
+| First chlorinator | `sensor.poolsync_water_temperature` (unique ID: `{mac}_water_temp`) |
+| Second chlorinator (nodeAddr 19) | `sensor.poolsync_chlorinator_19_water_temperature` (unique ID: `{mac}_chlorinator_19_water_temp`) |
+
+Device names are de-duplicated: two "ChlorSync" units become "ChlorSync" and "ChlorSync 2".
+
+
 
 | Sensor Key | Source Path | Unit |
 |------------|-------------|------|
@@ -58,9 +124,11 @@ All sourced from `data.poolSync.*` in the all-data response.
 
 ### 1.5 ChlorSync Controls
 
-| Control | Key | Write Path |
-|---------|-----|------------|
-| Output % | `chlor_output_control` | `PATCH /api/poolsync?cmd=devices&device={id}` → `config.chlorOutput` |
+| Control | Key | Write Path | Multi-Device |
+|---------|-----|------------|-------------|
+| Output % | `chlor_output_control` | `PATCH /api/poolsync?cmd=devices&device={id}` → `config.chlorOutput` | Supports `index` param; each chlorinator number entity targets its own device |
+
+When multiple chlorinators are present, each gets its own number entity. The `index` parameter (0-based, matching the device's position in `parsed_data.devices["chlorinator"]`) is passed through the coordinator write methods to target the correct API device ID.
 
 ---
 
@@ -68,11 +136,16 @@ All sourced from `data.poolSync.*` in the all-data response.
 
 ### 2.1 Device Role Detection
 
-`deviceType` map in the all-data response resolves device IDs to roles:
+Device roles are resolved from the `deviceType` map via `_resolve_device_types()` in `runtime.py`. All `deviceType` entries are iterated in sorted numeric order and looked up in `DEVICE_TYPE_REGISTRY`. Example payload:
+
 ```json
 "deviceType": {"0": "heatPump", "1": "chlorSync"}
 ```
-(See `runtime.py:_resolve_device_role_ids()` — T75 and SQ160R samples confirm `"heatPump"` string; 090 samples show mixed-case `"heatPump"`.)
+
+Multiple devices of the same type are supported (e.g., two heat pumps). Each gets its own climate entity, mode select, and temperature entities. All heat-pump runtime functions accept an `index` parameter to read from the correct device.
+
+**Reference:** `runtime.py:_resolve_device_types()`, `runtime.py:DEVICE_TYPE_REGISTRY`
+**Previously:** `_resolve_device_role_ids()` returned only the first match per type — any second chlorSync was silently dropped. This was replaced by `_resolve_device_types()` which maps `{role_key: [device_id, ...]}`.
 
 ### 2.2 AquaCal Model Decoding (Capability Detection)
 
@@ -172,7 +245,48 @@ Climate entity min/max temperature limits are read from `devices[hp_id].config.s
 
 ---
 
-## 3. New Findings from 090 System (Unconfirmed)
+## 3. ChemSync (pH/ORP) Support
+
+Added in Phase 2 of the device refactor. Detected when `deviceType` contains a `"chemSync"` entry. The chemSync is exposed through the standard `DEVICE_TYPE_REGISTRY` with `role_key="chem_sync"`, and entities are created by the same per-device iteration pattern used for chlorinators and heat pumps.
+
+### 3.1 Raw Payload Structure
+
+```json
+{
+  "nodeAttr": { "name": "Chemistry", "nodeAddr": 21, "online": true },
+  "status": { "ph": 8.16, "orp": 709, "boardTemp": 114.41, "acidConsumed": 1941 },
+  "system": { "modelNum": "ChemSync", "fwVersion": 533, "hwVersion": "F" },
+  "config": { "phSetpoint": 7.2, "orpSetpoint": 650, "flowSensorEnable": true },
+  "faults": [4]
+}
+```
+
+**Reference:** Issue #6 payload, `runtime.py:DEVICE_TYPE_REGISTRY`
+
+### 3.2 ChemSync Sensors
+
+| Sensor Key | Source Path | Unit | Device Class |
+|------------|-------------|------|-------------|
+| `chem_ph` | `status.ph` | — (logarithmic) | `PH` |
+| `chem_orp` | `status.orp` | mV | — |
+| `chem_board_temp` | `status.boardTemp` | °F | `temperature` (diagnostic) |
+| `chem_acid_consumed` | `status.acidConsumed` | fl. oz. | — (MEASUREMENT) |
+
+### 3.3 ChemSync Binary Sensors
+
+| Sensor Key | Source Path | Device Class | Logic |
+|------------|-------------|-------------|-------|
+| `chem_sync_online` | `nodeAttr.online` | CONNECTIVITY | Bool |
+| `chem_sync_fault` | `data.faults[]` | PROBLEM | Any non-zero |
+| `chem_sync_flow` | `config.flowSensorEnable` | — | Bool |
+
+### 3.4 Write Controls (Not Yet Implemented)
+
+The config payload includes `phSetpoint` and `orpSetpoint` fields that may be writable via the same `PATCH /api/poolsync?cmd=devices&device={id}` → `config.{key}` pattern. These have not been tested. Number entities can be added once confirmed.
+
+---
+
+## 4. New Findings from 090 System (Unconfirmed)
 
 These are derived from the three 090 diagnostic samples:
 - `090-compressor-off-filtration-group-1750rpm.json`

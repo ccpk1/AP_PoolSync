@@ -38,6 +38,7 @@ from .runtime import (
     HEAT_PUMP_POOL_SPA_MODE_SPA,
     HEAT_PUMP_PRESET_POOL,
     HEAT_PUMP_PRESET_SPA,
+    ROLE_KEY_REGISTRY,
     PoolSyncDeviceRole,
     PoolSyncEquipmentData,
     PoolSyncHeatPumpClimateHvacMode,
@@ -61,9 +62,13 @@ _DEFAULT_CHLORINATOR_NAME_PATTERN = re.compile(
     r"^ChlorSync(?:\s*(?:™|®|tm))?$",
     re.IGNORECASE,
 )
+_DEFAULT_HEATPUMP_NAME_PATTERN = re.compile(
+    r"^Heat\s*Pump(?:\s*(?:™|®|tm))?$",
+    re.IGNORECASE,
+)
 _MAX_STALE_TRANSPORT_FAILURES = 3
 
-type PoolSyncDeviceInfoRole = Literal["controller", "chlorinator", "heat_pump"]
+type PoolSyncDeviceInfoRole = str
 type PoolSyncFailureClass = Literal[
     "auth_error",
     "transport_error",
@@ -172,13 +177,14 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         role: PoolSyncDeviceRole,
         description: str,
+        index: int = 0,
     ) -> str:
         """Resolve the device ID for a write target role."""
         if not self.password:
             raise HomeAssistantError("API password not available to set value")
 
-        role_data = get_role_data(self.get_parsed_data(), role)
-        if role_data.device_id is None or not role_data.is_present:
+        role_data = get_role_data(self.get_parsed_data(), role, index=index)
+        if role_data is None or role_data.device_id is None or not role_data.is_present:
             raise HomeAssistantError(f"PoolSync {description} target is not available")
 
         return role_data.device_id
@@ -212,12 +218,14 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         key_id: str,
         value: int,
         description: str,
+        index: int = 0,
     ) -> None:
         """Write a config value for a resolved device role and refresh state."""
         await self._async_write_role_configs(
             role=role,
             updates={key_id: value},
             description=description,
+            index=index,
         )
 
     async def _async_write_role_configs(
@@ -226,9 +234,12 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         role: PoolSyncDeviceRole,
         updates: dict[str, int],
         description: str,
+        index: int = 0,
     ) -> None:
         """Write multiple config values for a resolved device role and refresh once."""
-        device_id = self._get_write_role_device_id(role=role, description=description)
+        device_id = self._get_write_role_device_id(
+            role=role, description=description, index=index
+        )
 
         try:
             for key_id, value in updates.items():
@@ -239,44 +250,52 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     password=self.password,
                 )
             await self.async_request_refresh()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             self._raise_write_error(description, err)
 
-    async def async_set_chlorinator_output(self, value: int) -> None:
+    async def async_set_chlorinator_output(self, value: int, index: int = 0) -> None:
         """Set the chlorinator output level."""
         await self._async_write_role_config(
             role="chlorinator",
             key_id="chlorOutput",
             value=value,
             description="chlorinator output",
+            index=index,
         )
 
-    async def async_set_heat_pump_setpoint(self, value: int) -> None:
+    async def async_set_heat_pump_setpoint(self, value: int, index: int = 0) -> None:
         """Set the heat pump setpoint."""
-        await self.async_set_heat_pump_pool_setpoint(value)
+        await self.async_set_heat_pump_pool_setpoint(value, index=index)
 
-    async def async_set_heat_pump_pool_setpoint(self, value: int) -> None:
+    async def async_set_heat_pump_pool_setpoint(
+        self, value: int, index: int = 0
+    ) -> None:
         """Set the heat pump pool setpoint."""
         await self._async_write_role_config(
             role="heat_pump",
             key_id="setpoint",
             value=value,
             description="heat pump pool setpoint",
+            index=index,
         )
 
-    async def async_set_heat_pump_spa_setpoint(self, value: int) -> None:
+    async def async_set_heat_pump_spa_setpoint(
+        self, value: int, index: int = 0
+    ) -> None:
         """Set the heat pump spa setpoint."""
         await self._async_write_role_config(
             role="heat_pump",
             key_id="spaSetpoint",
             value=value,
             description="heat pump spa setpoint",
+            index=index,
         )
 
     async def async_set_heat_pump_active_target(
         self,
         value: int,
         preset_mode: PoolSyncHeatPumpClimatePresetMode | None = None,
+        index: int = 0,
     ) -> None:
         """Set the active target temperature for the current heat-pump context."""
         runtime = get_heat_pump_runtime(self.get_parsed_data())
@@ -287,29 +306,30 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             preset_mode == HEAT_PUMP_PRESET_SPA
             and runtime.capabilities.supports_separate_spa_setpoint
         ):
-            await self.async_set_heat_pump_spa_setpoint(value)
+            await self.async_set_heat_pump_spa_setpoint(value, index=index)
             return
 
         if (
             runtime.mode_context == HEAT_PUMP_MODE_HEAT_SPA
             and runtime.capabilities.supports_separate_spa_setpoint
         ):
-            await self.async_set_heat_pump_spa_setpoint(value)
+            await self.async_set_heat_pump_spa_setpoint(value, index=index)
             return
 
-        await self.async_set_heat_pump_pool_setpoint(value)
+        await self.async_set_heat_pump_pool_setpoint(value, index=index)
 
-    async def async_set_heat_pump_mode(self, value: int) -> None:
+    async def async_set_heat_pump_mode(self, value: int, index: int = 0) -> None:
         """Set the heat pump mode."""
         await self._async_write_role_config(
             role="heat_pump",
             key_id="mode",
             value=value,
             description="heat pump mode",
+            index=index,
         )
 
     async def async_set_heat_pump_mode_context(
-        self, mode_context: PoolSyncHeatPumpModeContext
+        self, mode_context: PoolSyncHeatPumpModeContext, index: int = 0
     ) -> None:
         """Set the heat-pump mode using the contextual runtime model."""
         if mode_context == HEAT_PUMP_MODE_OFF:
@@ -332,6 +352,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             role="heat_pump",
             updates=updates,
             description="heat pump mode",
+            index=index,
         )
 
     async def async_set_heat_pump_climate_mode(
@@ -339,6 +360,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         hvac_mode: PoolSyncHeatPumpClimateHvacMode,
         preset_mode: PoolSyncHeatPumpClimatePresetMode | None = None,
+        index: int = 0,
     ) -> None:
         """Set heat-pump climate state using HVAC and preset semantics."""
         runtime = get_heat_pump_runtime(self.get_parsed_data())
@@ -346,7 +368,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("PoolSync heat pump mode is not available")
 
         if hvac_mode == "off":
-            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_OFF)
+            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_OFF, index=index)
             return
 
         resolved_preset = (
@@ -364,14 +386,17 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     resolved_preset == HEAT_PUMP_PRESET_SPA
                     and runtime.capabilities.supports_pool_spa_mode
                 )
-                else HEAT_PUMP_MODE_HEAT_POOL
+                else HEAT_PUMP_MODE_HEAT_POOL,
+                index=index,
             )
             return
 
         if hvac_mode == "cool":
             if not runtime.capabilities.supports_cooling:
                 raise HomeAssistantError("Cooling mode is not supported")
-            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_COOL_POOL)
+            await self.async_set_heat_pump_mode_context(
+                HEAT_PUMP_MODE_COOL_POOL, index=index
+            )
             return
 
         if hvac_mode == "auto":
@@ -380,7 +405,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and runtime.capabilities.supports_cooling
             ):
                 raise HomeAssistantError("Auto mode is not supported")
-            await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_AUTO_POOL)
+            await self.async_set_heat_pump_mode_context(
+                HEAT_PUMP_MODE_AUTO_POOL, index=index
+            )
             return
 
         raise HomeAssistantError(f"Unsupported climate HVAC mode: {hvac_mode}")
@@ -529,7 +556,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return controller device information for backward compatibility."""
         return self.get_device_info("controller")
 
-    def get_device_info(self, role: PoolSyncDeviceInfoRole) -> DeviceInfo:
+    def get_device_info(self, role: str, index: int = 0) -> DeviceInfo:
         """Return device information for a specific PoolSync device boundary."""
         parsed_data = (
             ensure_parsed_data(self)
@@ -540,15 +567,32 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if role == "controller":
             return self._get_controller_device_info(parsed_data)
 
-        return self._get_attached_device_info(role, parsed_data)
+        return self._get_attached_device_info(role, parsed_data, index=index)
 
     def _get_controller_identifier(self) -> tuple[str, str]:
         """Return the stable device registry identifier for the controller."""
         return (DOMAIN, self.mac_address)
 
-    def _get_attached_identifier(self, role: PoolSyncDeviceInfoRole) -> tuple[str, str]:
-        """Return the stable device registry identifier for an attached device."""
-        return (DOMAIN, f"{self.mac_address}_{role}")
+    def _get_device_identifier(
+        self,
+        role_key: str,
+        node_addr: int | None = None,
+        index: int = 0,
+    ) -> tuple[str, str]:
+        """Return a stable device registry identifier.
+
+        Preserves backward compatibility for the first instance of each
+        legacy role_key by not appending a suffix. Subsequent instances
+        use nodeAddr when available, falling back to the numeric index.
+        """
+        domain = DOMAIN
+        if role_key == "chlorinator" and index == 0:
+            return (domain, f"{self.mac_address}_chlorinator")
+        if role_key == "heat_pump" and index == 0:
+            return (domain, f"{self.mac_address}_heat_pump")
+        if node_addr is not None:
+            return (domain, f"{self.mac_address}_{role_key}_{node_addr}")
+        return (domain, f"{self.mac_address}_{role_key}_{index}")
 
     def _get_controller_name(self, parsed_data: PoolSyncParsedData | None) -> str:
         """Return the best available controller device name."""
@@ -601,41 +645,85 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             configuration_url=f"http://{self._ip_address}",
         )
 
+    def _normalize_attached_name(self, name: str, role_key: str) -> str:
+        """Normalize known vendor default attached-device names."""
+        if role_key == "chlorinator" and _DEFAULT_CHLORINATOR_NAME_PATTERN.fullmatch(
+            name.strip()
+        ):
+            return "ChlorSync"
+        if role_key == "heat_pump" and _DEFAULT_HEATPUMP_NAME_PATTERN.fullmatch(
+            name.strip()
+        ):
+            return "Heat Pump"
+        return name
+
+    def _dedup_device_name(
+        self,
+        base_name: str,
+        role_key: str,
+        index: int,
+        all_names: list[str],
+    ) -> str:
+        """Return a unique friendly name, appending a suffix for duplicates.
+
+        Using role_key for potential future type-specific dedup logic.
+        """
+        _ = role_key  # Reserved for future type-specific dedup
+        if index == 0:
+            return base_name
+        count = sum(1 for name in all_names[: index + 1] if name == base_name)
+        if count > 1:
+            return f"{base_name} {count}"
+        return base_name
+
     def _get_attached_device_info(
         self,
-        role: Literal["chlorinator", "heat_pump"],
+        role_key: str,
         parsed_data: PoolSyncParsedData | None,
+        index: int = 0,
     ) -> DeviceInfo:
         """Build device info for an attached device role."""
+        device_info = ROLE_KEY_REGISTRY.get(role_key)
+        default_name = device_info.default_name if device_info else role_key
+        default_model = device_info.default_model if device_info else role_key
+
         role_data = (
-            get_role_data(parsed_data, role) if parsed_data is not None else None
+            get_role_data(parsed_data, role_key, index=index)
+            if parsed_data is not None
+            else None
         )
         node_attr = role_data.node_attr if role_data is not None else None
         system_info = role_data.system if role_data is not None else None
+        node_addr = role_data.node_addr if role_data is not None else None
 
-        default_name = "Chlorinator" if role == "chlorinator" else "Heat Pump"
-        default_model = "ChlorSync" if role == "chlorinator" else "Heat Pump"
         device_name = default_name
         model_name = default_model
         sw_version = None
         hw_version = None
 
-        def _normalize_attached_name(name: str) -> str:
-            """Normalize known vendor default attached-device names."""
-            if role == "chlorinator" and _DEFAULT_CHLORINATOR_NAME_PATTERN.fullmatch(
-                name.strip()
-            ):
-                return "ChlorSync"
-
-            return name
+        # Collect all normalized names for this role for dedup
+        all_raw_names: list[str] = []
+        if parsed_data is not None:
+            for dev in parsed_data.devices.get(role_key, []):
+                raw = (
+                    dev.node_attr.get("name")
+                    if dev.node_attr and isinstance(dev.node_attr.get("name"), str)
+                    else default_name
+                )
+                all_raw_names.append(self._normalize_attached_name(raw, role_key))  # type: ignore[arg-type]
 
         if (
             node_attr is not None
             and isinstance(node_attr.get("name"), str)
             and node_attr.get("name")
         ):
-            device_name = _normalize_attached_name(node_attr["name"])
-            model_name = _normalize_attached_name(node_attr["name"])
+            device_name = self._normalize_attached_name(node_attr["name"], role_key)
+            model_name = self._normalize_attached_name(node_attr["name"], role_key)
+
+        # Deduplicate the friendly name
+        device_name = self._dedup_device_name(
+            device_name, role_key, index, all_raw_names
+        )
 
         if system_info is not None:
             if isinstance(system_info.get("modelNum"), str) and system_info.get(
@@ -643,7 +731,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ):
                 model_name = system_info["modelNum"]
 
-            if role == "heat_pump":
+            if role_key == "heat_pump":
                 sw_version = system_info.get("appFwVersion")
                 hw_version = system_info.get("hwVersion")
             else:
@@ -655,7 +743,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
         return DeviceInfo(
-            identifiers={self._get_attached_identifier(role)},
+            identifiers={
+                self._get_device_identifier(role_key, node_addr=node_addr, index=index)
+            },
             name=device_name,
             manufacturer=MANUFACTURER,
             model=str(model_name) if model_name else default_model,
@@ -684,17 +774,18 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("API password not available")
 
         parsed_data = self.get_parsed_data()
-        if parsed_data.heat_pump.device_id is None:
+        hp_devices = parsed_data.devices.get("heat_pump", [])
+        if not hp_devices or hp_devices[0].device_id is None:
             raise HomeAssistantError("Pump write target is not available")
 
         internal_value = value // PUMP_RPM_FACTOR
         try:
             await self.api_client.async_set_device_config_value(
-                device_id=parsed_data.heat_pump.device_id,
+                device_id=hp_devices[0].device_id,
                 key_id=EQUIP_PUMP_RPM_WRITE_KEY,
                 value=internal_value,
                 password=self.password,
             )
             await self.async_request_refresh()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             self._raise_write_error("pump RPM", err)

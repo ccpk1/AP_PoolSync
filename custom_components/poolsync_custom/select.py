@@ -26,15 +26,19 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     parsed_data = ensure_parsed_data(coordinator)
 
-    if not parsed_data.heat_pump.is_present:
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    if not hp_devices:
         return
 
     options = get_heat_pump_mode_options(parsed_data)
     if not options:
         return
 
-    async_add_entities(
-        [
+    entities: list[PoolSyncHeatModeSelect] = []
+    for index, device in enumerate(hp_devices):
+        if not device.is_present:
+            continue
+        entities.append(
             PoolSyncHeatModeSelect(
                 coordinator,
                 SelectEntityDescription(
@@ -43,9 +47,13 @@ async def async_setup_entry(
                     translation_key="mode",
                     entity_category=EntityCategory.CONFIG,
                 ),
+                device_index=index,
+                device_node_addr=device.node_addr,
             )
-        ]
-    )
+        )
+
+    if entities:
+        async_add_entities(entities)
 
 
 class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -59,21 +67,39 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
         description: SelectEntityDescription,
+        device_index: int = 0,
+        device_node_addr: int | None = None,
     ) -> None:
         """Initialize the heat-mode select."""
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"{coordinator.mac_address}_{description.key}"
-        self._attr_device_info = coordinator.get_device_info("heat_pump")
+        self._device_index = device_index
+        self._device_node_addr = device_node_addr
+        self._attr_unique_id = self._build_unique_id(
+            coordinator.mac_address, description.key
+        )
+        self._attr_device_info = coordinator.get_device_info(
+            "heat_pump", index=device_index
+        )
         self._update_attrs()
+
+    def _build_unique_id(self, mac_address: str, key: str) -> str:
+        """Build a stable unique ID, preserving BC for first-instance entities."""
+        if self._device_index == 0:
+            return f"{mac_address}_{key}"
+        if self._device_node_addr is not None:
+            return f"{mac_address}_heat_pump_{self._device_node_addr}_{key}"
+        return f"{mac_address}_heat_pump_{self._device_index}_{key}"
 
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        self._attr_options = get_heat_pump_mode_options(parsed_data)
+        self._attr_options = get_heat_pump_mode_options(
+            parsed_data, index=self._device_index
+        )
         self._attr_current_option = get_select_value(
-            parsed_data, self.entity_description.key
+            parsed_data, self.entity_description.key, index=self._device_index
         )
         self._attr_available = (
             super().available
@@ -103,4 +129,6 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
         self._attr_current_option = option
         if self.hass is not None:
             self.async_write_ha_state()
-        await self.coordinator.async_set_heat_pump_mode_context(option)
+        await self.coordinator.async_set_heat_pump_mode_context(
+            option, index=self._device_index
+        )

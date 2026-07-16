@@ -63,6 +63,7 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
                     "faults": [8, 0],
                 }
             },
+            "deviceType": {"0": "heatPump"},
         },
         last_failure_class="transport_error",
         last_failure_context={

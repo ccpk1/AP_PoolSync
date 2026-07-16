@@ -24,7 +24,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
-from .runtime import get_equipment_runtime
+from .runtime import PoolSyncParsedData, ensure_parsed_data, get_equipment_runtime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +47,17 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "chlorsync_online",
             "chlorsync_fault",
             "chlor_output_control",
+        }
+    ),
+    "chem_sync": frozenset(
+        {
+            "chem_ph",
+            "chem_orp",
+            "chem_board_temp",
+            "chem_acid_consumed",
+            "chem_sync_online",
+            "chem_sync_fault",
+            "chem_sync_flow",
         }
     ),
     "heat_pump": frozenset(
@@ -83,6 +94,34 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
 }
 
 
+def _resolve_migration_target(
+    entity_suffix: str,
+    parsed_data: PoolSyncParsedData,
+) -> str | None:
+    """Map an entity unique ID suffix to a {role}_{index} target.
+
+    Suffix formats:
+      "water_temp"          → first chlorinator (index 0)
+      "chlorinator_19_water_temp" → chlorinator whose nodeAddr == 19
+      "hp_water_temp"       → first heat pump (index 0)
+      "heat_pump_42_water_temp" → heat pump whose nodeAddr == 42
+    """
+    for role_key, device_list in parsed_data.devices.items():
+        # Check first-instance format (BC): simple key match
+        if entity_suffix in _ROLE_ENTITY_KEYS.get(role_key, frozenset()):
+            return f"{role_key}_0"
+        # Check second-instance format: {role_key}_{nodeAddr}_{key}
+        for index, device in enumerate(device_list):
+            if device.node_addr is not None:
+                prefix = f"{role_key}_{device.node_addr}_"
+                stripped = entity_suffix.removeprefix(prefix)
+                if stripped != entity_suffix and stripped in _ROLE_ENTITY_KEYS.get(
+                    role_key, frozenset()
+                ):
+                    return f"{role_key}_{index}"
+    return None
+
+
 def _async_migrate_entity_device_assignments(
     hass: HomeAssistant,
     entry: PoolSyncConfigEntry,
@@ -90,7 +129,12 @@ def _async_migrate_entity_device_assignments(
 ) -> None:
     """Move existing entities to their role-specific devices."""
     parsed_data = coordinator.parsed_data
-    if parsed_data is None and not isinstance(coordinator.data, dict):
+    if parsed_data is None:
+        if not isinstance(coordinator.data, dict):
+            return
+        parsed_data = ensure_parsed_data(coordinator)
+
+    if not parsed_data.devices:
         return
 
     device_registry = dr.async_get(hass)
@@ -98,16 +142,17 @@ def _async_migrate_entity_device_assignments(
     unique_id_prefix = f"{coordinator.mac_address}_"
 
     role_device_ids: dict[str, str] = {}
-    for role in ("chlorinator", "heat_pump"):
-        role_data = getattr(coordinator.get_parsed_data(), role)
-        if role_data.device_id is None:
+    for role_key, device_list in parsed_data.devices.items():
+        if role_key not in ("chlorinator", "heat_pump", "chem_sync"):
             continue
-
-        role_device = device_registry.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            **coordinator.get_device_info(role),
-        )
-        role_device_ids[role] = role_device.id
+        for index, device in enumerate(device_list):
+            if device.device_id is None:
+                continue
+            role_device = device_registry.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                **coordinator.get_device_info(role_key, index=index),
+            )
+            role_device_ids[f"{role_key}_{index}"] = role_device.id
 
     if not role_device_ids:
         return
@@ -120,19 +165,12 @@ def _async_migrate_entity_device_assignments(
         ):
             continue
 
-        entity_key = entity_entry.unique_id.removeprefix(unique_id_prefix)
-        target_role = next(
-            (
-                role
-                for role, entity_keys in _ROLE_ENTITY_KEYS.items()
-                if entity_key in entity_keys
-            ),
-            None,
-        )
-        if target_role is None:
+        entity_suffix = entity_entry.unique_id.removeprefix(unique_id_prefix)
+        target_key = _resolve_migration_target(entity_suffix, parsed_data)
+        if target_key is None:
             continue
 
-        target_device_id = role_device_ids.get(target_role)
+        target_device_id = role_device_ids.get(target_key)
         if target_device_id is None or entity_entry.device_id == target_device_id:
             continue
 

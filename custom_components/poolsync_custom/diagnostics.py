@@ -71,9 +71,13 @@ async def async_get_config_entry_diagnostics(
                 },
                 "compressor_running": heat_pump_runtime.compressor_running,
                 "ctrl_flags_raw": heat_pump_runtime.ctrl_flags_raw,
-                "faults_raw": parsed_data.heat_pump.data.get("faults")
-                if parsed_data.heat_pump.data is not None
-                else None,
+                "faults_raw": (
+                    _hp_device.data.get("faults")
+                    if (_hp_devices := parsed_data.devices.get("heat_pump", []))
+                    and (_hp_device := _hp_devices[0])
+                    and _hp_device.data is not None
+                    else None
+                ),
                 "fan_running": heat_pump_runtime.fan_running,
                 "has_flow": heat_pump_runtime.has_flow,
                 "mode_context": heat_pump_runtime.mode_context,

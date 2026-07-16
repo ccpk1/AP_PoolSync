@@ -96,7 +96,7 @@ async def test_climate_set_hvac_mode_uses_last_preset() -> None:
     await entity.async_set_hvac_mode(HVACMode.HEAT)
 
     coordinator.async_set_heat_pump_climate_mode.assert_awaited_once_with(
-        hvac_mode="heat", preset_mode="spa"
+        hvac_mode="heat", preset_mode="spa", index=0
     )
 
 
@@ -129,7 +129,7 @@ async def test_climate_set_temperature_routes_through_active_target_flow() -> No
     await entity.async_set_temperature(**{ATTR_TEMPERATURE: 91})
 
     coordinator.async_set_heat_pump_active_target.assert_awaited_once_with(
-        91, preset_mode="pool"
+        91, preset_mode="pool", index=0
     )
 
 

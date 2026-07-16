@@ -535,7 +535,9 @@ async def test_heat_pump_climate_mode_helper_uses_preset_context(hass) -> None:
         hvac_mode="heat", preset_mode="spa"
     )
 
-    coordinator.async_set_heat_pump_mode_context.assert_awaited_once_with("heat_spa")
+    coordinator.async_set_heat_pump_mode_context.assert_awaited_once_with(
+        "heat_spa", index=0
+    )
 
 
 async def test_heat_pump_active_target_uses_preset_override(hass) -> None:
@@ -566,7 +568,7 @@ async def test_heat_pump_active_target_uses_preset_override(hass) -> None:
 
     await coordinator.async_set_heat_pump_active_target(91, preset_mode="spa")
 
-    coordinator.async_set_heat_pump_spa_setpoint.assert_awaited_once_with(91)
+    coordinator.async_set_heat_pump_spa_setpoint.assert_awaited_once_with(91, index=0)
     coordinator.async_set_heat_pump_pool_setpoint.assert_not_awaited()
 
 
@@ -588,7 +590,7 @@ async def test_heat_pump_setpoint_alias_uses_pool_setpoint_writer(hass) -> None:
 
     await coordinator.async_set_heat_pump_setpoint(86)
 
-    coordinator.async_set_heat_pump_pool_setpoint.assert_awaited_once_with(86)
+    coordinator.async_set_heat_pump_pool_setpoint.assert_awaited_once_with(86, index=0)
 
 
 async def test_write_role_config_surfaces_auth_errors(hass) -> None:
@@ -650,11 +652,13 @@ async def test_heat_pump_mode_context_writes_supported_contexts(hass) -> None:
             role="heat_pump",
             updates={"mode": 2, "poolSpaMode": 0},
             description="heat pump mode",
+            index=0,
         ),
         call(
             role="heat_pump",
             updates={"mode": 3, "poolSpaMode": 0},
             description="heat pump mode",
+            index=0,
         ),
     ]
 
@@ -783,7 +787,9 @@ async def test_heat_pump_climate_mode_helper_handles_off_and_unknown_modes(
     coordinator.async_set_heat_pump_mode_context = AsyncMock(return_value=None)
 
     await coordinator.async_set_heat_pump_climate_mode(hvac_mode="off")
-    coordinator.async_set_heat_pump_mode_context.assert_awaited_once_with("off")
+    coordinator.async_set_heat_pump_mode_context.assert_awaited_once_with(
+        "off", index=0
+    )
 
     with pytest.raises(HomeAssistantError, match="Unsupported climate HVAC mode"):
         await coordinator.async_set_heat_pump_climate_mode(hvac_mode="dry")

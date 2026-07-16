@@ -134,6 +134,15 @@
       },
       "wifi_signal_strength": {
         "default": "mdi:wifi-strength-2"
+      },
+      "ph": {
+        "default": "mdi:ph"
+      },
+      "orp": {
+        "default": "mdi:flash"
+      },
+      "acid_consumed": {
+        "default": "mdi:flask"
       }
     }
   }

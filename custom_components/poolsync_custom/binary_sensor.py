@@ -17,7 +17,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
+from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
@@ -85,6 +85,37 @@ BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[
             entity_registry_enabled_default=True,
         ),
         lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
+    ),
+)
+BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[
+    BinarySensorDescription,
+    ...,
+] = (
+    (
+        BinarySensorEntityDescription(
+            key="chem_sync_online",
+            translation_key="node_connected",
+            device_class=BinarySensorDeviceClass.CONNECTIVITY,
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: bool(v) if isinstance(v, (bool, int)) else None,
+    ),
+    (
+        BinarySensorEntityDescription(
+            key="chem_sync_fault",
+            translation_key="fault",
+            device_class=BinarySensorDeviceClass.PROBLEM,
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: isinstance(v, list) and any(fault_code != 0 for fault_code in v),
+    ),
+    (
+        BinarySensorEntityDescription(
+            key="chem_sync_flow",
+            translation_key="flow",
+            entity_registry_enabled_default=True,
+        ),
+        lambda v: bool(v) if isinstance(v, (bool, int)) else None,
     ),
 )
 BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
@@ -163,13 +194,24 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
 def _build_binary_sensors(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: tuple[BinarySensorDescription, ...],
-    role: PoolSyncDeviceInfoRole,
+    role: str,
+    device_index: int = 0,
+    device_node_addr: int | None = None,
 ) -> list[PoolSyncBinarySensor]:
-    """Build binary sensors."""
+    """Build binary sensors for a specific device instance."""
     sensors: list[PoolSyncBinarySensor] = []
 
     for description, value_fn in descriptions:
-        sensors.append(PoolSyncBinarySensor(coordinator, role, description, value_fn))
+        sensors.append(
+            PoolSyncBinarySensor(
+                coordinator,
+                role,
+                description,
+                value_fn,
+                _device_index=device_index,
+                _device_node_addr=device_node_addr,
+            )
+        )
 
     return sensors
 
@@ -194,42 +236,68 @@ async def async_setup_entry(
             coordinator.name,
         )
 
-    heatpump_id = parsed_data.heat_pump.device_id
-    chlor_id = parsed_data.chlorinator.device_id
-
     binary_sensors_to_add.extend(
         _build_binary_sensors(
             coordinator, BINARY_SENSOR_DESCRIPTIONS_POOLSYNC, "controller"
         )
     )
 
-    if chlor_id and parsed_data.chlorinator.is_present:
-        binary_sensors_to_add.extend(
-            _build_binary_sensors(
-                coordinator, BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC, "chlorinator"
+    for index, device in enumerate(parsed_data.devices.get("chlorinator", [])):
+        if device.is_present:
+            binary_sensors_to_add.extend(
+                _build_binary_sensors(
+                    coordinator,
+                    BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC,
+                    "chlorinator",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
             )
-        )
-    elif chlor_id and devices is not None:
-        _LOGGER.warning(
-            "Coordinator %s data is missing chlorinator device %s."
-            " Skipping chlorinator binary sensors.",
-            coordinator.name,
-            chlor_id,
-        )
+        elif devices is not None:
+            _LOGGER.warning(
+                "Coordinator %s data is missing chlorinator device %s."
+                " Skipping chlorinator binary sensors.",
+                coordinator.name,
+                device.device_id,
+            )
 
-    if heatpump_id and parsed_data.heat_pump.is_present:
-        binary_sensors_to_add.extend(
-            _build_binary_sensors(
-                coordinator, BINARY_SENSOR_DESCRIPTIONS_HEATPUMP, "heat_pump"
+    for index, device in enumerate(parsed_data.devices.get("heat_pump", [])):
+        if device.is_present:
+            binary_sensors_to_add.extend(
+                _build_binary_sensors(
+                    coordinator,
+                    BINARY_SENSOR_DESCRIPTIONS_HEATPUMP,
+                    "heat_pump",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
             )
-        )
-    elif heatpump_id and devices is not None:
-        _LOGGER.warning(
-            "Coordinator %s data is missing heat pump device %s."
-            " Skipping heat pump binary sensors.",
-            coordinator.name,
-            heatpump_id,
-        )
+        elif devices is not None:
+            _LOGGER.warning(
+                "Coordinator %s data is missing heat pump device %s."
+                " Skipping heat pump binary sensors.",
+                coordinator.name,
+                device.device_id,
+            )
+
+    for index, device in enumerate(parsed_data.devices.get("chem_sync", [])):
+        if device.is_present:
+            binary_sensors_to_add.extend(
+                _build_binary_sensors(
+                    coordinator,
+                    BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC,
+                    "chem_sync",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
+            )
+        elif devices is not None:
+            _LOGGER.warning(
+                "Coordinator %s data is missing chem_sync device %s."
+                " Skipping chem_sync binary sensors.",
+                coordinator.name,
+                device.device_id,
+            )
 
     if binary_sensors_to_add:
         async_add_entities(binary_sensors_to_add)
@@ -274,28 +342,52 @@ class PoolSyncBinarySensor(
     def __init__(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
-        role: PoolSyncDeviceInfoRole,
+        role: str,
         description: BinarySensorEntityDescription,
         value_fn: Callable[[Any], bool | None] | None = None,
         *,
         _device_info: DeviceInfo | None = None,
         _unique_id: str | None = None,
+        _device_index: int = 0,
+        _device_node_addr: int | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._value_fn = value_fn
-        self._attr_unique_id = _unique_id or (
-            f"{coordinator.mac_address}_{description.key}"
+        self._role_key = role
+        self._device_index = _device_index
+        self._device_node_addr = _device_node_addr
+        self._attr_unique_id = _unique_id or self._build_unique_id(
+            coordinator.mac_address, role, description.key
         )
-        self._attr_device_info = _device_info or coordinator.get_device_info(role)
+        self._attr_device_info = _device_info or coordinator.get_device_info(
+            role, index=_device_index
+        )
         self._update_attrs()
+
+    def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
+        """Build a stable unique ID, preserving BC for first-instance entities."""
+        if role in ("chlorinator", "heat_pump") and self._device_index == 0:
+            return f"{mac_address}_{key}"
+        if self._device_node_addr is not None:
+            return f"{mac_address}_{role}_{self._device_node_addr}_{key}"
+        return f"{mac_address}_{role}_{self._device_index}_{key}"
 
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
-        raw_value = get_binary_sensor_value(
-            ensure_parsed_data(self.coordinator), self.entity_description.key
-        )
+        parsed_data = ensure_parsed_data(self.coordinator)
+        if self._device_index > 0:
+            raw_value = get_binary_sensor_value(
+                parsed_data,
+                self.entity_description.key,
+                role_key=self._role_key,
+                index=self._device_index,
+            )
+        else:
+            raw_value = get_binary_sensor_value(
+                parsed_data, self.entity_description.key
+            )
         if raw_value is None:
             self._attr_is_on = None
             return

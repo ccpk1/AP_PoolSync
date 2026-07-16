@@ -22,6 +22,7 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfTemperature,
+    UnitOfVolume,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -29,7 +30,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .coordinator import PoolSyncDataUpdateCoordinator, PoolSyncDeviceInfoRole
+from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     ensure_parsed_data,
     get_equipment_runtime,
@@ -66,7 +67,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
         SensorEntityDescription(
             key="water_temp",
             translation_key="water_temperature",
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             device_class=SensorDeviceClass.TEMPERATURE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
@@ -182,6 +183,50 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
             translation_key="cell_hardware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+)
+SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
+    (
+        SensorEntityDescription(
+            key="chem_ph",
+            translation_key="ph",
+            device_class=SensorDeviceClass.PH,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=2,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_orp",
+            translation_key="orp",
+            native_unit_of_measurement=UnitOfElectricPotential.MILLIVOLT,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_board_temp",
+            translation_key="board_temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            suggested_display_precision=1,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_acid_consumed",
+            translation_key="acid_consumed",
+            native_unit_of_measurement=UnitOfVolume.FLUID_OUNCES,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
         ),
         None,
     ),
@@ -426,13 +471,24 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
 def _build_sensor_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[SensorDescription],
-    role: PoolSyncDeviceInfoRole,
+    role: str,
+    device_index: int = 0,
+    device_node_addr: int | None = None,
 ) -> list[PoolSyncSensor]:
-    """Build sensor entities."""
+    """Build sensor entities for a specific device instance."""
     sensors: list[PoolSyncSensor] = []
 
     for description, value_fn in descriptions:
-        sensors.append(PoolSyncSensor(coordinator, role, description, value_fn))
+        sensors.append(
+            PoolSyncSensor(
+                coordinator,
+                role,
+                description,
+                value_fn,
+                _device_index=device_index,
+                _device_node_addr=device_node_addr,
+            )
+        )
 
     return sensors
 
@@ -448,53 +504,72 @@ async def async_setup_entry(
 
     # Check for the presence of top-level keys to ensure basic data structure
     poolsync_data_present = isinstance(data.get("poolSync"), dict)
-    devices = data.get("devices") if isinstance(data.get("devices"), dict) else None
+    has_devices = isinstance(data.get("devices"), dict)
 
-    if not poolsync_data_present or devices is None:
+    if not poolsync_data_present or not has_devices:
         _LOGGER.warning(
             "Coordinator %s: Initial data missing 'poolSync' or 'devices' keys."
             " Sensor setup may be incomplete.",
             coordinator.name,
         )
-        # Still attempt to add sensors; they will become unavailable
-        # if their specific data is missing.
-
-    heatpump_id = parsed_data.heat_pump.device_id
-    chlor_id = parsed_data.chlorinator.device_id
 
     sensors_to_add.extend(
         _build_sensor_entities(coordinator, SENSOR_DESCRIPTIONS_POOLSYNC, "controller")
     )
 
-    if chlor_id and parsed_data.chlorinator.is_present:
-        sensors_to_add.extend(
-            _build_sensor_entities(
-                coordinator,
-                SENSOR_DESCRIPTIONS_CHLORSYNC,
-                "chlorinator",
+    for index, device in enumerate(parsed_data.devices.get("chlorinator", [])):
+        if device.is_present:
+            sensors_to_add.extend(
+                _build_sensor_entities(
+                    coordinator,
+                    SENSOR_DESCRIPTIONS_CHLORSYNC,
+                    "chlorinator",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
             )
-        )
-    elif chlor_id and devices is not None:
-        _LOGGER.warning(
-            "Coordinator %s data is missing chlorinator device %s. Skipping chlorinator sensors.",
-            coordinator.name,
-            chlor_id,
-        )
+        elif has_devices:
+            _LOGGER.warning(
+                "Coordinator %s data is missing chlorinator device %s. Skipping chlorinator sensors.",
+                coordinator.name,
+                device.device_id,
+            )
 
-    if heatpump_id and parsed_data.heat_pump.is_present:
-        sensors_to_add.extend(
-            _build_sensor_entities(
-                coordinator,
-                SENSOR_DESCRIPTIONS_HEATPUMP,
-                "heat_pump",
+    for index, device in enumerate(parsed_data.devices.get("heat_pump", [])):
+        if device.is_present:
+            sensors_to_add.extend(
+                _build_sensor_entities(
+                    coordinator,
+                    SENSOR_DESCRIPTIONS_HEATPUMP,
+                    "heat_pump",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
             )
-        )
-    elif heatpump_id and devices is not None:
-        _LOGGER.warning(
-            "Coordinator %s data is missing heat pump device %s. Skipping heat pump sensors.",
-            coordinator.name,
-            heatpump_id,
-        )
+        elif has_devices:
+            _LOGGER.warning(
+                "Coordinator %s data is missing heat pump device %s. Skipping heat pump sensors.",
+                coordinator.name,
+                device.device_id,
+            )
+
+    for index, device in enumerate(parsed_data.devices.get("chem_sync", [])):
+        if device.is_present:
+            sensors_to_add.extend(
+                _build_sensor_entities(
+                    coordinator,
+                    SENSOR_DESCRIPTIONS_CHEMSYNC,
+                    "chem_sync",
+                    device_index=index,
+                    device_node_addr=device.node_addr,
+                )
+            )
+        elif has_devices:
+            _LOGGER.warning(
+                "Coordinator %s data is missing chem_sync device %s. Skipping chem_sync sensors.",
+                coordinator.name,
+                device.device_id,
+            )
 
     if sensors_to_add:
         async_add_entities(sensors_to_add)
@@ -559,28 +634,50 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(
         self,
         coordinator: PoolSyncDataUpdateCoordinator,
-        role: PoolSyncDeviceInfoRole,
+        role: str,
         description: SensorEntityDescription,
         value_fn: Callable[[Any], Any] | None = None,
         *,
         _device_info: DeviceInfo | None = None,
         _unique_id: str | None = None,
+        _device_index: int = 0,
+        _device_node_addr: int | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._value_fn = value_fn
-        self._attr_unique_id = _unique_id or (
-            f"{coordinator.mac_address}_{description.key}"
+        self._role_key = role
+        self._device_index = _device_index
+        self._device_node_addr = _device_node_addr
+        self._attr_unique_id = _unique_id or self._build_unique_id(
+            coordinator.mac_address, role, description.key
         )
-        self._attr_device_info = _device_info or coordinator.get_device_info(role)
+        self._attr_device_info = _device_info or coordinator.get_device_info(
+            role, index=_device_index
+        )
         self._update_attrs()
+
+    def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
+        """Build a stable unique ID, preserving BC for first-instance entities."""
+        if role in ("chlorinator", "heat_pump") and self._device_index == 0:
+            return f"{mac_address}_{key}"
+        if self._device_node_addr is not None:
+            return f"{mac_address}_{role}_{self._device_node_addr}_{key}"
+        return f"{mac_address}_{role}_{self._device_index}_{key}"
 
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
-        value = get_sensor_value(
-            ensure_parsed_data(self.coordinator), self.entity_description.key
-        )
+        parsed_data = ensure_parsed_data(self.coordinator)
+        if self._device_index > 0:
+            value = get_sensor_value(
+                parsed_data,
+                self.entity_description.key,
+                role_key=self._role_key,
+                index=self._device_index,
+            )
+        else:
+            value = get_sensor_value(parsed_data, self.entity_description.key)
         if value is None:
             self._attr_native_value = None
             self._attr_available = False

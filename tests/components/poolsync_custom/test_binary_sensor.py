@@ -36,7 +36,7 @@ def _build_coordinator() -> Mock:
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
     coordinator.get_device_info = Mock(
-        side_effect=lambda role: {
+        side_effect=lambda role, index=0: {
             "identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}
         }
     )
