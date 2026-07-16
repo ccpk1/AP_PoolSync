@@ -84,8 +84,8 @@ rules:
     status: todo
     comment: Use-case documentation has not been written yet.
   dynamic-devices:
-    status: todo
-    comment: Current setup detects devices during refresh, but dynamic add and remove flows are not fully implemented.
+    status: done
+    comment: Multiple devices of the same type (e.g., 2x ChlorSync, multiple heat pumps) are fully supported via dict-based PoolSyncParsedData.devices with sorted iteration and nodeAddr-based disambiguation. Entities are created per detected device instance.
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default: done
