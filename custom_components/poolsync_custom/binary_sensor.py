@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
+    build_unique_id,
     ensure_parsed_data,
     get_binary_sensor_value,
     get_equipment_runtime,
@@ -366,12 +367,14 @@ class PoolSyncBinarySensor(
         self._update_attrs()
 
     def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
-        """Build a stable unique ID, preserving BC for first-instance entities."""
-        if role in ("chlorinator", "heat_pump") and self._device_index == 0:
-            return f"{mac_address}_{key}"
-        if self._device_node_addr is not None:
-            return f"{mac_address}_{role}_{self._device_node_addr}_{key}"
-        return f"{mac_address}_{role}_{self._device_index}_{key}"
+        """Build a stable unique ID, delegating to the shared function."""
+        return build_unique_id(
+            mac_address,
+            role,
+            key,
+            device_index=self._device_index,
+            device_node_addr=self._device_node_addr,
+        )
 
     @callback
     def _update_attrs(self) -> None:

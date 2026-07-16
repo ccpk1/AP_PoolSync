@@ -1400,6 +1400,27 @@ def get_heat_pump_climate_max_temp(
     return 104
 
 
+def build_unique_id(
+    mac_address: str,
+    role: str,
+    key: str,
+    device_index: int = 0,
+    device_node_addr: int | None = None,
+) -> str:
+    """Build a stable unique ID for a PoolSync entity.
+
+    Preserves backward compatibility by using the simple {mac}_{key}
+    format for every first-instance entity (index 0), regardless of
+    role. Subsequent instances append role and nodeAddr (or index)
+    to avoid collisions.
+    """
+    if device_index == 0:
+        return f"{mac_address}_{key}"
+    if device_node_addr is not None:
+        return f"{mac_address}_{role}_{device_node_addr}_{key}"
+    return f"{mac_address}_{role}_{device_index}_{key}"
+
+
 def _get_device_raw_value(
     parsed_data: PoolSyncParsedData,
     role_key: str,

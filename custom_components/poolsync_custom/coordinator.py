@@ -54,10 +54,6 @@ from .runtime import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_CONTROLLER_NAME_PATTERN = re.compile(
-    r"^PoolSync(?:\s*(?:™|®|tm))?$",
-    re.IGNORECASE,
-)
 _DEFAULT_CHLORINATOR_NAME_PATTERN = re.compile(
     r"^ChlorSync(?:\s*(?:™|®|tm))?$",
     re.IGNORECASE,
@@ -595,7 +591,14 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return (domain, f"{self.mac_address}_{role_key}_{index}")
 
     def _get_controller_name(self, parsed_data: PoolSyncParsedData | None) -> str:
-        """Return the best available controller device name."""
+        """Return the best available controller device name.
+
+        Always normalizes to DEFAULT_NAME when the API reports any name.
+        Returning arbitrary API names (e.g. "Pool PoolSync", "PoolSync™")
+        causes entity ID drift when HA generates entity IDs from the device
+        name. The device registry name can still be customized by the user
+        via Home Assistant settings.
+        """
         config_name_from_api: str | None = None
 
         if (
@@ -603,15 +606,6 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and (system_config := parsed_data.system.config) is not None
         ):
             config_name_from_api = system_config.get("name")
-
-        if (
-            isinstance(config_name_from_api, str)
-            and config_name_from_api.strip()
-            and not _DEFAULT_CONTROLLER_NAME_PATTERN.fullmatch(
-                config_name_from_api.strip()
-            )
-        ):
-            return config_name_from_api
 
         if isinstance(config_name_from_api, str) and config_name_from_api.strip():
             return DEFAULT_NAME
