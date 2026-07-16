@@ -214,7 +214,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         role: PoolSyncDeviceRole,
         key_id: str,
-        value: int,
+        value: int | float,
         description: str,
         index: int = 0,
     ) -> None:
@@ -418,7 +418,6 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _key_map: dict[str, str] = {
             "chem_ph_setpoint": "phSetpoint",
             "chem_orp_setpoint": "orpSetpoint",
-            "chem_feed_rate": "feedRate",
             "chem_max_daily_feed": "maxDailyFeed",
         }
         key_id = _key_map.get(key)

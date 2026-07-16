@@ -104,7 +104,7 @@ class PoolSyncApiClient:
         json_data = (
             json_data_override
             if json_data_override is not None
-            else {"config": {key_id: int(value)}}
+            else {"config": {key_id: value}}
         )
 
         return await self._request(

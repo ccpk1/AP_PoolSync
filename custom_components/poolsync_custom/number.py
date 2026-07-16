@@ -44,7 +44,6 @@ _WRITE_METHODS: dict[str, str] = {
     "temperature_output_control": "async_set_heat_pump_active_target",
     "chem_ph_setpoint": "async_set_chem_config",
     "chem_orp_setpoint": "async_set_chem_config",
-    "chem_feed_rate": "async_set_chem_config",
     "chem_max_daily_feed": "async_set_chem_config",
 }
 
@@ -71,9 +70,9 @@ NUMBER_DESCRIPTIONS_CHEMSYNC: tuple[NumberDescription, ...] = (
             key="chem_ph_setpoint",
             translation_key="ph_setpoint",
             entity_category=EntityCategory.CONFIG,
-            native_min_value=60,
-            native_max_value=90,
-            native_step=1,
+            native_min_value=0,
+            native_max_value=14,
+            native_step=0.1,
             mode=NumberMode.BOX,
         ),
         None,
@@ -87,19 +86,6 @@ NUMBER_DESCRIPTIONS_CHEMSYNC: tuple[NumberDescription, ...] = (
             native_max_value=900,
             native_step=1,
             mode=NumberMode.BOX,
-        ),
-        None,
-    ),
-    (
-        NumberEntityDescription(
-            key="chem_feed_rate",
-            translation_key="feed_rate",
-            entity_category=EntityCategory.CONFIG,
-            native_unit_of_measurement=PERCENTAGE,
-            native_min_value=0,
-            native_max_value=100,
-            native_step=1,
-            mode=NumberMode.SLIDER,
         ),
         None,
     ),
@@ -243,15 +229,23 @@ async def async_setup_entry(
 
     for index, device in enumerate(parsed_data.devices.get("chem_sync", [])):
         if device.is_present:
-            number_entities.extend(
-                _build_number_entities(
-                    coordinator,
-                    NUMBER_DESCRIPTIONS_CHEMSYNC,
-                    "chem_sync",
-                    device_index=index,
-                    device_node_addr=device.node_addr,
-                )
+            device_config = device.config or {}
+            ph_min = device_config.get("phMin")
+            ph_max = device_config.get("phMax")
+            entities = _build_number_entities(
+                coordinator,
+                NUMBER_DESCRIPTIONS_CHEMSYNC,
+                "chem_sync",
+                device_index=index,
+                device_node_addr=device.node_addr,
             )
+            for entity in entities:
+                if entity.entity_description.key == "chem_ph_setpoint":
+                    if ph_min is not None:
+                        entity._attr_native_min_value = float(ph_min)  # pylint: disable=protected-access
+                    if ph_max is not None:
+                        entity._attr_native_max_value = float(ph_max)  # pylint: disable=protected-access
+            number_entities.extend(entities)
 
     # Equipment number entities (pump RPM control)
     if equip_runtime := get_equipment_runtime(parsed_data):
@@ -408,10 +402,9 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         new_value = int(value)
 
         _LOGGER.info(
-            "NUMBER_ENTITY %s: Attempting to set native_value to %d (from HA UI float value: %f, device_index: %d)",
+            "NUMBER_ENTITY %s: Attempting to set native_value to %s (device_index: %d)",
             self.entity_description.key,
             new_value,
-            value,
             self._device_index,
         )
 
@@ -428,36 +421,42 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
                     f"Unsupported number command: {self.entity_description.key}"
                 )
 
+            # pH setpoint needs float precision; int-cast other values
+            if self.entity_description.key in ("chem_ph_setpoint",):
+                write_value = value
+            else:
+                write_value = int(value)
+
             method = getattr(self.coordinator, method_name)
             if method_name == "async_set_chem_config":
                 if self._device_index > 0:
                     await method(
                         self.entity_description.key,
-                        new_value,
+                        write_value,
                         index=self._device_index,
                     )
                 else:
-                    await method(self.entity_description.key, new_value)
+                    await method(self.entity_description.key, write_value)
             elif self._device_index > 0:
-                await method(new_value, index=self._device_index)
+                await method(write_value, index=self._device_index)
             else:
-                await method(new_value)
+                await method(write_value)
 
             _LOGGER.info(
-                "NUMBER_ENTITY %s: Successfully set value to %d and requested refresh.",
+                "NUMBER_ENTITY %s: Successfully set value to %s and requested refresh.",
                 self.entity_description.key,
-                new_value,
+                write_value,
             )
 
         except HomeAssistantError:
             raise
         except Exception as e:
             _LOGGER.error(
-                "NUMBER_ENTITY %s: Failed to set new value %d: %s",
+                "NUMBER_ENTITY %s: Failed to set new value %s: %s",
                 self.entity_description.key,
-                new_value,
+                write_value,
                 e,
             )
             raise HomeAssistantError(
-                f"Failed to set {self.entity_description.name} to {new_value}: {e}"
+                f"Failed to set {self.entity_description.name} to {write_value}: {e}"
             ) from e
