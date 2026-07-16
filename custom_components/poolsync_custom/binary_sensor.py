@@ -173,6 +173,13 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
         ),
         lambda v: bool(v) if isinstance(v, int) else None,
     ),
+)
+
+
+BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT: tuple[
+    BinarySensorDescription,
+    ...,
+] = (
     (
         BinarySensorEntityDescription(
             key="heatpump_in_group",
@@ -314,21 +321,21 @@ async def async_setup_entry(
         for equip in equip_runtime.equipment.values():
             device_info = coordinator.get_equipment_device_info(equip)
             prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
-            if equip.is_pump:
-                for desc, vfn in [
-                    (d, v)
-                    for d, v in BINARY_SENSOR_DESCRIPTIONS_HEATPUMP
-                    if d.key == "pump_priming"
-                ]:
-                    s = PoolSyncBinarySensor(
+            for desc, vfn in BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT:
+                if desc.key == "pump_priming" and not equip.is_pump:
+                    continue
+                if desc.key == "heatpump_in_group" and not equip.is_heat_pump:
+                    continue
+                equip_binary.append(
+                    PoolSyncBinarySensor(
                         coordinator,
-                        "controller",
+                        "equipment",
                         desc,
                         vfn,
                         _device_info=device_info,
                         _unique_id=f"{prefix}{desc.key}",
                     )
-                    equip_binary.append(s)
+                )
         if equip_binary:
             async_add_entities(equip_binary)
 

@@ -707,15 +707,20 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device_registry = dr.async_get(self.hass)
         existing = device_registry.async_get_device(identifiers={identifier})
 
-        return DeviceInfo(
-            identifiers={identifier},
-            name=self._get_controller_name(parsed_data) if existing is None else None,
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            sw_version=str(sw_version) if sw_version is not None else None,
-            hw_version=str(hw_version) if hw_version is not None else None,
-            configuration_url=f"http://{self._ip_address}",
-        )
+        info: dict[str, Any] = {
+            "identifiers": {identifier},
+            "manufacturer": MANUFACTURER,
+            "model": MODEL,
+            "configuration_url": f"http://{self._ip_address}",
+        }
+        if existing is None:
+            info["name"] = self._get_controller_name(parsed_data)
+        if sw_version is not None:
+            info["sw_version"] = str(sw_version)
+        if hw_version is not None:
+            info["hw_version"] = str(hw_version)
+
+        return DeviceInfo(**info)
 
     def _normalize_attached_name(self, name: str, role_key: str) -> str:
         """Normalize known vendor default attached-device names."""
@@ -820,15 +825,20 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device_registry = dr.async_get(self.hass)
         existing = device_registry.async_get_device(identifiers={identifier})
 
-        return DeviceInfo(
-            identifiers={identifier},
-            name=device_name if existing is None else None,
-            manufacturer=MANUFACTURER,
-            model=str(model_name) if model_name else default_model,
-            sw_version=str(sw_version) if sw_version is not None else None,
-            hw_version=str(hw_version) if hw_version is not None else None,
-            via_device=self._get_controller_identifier(),
-        )
+        info: dict[str, Any] = {
+            "identifiers": {identifier},
+            "manufacturer": MANUFACTURER,
+            "model": str(model_name) if model_name else default_model,
+            "via_device": self._get_controller_identifier(),
+        }
+        if existing is None:
+            info["name"] = device_name
+        if sw_version is not None:
+            info["sw_version"] = str(sw_version)
+        if hw_version is not None:
+            info["hw_version"] = str(hw_version)
+
+        return DeviceInfo(**info)
 
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
         """Build device info for an equipment entry."""
