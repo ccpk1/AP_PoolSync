@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -22,6 +23,7 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
     EQUIP_PUMP_RPM_WRITE_KEY,
+    GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
     PUMP_RPM_FACTOR,
@@ -54,10 +56,6 @@ from .runtime import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_CONTROLLER_NAME_PATTERN = re.compile(
-    r"^PoolSync(?:\s*(?:™|®|tm))?$",
-    re.IGNORECASE,
-)
 _DEFAULT_CHLORINATOR_NAME_PATTERN = re.compile(
     r"^ChlorSync(?:\s*(?:™|®|tm))?$",
     re.IGNORECASE,
@@ -250,7 +248,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     password=self.password,
                 )
             await self.async_request_refresh()
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error(description, err)
 
     async def async_set_chlorinator_output(self, value: int, index: int = 0) -> None:
@@ -412,6 +410,78 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         raise HomeAssistantError(f"Unsupported climate HVAC mode: {hvac_mode}")
 
+    async def async_set_chem_config(self, key: str, value: int, index: int = 0) -> None:
+        """Set a ChemSync configuration value by entity key.
+
+        Maps entity keys to API config field names.
+        """
+        _key_map: dict[str, str] = {
+            "chem_ph_setpoint": "phSetpoint",
+            "chem_orp_setpoint": "orpSetpoint",
+            "chem_feed_rate": "feedRate",
+            "chem_max_daily_feed": "maxDailyFeed",
+        }
+        key_id = _key_map.get(key)
+        if key_id is None:
+            raise HomeAssistantError(f"Unsupported ChemSync config key: {key}")
+        await self._async_write_role_config(
+            role="chem_sync",
+            key_id=key_id,
+            value=value,
+            description=f"ChemSync {key_id}",
+            index=index,
+        )
+
+    async def async_chem_prime_pump(self, index: int = 0) -> None:
+        """Trigger ChemSync prime pump action."""
+        device_id = self._get_write_role_device_id(
+            role="chem_sync", description="ChemSync prime pump", index=index
+        )
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=device_id,
+                key_id="primePump",
+                value=1,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("ChemSync prime pump", err)
+
+    async def async_chem_boost(self, index: int = 0) -> None:
+        """Trigger ChemSync boost action."""
+        device_id = self._get_write_role_device_id(
+            role="chem_sync", description="ChemSync boost", index=index
+        )
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=device_id,
+                key_id="boost",
+                value=1,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("ChemSync boost", err)
+
+    async def async_chlor_clear_cell_life(self, index: int = 0) -> None:
+        """Trigger ChlorSync clear cell life action."""
+        device_id = self._get_write_role_device_id(
+            role="chlorinator",
+            description="ChlorSync clear cell life",
+            index=index,
+        )
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=device_id,
+                key_id="clearCellLife",
+                value=1,
+                password=self.password,
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("ChlorSync clear cell life", err)
+
     async def _async_update_data(self) -> dict[str, Any]:
         """
         Fetch data from the PoolSync device API.
@@ -535,7 +605,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             raise UpdateFailed(f"API error for {self.name}: {err}") from err
 
-        except Exception as err:
+        except Exception as err:  # pylint: disable=broad-exception-caught
             self._set_last_failure(
                 "unexpected_error",
                 str(err),
@@ -595,7 +665,14 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return (domain, f"{self.mac_address}_{role_key}_{index}")
 
     def _get_controller_name(self, parsed_data: PoolSyncParsedData | None) -> str:
-        """Return the best available controller device name."""
+        """Return the best available controller device name.
+
+        Always normalizes to DEFAULT_NAME when the API reports any name.
+        Returning arbitrary API names (e.g. "Pool PoolSync", "PoolSync™")
+        causes entity ID drift when HA generates entity IDs from the device
+        name. The device registry name can still be customized by the user
+        via Home Assistant settings.
+        """
         config_name_from_api: str | None = None
 
         if (
@@ -603,15 +680,6 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and (system_config := parsed_data.system.config) is not None
         ):
             config_name_from_api = system_config.get("name")
-
-        if (
-            isinstance(config_name_from_api, str)
-            and config_name_from_api.strip()
-            and not _DEFAULT_CONTROLLER_NAME_PATTERN.fullmatch(
-                config_name_from_api.strip()
-            )
-        ):
-            return config_name_from_api
 
         if isinstance(config_name_from_api, str) and config_name_from_api.strip():
             return DEFAULT_NAME
@@ -635,9 +703,13 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sw_version = system_info.get("fwVersion")
             hw_version = system_info.get("hwVersion")
 
+        identifier = self._get_controller_identifier()
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
+
         return DeviceInfo(
-            identifiers={self._get_controller_identifier()},
-            name=self._get_controller_name(parsed_data),
+            identifiers={identifier},
+            name=self._get_controller_name(parsed_data) if existing is None else None,
             manufacturer=MANUFACTURER,
             model=MODEL,
             sw_version=str(sw_version) if sw_version is not None else None,
@@ -742,11 +814,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "drvHwVersion"
                 )
 
+        identifier = self._get_device_identifier(
+            role_key, node_addr=node_addr, index=index
+        )
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
+
         return DeviceInfo(
-            identifiers={
-                self._get_device_identifier(role_key, node_addr=node_addr, index=index)
-            },
-            name=device_name,
+            identifiers={identifier},
+            name=device_name if existing is None else None,
             manufacturer=MANUFACTURER,
             model=str(model_name) if model_name else default_model,
             sw_version=str(sw_version) if sw_version is not None else None,
@@ -757,9 +833,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
         """Build device info for an equipment entry."""
         identifier = (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device(identifiers={identifier})
         return DeviceInfo(
             identifiers={identifier},
-            name=equip.name,
+            name=equip.name if existing is None else None,
             manufacturer=MANUFACTURER,
             via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
         )
@@ -787,5 +865,29 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 password=self.password,
             )
             await self.async_request_refresh()
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error("pump RPM", err)
+
+    async def async_set_group_state(
+        self, group_id: str, state: bool, index: int = 0
+    ) -> None:
+        """Turn a group on or off by setting its state in config[3]."""
+        role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
+        if role_data is None or role_data.device_id is None:
+            raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=role_data.device_id,
+                key_id="group_state",
+                value=1 if state else 0,
+                password=self.password,
+                json_data_override={
+                    "groups": {
+                        group_id: {"config": {str(GROUP_IDX_STATE): 1 if state else 0}}
+                    }
+                },
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error(f"group {group_id} state", err)

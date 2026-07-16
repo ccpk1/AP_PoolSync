@@ -405,7 +405,7 @@ async def test_device_info_uses_parsed_role_metadata(hass) -> None:
     chlorinator_info = coordinator.get_device_info("chlorinator")
     heat_pump_info = coordinator.get_device_info("heat_pump")
 
-    assert controller_info["name"] == "Pool Deck"
+    assert controller_info["name"] == "PoolSync"
     assert controller_info["model"] == "PoolSync"
     assert controller_info["sw_version"] == "1.2.3"
     assert controller_info["hw_version"] == "4.5.6"
@@ -826,7 +826,7 @@ async def test_device_info_derives_parsed_state_from_raw_data_when_needed(hass) 
     chlorinator_info = coordinator.get_device_info("chlorinator")
 
     assert coordinator.parsed_data is not None
-    assert controller_info["name"] == "Pool House"
+    assert controller_info["name"] == "PoolSync"
     assert controller_info["model"] == "PoolSync"
     assert controller_info["sw_version"] == "9.8.7"
     assert controller_info["hw_version"] == "6.5.4"

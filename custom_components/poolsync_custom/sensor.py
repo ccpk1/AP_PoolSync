@@ -32,6 +32,7 @@ from homeassistant.util import dt as dt_util
 
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
+    build_unique_id,
     ensure_parsed_data,
     get_equipment_runtime,
     get_sensor_value,
@@ -439,6 +440,10 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
+)
+
+
+SENSOR_DESCRIPTIONS_EQUIPMENT: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(
             key="pump_rpm",
@@ -577,7 +582,7 @@ async def async_setup_entry(
             "Added %d PoolSync sensors for %s", len(sensors_to_add), coordinator.name
         )
 
-    # Equipment sensors: conditionally created when equip data is present
+    # Equipment sensors: created on their own equipment devices
     if equip_runtime := get_equipment_runtime(parsed_data):
         equip_sensors: list[PoolSyncSensor] = []
         for equip in equip_runtime.equipment.values():
@@ -586,37 +591,39 @@ async def async_setup_entry(
             if equip.is_pump:
                 for desc, vfn in [
                     (d, v)
-                    for d, v in SENSOR_DESCRIPTIONS_HEATPUMP
+                    for d, v in SENSOR_DESCRIPTIONS_EQUIPMENT
                     if d.key == "pump_rpm"
                 ]:
-                    s = PoolSyncSensor(
-                        coordinator,
-                        "controller",
-                        desc,
-                        vfn,
-                        _device_info=device_info,
-                        _unique_id=f"{prefix}{desc.key}",
+                    equip_sensors.append(
+                        PoolSyncSensor(
+                            coordinator,
+                            "equipment",
+                            desc,
+                            vfn,
+                            _device_info=device_info,
+                            _unique_id=f"{prefix}{desc.key}",
+                        )
                     )
-                    equip_sensors.append(s)
             elif equip.is_valve:
                 for desc, vfn in [
                     (d, v)
-                    for d, v in SENSOR_DESCRIPTIONS_HEATPUMP
+                    for d, v in SENSOR_DESCRIPTIONS_EQUIPMENT
                     if d.key == "valve_position"
                 ]:
-                    s = PoolSyncSensor(
-                        coordinator,
-                        "controller",
-                        desc,
-                        vfn,
-                        _device_info=device_info,
-                        _unique_id=f"{prefix}{desc.key}",
+                    equip_sensors.append(
+                        PoolSyncSensor(
+                            coordinator,
+                            "equipment",
+                            desc,
+                            vfn,
+                            _device_info=device_info,
+                            _unique_id=f"{prefix}{desc.key}",
+                        )
                     )
-                    equip_sensors.append(s)
 
         # Group info sensor on the controller device
         for desc, vfn in [
-            (d, v) for d, v in SENSOR_DESCRIPTIONS_HEATPUMP if d.key == "group_info"
+            (d, v) for d, v in SENSOR_DESCRIPTIONS_EQUIPMENT if d.key == "group_info"
         ]:
             equip_sensors.append(PoolSyncSensor(coordinator, "controller", desc, vfn))
 
@@ -658,12 +665,14 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         self._update_attrs()
 
     def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
-        """Build a stable unique ID, preserving BC for first-instance entities."""
-        if role in ("chlorinator", "heat_pump") and self._device_index == 0:
-            return f"{mac_address}_{key}"
-        if self._device_node_addr is not None:
-            return f"{mac_address}_{role}_{self._device_node_addr}_{key}"
-        return f"{mac_address}_{role}_{self._device_index}_{key}"
+        """Build a stable unique ID, delegating to the shared function."""
+        return build_unique_id(
+            mac_address,
+            role,
+            key,
+            device_index=self._device_index,
+            device_node_addr=self._device_node_addr,
+        )
 
     @callback
     def _update_attrs(self) -> None:

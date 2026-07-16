@@ -92,6 +92,8 @@ class PoolSyncApiClient:
         key_id: str,
         value: int,
         password: str,
+        *,
+        json_data_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Patch a config value for a specific PoolSync device."""
         if not password:
@@ -99,12 +101,18 @@ class PoolSyncApiClient:
                 "Password is required to change PoolSync settings."
             )
 
+        json_data = (
+            json_data_override
+            if json_data_override is not None
+            else {"config": {key_id: int(value)}}
+        )
+
         return await self._request(
             "PATCH",
             "/api/poolsync",
             password=password,
             params={"cmd": "devices", "device": device_id},
-            json_data={"config": {key_id: int(value)}},
+            json_data=json_data,
             allow_non_json_success=True,
         )
 

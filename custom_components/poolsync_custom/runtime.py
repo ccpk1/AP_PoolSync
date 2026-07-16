@@ -1196,6 +1196,10 @@ def get_wifi_signal_status(
 
 _NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "chlor_output_control": _dv("chlorinator", "config", "chlorOutput"),
+    "chem_ph_setpoint": _dv("chem_sync", "config", "phSetpoint"),
+    "chem_orp_setpoint": _dv("chem_sync", "config", "orpSetpoint"),
+    "chem_feed_rate": _dv("chem_sync", "config", "feedRate"),
+    "chem_max_daily_feed": _dv("chem_sync", "config", "maxDailyFeed"),
     "temperature_output_control": lambda parsed_data, **kwargs: (
         runtime.active_target_temperature
         if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
@@ -1400,6 +1404,27 @@ def get_heat_pump_climate_max_temp(
     return 104
 
 
+def build_unique_id(
+    mac_address: str,
+    role: str,
+    key: str,
+    device_index: int = 0,
+    device_node_addr: int | None = None,
+) -> str:
+    """Build a stable unique ID for a PoolSync entity.
+
+    Preserves backward compatibility by using the simple {mac}_{key}
+    format for every first-instance entity (index 0), regardless of
+    role. Subsequent instances append role and nodeAddr (or index)
+    to avoid collisions.
+    """
+    if device_index == 0:
+        return f"{mac_address}_{key}"
+    if device_node_addr is not None:
+        return f"{mac_address}_{role}_{device_node_addr}_{key}"
+    return f"{mac_address}_{role}_{device_index}_{key}"
+
+
 def _get_device_raw_value(
     parsed_data: PoolSyncParsedData,
     role_key: str,
@@ -1454,12 +1479,28 @@ def get_sensor_value(
     return getter(parsed_data, role_key=role_key, index=index)
 
 
+def get_chem_sync_mode_options() -> list[str]:
+    """Return ChemSync system mode options."""
+    return ["off", "auto", "manual"]
+
+
 def get_select_value(
     parsed_data: PoolSyncParsedData,
     key: str,
+    *,
+    role_key: str | None = None,
     index: int = 0,
 ) -> Any:
     """Return a select value from parsed runtime data."""
+    if key == "chem_sys_mode" and role_key == "chem_sync":
+        raw_value = _dv("chem_sync", "config", "sysMode")(
+            parsed_data, role_key="chem_sync", index=index
+        )
+        options = get_chem_sync_mode_options()
+        if isinstance(raw_value, int) and 0 <= raw_value < len(options):
+            return options[raw_value]
+        return None
+
     if key != "heat_mode":
         return None
 
