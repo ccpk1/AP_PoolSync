@@ -245,3 +245,69 @@ async def test_heat_pump_binary_sensors_from_all_diagnostics(
     assert flow_sensor.is_on is expected_flow
     assert compressor_sensor.is_on is expected_compressor
     assert fan_sensor.is_on is expected_fan
+
+
+def _build_equipment_coordinator(sample_name: str) -> Mock:
+    """Build a coordinator mock with equipment data from a 090 diagnostic."""
+    runtime_data = _load_runtime_data(sample_name)
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.last_update_success = True
+    coordinator.data = runtime_data
+    coordinator.parsed_data = None
+
+    def _device_info(equip):
+        from custom_components.poolsync_custom.const import DOMAIN
+        from homeassistant.helpers.device_registry import DeviceInfo
+
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"AABBCCDDEEFF_equip_{equip.slot_key}")},
+            name=equip.name,
+            via_device=(DOMAIN, "AABBCCDDEEFF_heat_pump"),
+        )
+
+    coordinator.get_equipment_device_info = Mock(side_effect=_device_info)
+    return coordinator
+
+
+@pytest.mark.parametrize(
+    ("sample_name", "expected_priming"),
+    [
+        ("090-compressor-off-priming-filtration-group-3450rpm.json", True),
+        ("090-compressor-off-filtration-group-1750rpm.json", False),
+        ("090-compressor-on-2900rpm-pool-group.json", False),
+    ],
+)
+async def test_equipment_priming_binary_sensor_from_090_diagnostics(
+    hass,
+    sample_name: str,
+    expected_priming: bool,
+) -> None:
+    """Test pump_priming binary sensor is created on the pump device with correct state."""
+    coordinator = _build_equipment_coordinator(sample_name)
+    added_entities: list[PoolSyncBinarySensor] = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    priming_sensors = [
+        e
+        for e in added_entities
+        if e.entity_description.key == "pump_priming"
+    ]
+    assert len(priming_sensors) == 1, (
+        f"Expected exactly one pump_priming sensor, got {len(priming_sensors)}"
+    )
+    sensor = priming_sensors[0]
+
+    # Must be on the pump device, not the heat pump or controller
+    assert sensor.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_equip_1")
+    }, "pump_priming should be assigned to the pump equipment device"
+    assert sensor.device_info["name"] == "CIRCULATION PUMP"
+
+    # State must match the diagnostic
+    assert sensor.is_on is expected_priming
