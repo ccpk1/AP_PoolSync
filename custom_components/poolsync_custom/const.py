@@ -95,5 +95,12 @@ PUMP_IDX_PRIMING_FLAG = EQUIP_IDX_PARAM_14  # Confirmed by APK pump display logi
 VALVE_IDX_MOVE_TIME = EQUIP_IDX_TIME_START  # Timer duration for valve movement
 VALVE_IDX_POSITIONS_START = EQUIP_IDX_PARAM_8  # Pairs of (name, value) from here onward
 
-# Group config array indices
-GROUP_IDX_STATE = 3
+# Group config array indices (from APK GROUP_* constants)
+GROUP_IDX_NAME = 0
+GROUP_IDX_NAME_ID = 1
+GROUP_IDX_MAX_ACTIVE = 2  # Duration/max active time
+GROUP_IDX_STATE = 3  # 0=off, >0=on (additive, any positive = active)
+GROUP_IDX_TIME_SET = 4  # Timer duration set
+GROUP_IDX_TIME_LEFT = 5  # Timer remaining
+GROUP_IDX_FREEZE_PROTECT = 6  # Freeze protection mode
+GROUP_IDX_SCHEDULE_MODE = 7  # Schedule mode

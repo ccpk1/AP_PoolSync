@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import GROUP_IDX_STATE
+from .const import GROUP_IDX_NAME, GROUP_IDX_STATE
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import build_unique_id, ensure_parsed_data, get_equipment_runtime
 
@@ -44,10 +44,12 @@ async def async_setup_entry(
             if not isinstance(group_data, dict):
                 continue
             config = group_data.get("config")
-            if not isinstance(config, list) or len(config) < 4:
+            if not isinstance(config, list) or len(config) <= GROUP_IDX_NAME:
                 continue
             group_name = (
-                config[0] if isinstance(config[0], str) else f"Group {group_key}"
+                config[GROUP_IDX_NAME]
+                if isinstance(config[GROUP_IDX_NAME], str)
+                else f"Group {group_key}"
             )
 
             entities.append(

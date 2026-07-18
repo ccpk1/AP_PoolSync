@@ -790,7 +790,67 @@ Raw array:
 
 **Source:** `devices[0].groups["0".."5"]`
 
-Group config array: `[name, ?, ?, activeState, durationSec, lastRunTs, scheduleMode, ?]`
+Group config array confirmed from APK `GROUP_*` constants:
+
+| Index | APK Constant | Field | Notes |
+|-------|-------------|-------|-------|
+| 0 | `GROUP_NAME` | Name | Display name |
+| 1 | `GROUP_NAME_ID` | Name ID | Translation key for name |
+| 2 | `GROUP_MAX_ACTIVE` | Max active time | Duration/max active time (seconds) |
+| 3 | `GROUP_STATE` | Active state | 0=off, >0=on (additive — any positive = active) |
+| 4 | `GROUP_TIME_SET` | Timer duration set | User-set timer (seconds) |
+| 5 | `GROUP_TIME_LEFT` | Timer remaining | Time remaining (seconds) |
+| 6 | `GROUP_FREEZE_PROTECT` | Freeze protect | Freeze protection mode |
+| 7 | `GROUP_SCHEDULE_MODE` | Schedule mode | 0=manual, 1=scheduled |
+
+#### F3a. Per-Group Equipment Sub-Object
+
+Each group can contain an `equip` sub-object mapping equipment slots to per-group settings:
+
+```
+"equip": {"1": [58, 0], "3": [0]}
+```
+
+Within the group equipment mapping, a separate index scheme applies (from APK constants):
+
+| Index | APK Constant | Meaning |
+|-------|-------------|---------|
+| 0 | `GROUP_EQUIPMENT_PARAM0` | Primary value (RPM for pump, position for valve, state for relay, output% for chlorinator, temperature for HP) |
+| 1 | `GROUP_EQUIPMENT_PARAM1` | Secondary value (priming flag for pump) |
+
+#### F3b. Group Schedule Data Model (from APK)
+
+Each group has schedules stored as arrays within `schedules` sub-object. Confirmed from APK `SCHEDULE_*` constants:
+
+| Index | Field | Notes |
+|-------|-------|-------|
+| 0 | `SCHEDULE_DAYS` | 7-bit day mask (bit 0 = Sunday, 62 = Mon–Fri, 65 = Sat+Sun) |
+| 1 | `SCHEDULE_START` | Start time (hours? or encoded) |
+| | `scheduleEnd` | Named property: end time |
+| | `scheduleHour` | Named property: hour |
+| | `scheduleMin` | Named property: minute |
+| | `scheduleMode` | Named property: schedule mode |
+
+#### F3c. Group Update API (from APK `updateGroup` function)
+
+The `updateGroup` function dispatches via `updateDeviceAction` (PATCH `/api/poolsync?cmd=devices&device={id}`) with payload shape:
+
+```javascript
+{
+  deviceIndex: deviceIndex,
+  devicePayload: {
+    [HP_GROUPS]: {
+      [groupId]: {
+        config: [name, nameId, maxActive, state, timeSet, timeLeft, freezeProtect, scheduleMode],
+        equip: { equipSlot: [param0, param1], ... }
+      }
+    }
+  },
+  macAddress: macAddress
+}
+```
+
+The `updateDeviceAction` function is the same PATCH endpoint currently used for all device writes. The payload embeds the groups data inside `devicePayload.HP_GROUPS[groupId]`. This confirms that group writes go through the same `?cmd=devices&device={id}` endpoint as config writes, but with a `devicePayload` wrapper keyed by `HP_GROUPS` instead of `config`.
 
 | Index | Field | Range |
 |-------|-------|-------|

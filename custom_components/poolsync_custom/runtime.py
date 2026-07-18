@@ -21,6 +21,8 @@ from .const import (
     EQUIP_TYPE_RELAY,
     EQUIP_TYPE_VALVE,
     EQUIP_TYPE_VS_PUMP,
+    GROUP_IDX_NAME,
+    GROUP_IDX_STATE,
     PUMP_RPM_FACTOR,
     VALVE_IDX_POSITIONS_START,
     WIFI_RSSI_FAIR_MIN,
@@ -427,11 +429,11 @@ class PoolSyncEquipmentRuntime:
             if not isinstance(group_data, dict):
                 continue
             config = group_data.get("config")
-            if not isinstance(config, list) or len(config) < 4:
+            if not isinstance(config, list) or len(config) <= GROUP_IDX_STATE:
                 continue
-            active_state = config[3]
+            active_state = config[GROUP_IDX_STATE]
             if isinstance(active_state, int) and active_state > 0:
-                name = config[0]
+                name = config[GROUP_IDX_NAME] if len(config) > GROUP_IDX_NAME else None
                 if isinstance(name, str):
                     active.append(name)
         return active
@@ -572,9 +574,9 @@ def get_valve_position_name(
         if not isinstance(group_data, dict):
             continue
         config = group_data.get("config")
-        if not isinstance(config, list) or len(config) < 4:
+        if not isinstance(config, list) or len(config) <= GROUP_IDX_STATE:
             continue
-        if not isinstance(config[3], int) or config[3] == 0:
+        if not isinstance(config[GROUP_IDX_STATE], int) or config[GROUP_IDX_STATE] == 0:
             continue
 
         # This is an active group — check for valve setting
