@@ -11,7 +11,18 @@ from homeassistant.helpers import device_registry as dr
 
 from . import PoolSyncConfigEntry
 from .const import API_RESPONSE_MAC_ADDRESS, DOMAIN
-from .runtime import ensure_parsed_data, get_heat_pump_runtime, get_sensor_value
+from .runtime import (
+    ensure_parsed_data,
+    get_equipment_runtime,
+    get_heat_pump_runtime,
+    get_pump_priming,
+    get_pump_rpm,
+    get_pump_rpm_max,
+    get_pump_rpm_min,
+    get_sensor_value,
+    get_valve_position_name,
+    get_valve_position_options,
+)
 
 TO_REDACT = {
     CONF_IP_ADDRESS,
@@ -57,6 +68,7 @@ async def async_get_config_entry_diagnostics(
         result["runtime_data"] = async_redact_data(coordinator.data, TO_REDACT)
         parsed_data = ensure_parsed_data(coordinator)
 
+        # --- Heat pump derived state ---
         if heat_pump_runtime := get_heat_pump_runtime(parsed_data):
             result["heat_pump_debug"] = {
                 "active_target_temperature": heat_pump_runtime.active_target_temperature,
@@ -87,6 +99,116 @@ async def async_get_config_entry_diagnostics(
                 "spa_setpoint": heat_pump_runtime.spa_setpoint,
                 "state_flags_raw": heat_pump_runtime.state_flags_raw,
             }
+
+        # --- Equipment derived state ---
+        if equip_runtime := get_equipment_runtime(parsed_data):
+            equip_debug: dict[str, Any] = {
+                "active_group_names": equip_runtime.active_group_names,
+                "active_group_attributes": equip_runtime.active_group_attributes,
+                "pump_rpm": get_pump_rpm(equip_runtime),
+                "pump_rpm_min": get_pump_rpm_min(equip_runtime),
+                "pump_rpm_max": get_pump_rpm_max(equip_runtime),
+                "pump_priming": get_pump_priming(equip_runtime),
+                "valve_position": get_valve_position_name(equip_runtime),
+                "valve_position_options": get_valve_position_options(equip_runtime),
+            }
+            # Include raw equipment entries for debugging
+            equip_debug["equipment"] = {
+                sk: {
+                    "type": e.equip_type,
+                    "name": e.name,
+                    "is_pump": e.is_pump,
+                    "is_valve": e.is_valve,
+                    "is_heat_pump": e.is_heat_pump,
+                    "raw": e.raw,
+                }
+                for sk, e in equip_runtime.equipment.items()
+            }
+            result["equipment_debug"] = equip_debug
+
+        # --- All mapped sensor values ---
+        sensor_values: dict[str, Any] = {}
+        for key in (
+            "board_temp",
+            "wifi_rssi",
+            "wifi_signal_status",
+            "system_datetime",
+            "firmware_version",
+            "hardware_version",
+        ):
+            sensor_values[key] = get_sensor_value(parsed_data, key)
+
+        # Chlorinator mapped values
+        chlor_devices = parsed_data.devices.get("chlorinator", [])
+        if chlor_devices:
+            for idx in range(len(chlor_devices)):
+                prefix = f"chlorinator_{idx}_"
+                for key in (
+                    "water_temp",
+                    "salt_ppm",
+                    "chlor_board_temp",
+                    "flow_rate",
+                    "chlor_output_setting",
+                    "boost_remaining",
+                    "cell_fwd_current",
+                    "cell_rev_current",
+                    "cell_output_voltage",
+                    "cell_serial_number",
+                    "cell_firmware_version",
+                    "cell_hardware_version",
+                    "cell_rail_voltage",
+                    "temp_comp_output",
+                    "drv_model_num",
+                    "drv_fw_version",
+                    "drv_hw_version",
+                ):
+                    sensor_values[f"{prefix}{key}"] = get_sensor_value(
+                        parsed_data, key, role_key="chlorinator", index=idx
+                    )
+
+        # ChemSync mapped values
+        chem_devices = parsed_data.devices.get("chem_sync", [])
+        if chem_devices:
+            for idx in range(len(chem_devices)):
+                prefix = f"chem_sync_{idx}_"
+                for key in (
+                    "chem_ph",
+                    "chem_orp",
+                    "chem_board_temp",
+                    "chem_acid_consumed",
+                    "chem_fw_version",
+                    "chem_hw_version",
+                    "chem_model_num",
+                ):
+                    sensor_values[f"{prefix}{key}"] = get_sensor_value(
+                        parsed_data, key, role_key="chem_sync", index=idx
+                    )
+
+        # Heat pump mapped values
+        hp_devices = parsed_data.devices.get("heat_pump", [])
+        if hp_devices:
+            for idx in range(len(hp_devices)):
+                prefix = f"heat_pump_{idx}_"
+                for key in (
+                    "hp_water_temp",
+                    "hp_air_temp",
+                    "hp_board_temp",
+                    "hp_mode",
+                    "hp_setpoint_temp",
+                    "hp_pool_setpoint_temp",
+                    "hp_spa_setpoint_temp",
+                    "hp_water_temp2",
+                    "hp_ds1_temp",
+                    "hp_ds2_temp",
+                    "hp_fault_code",
+                    "hp_top_fault_code",
+                    "hp_top_fault_count",
+                ):
+                    sensor_values[f"{prefix}{key}"] = get_sensor_value(
+                        parsed_data, key, role_key="heat_pump", index=idx
+                    )
+
+        result["mapped_sensor_values"] = sensor_values
 
     if device := dr.async_get(hass).async_get_device(
         identifiers={(DOMAIN, coordinator.mac_address)}
