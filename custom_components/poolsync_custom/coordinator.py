@@ -22,7 +22,7 @@ from .api import (
 from .const import (
     DEFAULT_NAME,
     DOMAIN,
-    EQUIP_PUMP_RPM_WRITE_KEY,
+    EQUIP_IDX_STATE,
     GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
@@ -48,6 +48,7 @@ from .runtime import (
     PoolSyncHeatPumpModeContext,
     PoolSyncParsedData,
     ensure_parsed_data,
+    get_equipment_runtime,
     get_heat_pump_climate_preset_mode,
     get_heat_pump_runtime,
     get_role_data,
@@ -873,7 +874,12 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
 
     async def async_set_pump_rpm(self, value: int) -> None:
-        """Set the circulation pump RPM via the heat pump device config."""
+        """Set the circulation pump RPM via equipment index write.
+
+        Uses the equipment positional index format confirmed from APK:
+        PATCH {"equip": {"<slot>": {"<index>": value}}} rather than
+        the device config path {"config": {"key": value}}.
+        """
         if not self.password:
             raise HomeAssistantError("API password not available")
 
@@ -882,13 +888,28 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not hp_devices or hp_devices[0].device_id is None:
             raise HomeAssistantError("Pump write target is not available")
 
+        # Find the first pump equipment slot
+        equip_runtime = get_equipment_runtime(parsed_data)
+        pump_slot: str | None = None
+        if equip_runtime is not None:
+            for slot_key, equip in equip_runtime.equipment.items():
+                if equip.is_pump:
+                    pump_slot = slot_key
+                    break
+
+        if pump_slot is None:
+            raise HomeAssistantError("No pump equipment found to write RPM")
+
         internal_value = value // PUMP_RPM_FACTOR
         try:
             await self.api_client.async_set_device_config_value(
                 device_id=hp_devices[0].device_id,
-                key_id=EQUIP_PUMP_RPM_WRITE_KEY,
+                key_id="pump_rpm",
                 value=internal_value,
                 password=self.password,
+                json_data_override={
+                    "equip": {pump_slot: {str(EQUIP_IDX_STATE): internal_value}}
+                },
             )
             await self.async_request_refresh()
         except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught

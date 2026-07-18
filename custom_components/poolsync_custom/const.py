@@ -3,9 +3,6 @@
 # Domain for the integration (must match folder name and manifest.json)
 DOMAIN = "poolsync_custom"
 
-CHLORINATOR_ID = "-1"
-HEATPUMP_ID = "0"
-
 # Configuration keys used in config_flow and config_entry
 CONF_IP_ADDRESS = "ip_address"
 CONF_PASSWORD = "password"  # Stored in config entry after successful linking
@@ -27,7 +24,11 @@ DEFAULT_SCAN_INTERVAL = 120  # Default polling interval in seconds
 # Headers required for API communication
 HEADER_AUTHORIZATION = "authorization"
 HEADER_USER = "user"
-# Static User header value from your curl example
+# Static UUID required by the PoolSync ESP32 for all PATCH requests.
+# Without this header, the device returns HTTP 401 on writes.
+# Found by decompiling the Android app (v4.73) — the app sends this
+# as the local-only userSub value when authenticating to the device
+# directly (not through the cloud).
 USER_HEADER_VALUE = "b167ecc8-87ce-47da-9b7d-cab632a2eeba"
 
 # Device Info (used for Home Assistant device registry)
@@ -65,10 +66,6 @@ EQUIP_TYPE_LIGHT = 5  # Pool/spa light
 
 # Pump RPM multiplier (internal units × 50 = real RPM)
 PUMP_RPM_FACTOR = 50
-
-# Best-guess write key for pump RPM control.
-# Unknown until API traffic is captured; trial-and-error with beta users.
-EQUIP_PUMP_RPM_WRITE_KEY = "rpm"
 
 # Equipment array indices (from APK VIRTUAL_EQUIPMENT_* constants)
 EQUIP_IDX_TYPE = 0

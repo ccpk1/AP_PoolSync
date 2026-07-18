@@ -1569,8 +1569,8 @@ def get_sensor_value(
 
 
 def get_chem_sync_mode_options() -> list[str]:
-    """Return ChemSync system mode options."""
-    return ["off", "auto", "manual"]
+    """Return ChemSync system mode options (from APK: OFF, PH_TIMED, PH_PROBE, TOTAL_CONTROL)."""
+    return ["off", "ph_timed", "ph_probe", "total_control"]
 
 
 def get_select_value(
