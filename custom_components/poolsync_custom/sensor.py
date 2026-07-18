@@ -521,6 +521,17 @@ SENSOR_DESCRIPTIONS_HEATPUMP: tuple[SensorDescription, ...] = (
 )
 
 
+def get_valid_entity_keys() -> dict[str, set[str]]:
+    """Return the set of valid entity keys for each role, for orphan cleanup."""
+    return {
+        "controller": {d[0].key for d in SENSOR_DESCRIPTIONS_POOLSYNC},
+        "chlorinator": {d[0].key for d in SENSOR_DESCRIPTIONS_CHLORSYNC},
+        "chem_sync": {d[0].key for d in SENSOR_DESCRIPTIONS_CHEMSYNC},
+        "heat_pump": {d[0].key for d in SENSOR_DESCRIPTIONS_HEATPUMP},
+        "equipment": {d[0].key for d in SENSOR_DESCRIPTIONS_EQUIPMENT},
+    }
+
+
 SENSOR_DESCRIPTIONS_EQUIPMENT: tuple[SensorDescription, ...] = (
     (
         SensorEntityDescription(

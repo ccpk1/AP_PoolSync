@@ -67,6 +67,15 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
+def get_valid_entity_keys() -> dict[str, set[str]]:
+    """Return the static set of valid entity keys for each role.
+
+    Group switches are dynamic (one per defined group) and are handled
+    separately by the cleanup function using parsed runtime data.
+    """
+    return {"heat_pump": set()}
+
+
 class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract-method
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], SwitchEntity
 ):

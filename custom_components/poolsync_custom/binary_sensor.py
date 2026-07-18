@@ -199,6 +199,17 @@ BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT: tuple[
 )
 
 
+def get_valid_entity_keys() -> dict[str, set[str]]:
+    """Return the set of valid entity keys for each role, for orphan cleanup."""
+    return {
+        "controller": {d[0].key for d in BINARY_SENSOR_DESCRIPTIONS_POOLSYNC},
+        "chlorinator": {d[0].key for d in BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC},
+        "chem_sync": {d[0].key for d in BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC},
+        "heat_pump": {d[0].key for d in BINARY_SENSOR_DESCRIPTIONS_HEATPUMP},
+        "equipment": {d[0].key for d in BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT},
+    }
+
+
 def _build_binary_sensors(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: tuple[BinarySensorDescription, ...],

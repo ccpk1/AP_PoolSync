@@ -137,6 +137,16 @@ NUMBER_DESCRIPTIONS_HEATPUMP_F: tuple[NumberDescription, ...] = (
 )
 
 
+def get_valid_entity_keys() -> dict[str, set[str]]:
+    """Return the set of valid entity keys for each role, for orphan cleanup."""
+    return {
+        "chlorinator": {d[0].key for d in NUMBER_DESCRIPTIONS_CHLOR},
+        "chem_sync": {d[0].key for d in NUMBER_DESCRIPTIONS_CHEMSYNC},
+        "heat_pump": {d[0].key for d in NUMBER_DESCRIPTIONS_HEATPUMP_F},
+        "equipment": {d[0].key for d in NUMBER_DESCRIPTIONS_EQUIPMENT},
+    }
+
+
 def _build_number_entities(
     coordinator: PoolSyncDataUpdateCoordinator,
     descriptions: Sequence[NumberDescription],

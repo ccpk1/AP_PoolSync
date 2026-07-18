@@ -88,6 +88,14 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
+def get_valid_entity_keys() -> dict[str, set[str]]:
+    """Return the set of valid entity keys for each role, for orphan cleanup."""
+    return {
+        "chem_sync": {"chem_sys_mode"},
+        "heat_pump": {"heat_mode"},
+    }
+
+
 class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], SelectEntity
 ):

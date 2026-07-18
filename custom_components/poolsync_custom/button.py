@@ -84,6 +84,15 @@ async def async_setup_entry(
     async_add_entities(buttons)
 
 
+def get_valid_entity_keys() -> dict[str, set[str]]:
+    """Return the set of valid entity keys for each role, for orphan cleanup."""
+    return {
+        "controller": {"manual_refresh"},
+        "chem_sync": {"chem_prime_pump", "chem_boost"},
+        "chlorinator": {"chlor_clear_cell_life"},
+    }
+
+
 class PoolSyncButton(CoordinatorEntity[PoolSyncDataUpdateCoordinator], ButtonEntity):  # type: ignore[abstract]  # pylint: disable=abstract-method
     """Representation of a PoolSync button."""
 

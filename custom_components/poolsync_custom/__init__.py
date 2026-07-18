@@ -11,6 +11,7 @@ from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
     ConfigEntryError,
     ConfigEntryNotReady,
+    HomeAssistantError,
 )
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -25,73 +26,43 @@ from .const import (
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import PoolSyncParsedData, ensure_parsed_data, get_equipment_runtime
+from . import binary_sensor as poolsync_binary_sensor
+from . import button as poolsync_button
+from . import number as poolsync_number
+from . import select as poolsync_select
+from . import sensor as poolsync_sensor
+from . import switch as poolsync_switch
 
 _LOGGER = logging.getLogger(__name__)
 
 type PoolSyncConfigEntry = ConfigEntry[PoolSyncDataUpdateCoordinator]
 
-_ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
-    "chlorinator": frozenset(
-        {
-            "water_temp",
-            "salt_ppm",
-            "flow_rate",
-            "chlor_output_setting",
-            "boost_remaining",
-            "cell_fwd_current",
-            "cell_rev_current",
-            "cell_output_voltage",
-            "cell_serial_number",
-            "cell_firmware_version",
-            "cell_hardware_version",
-            "chlorsync_online",
-            "chlorsync_fault",
-            "chlor_output_control",
-        }
-    ),
-    "chem_sync": frozenset(
-        {
-            "chem_ph",
-            "chem_orp",
-            "chem_board_temp",
-            "chem_acid_consumed",
-            "chem_sync_online",
-            "chem_sync_fault",
-            "chem_sync_flow",
-        }
-    ),
-    "heat_pump": frozenset(
-        {
-            "hp_water_temp",
-            "hp_water_temp2",
-            "hp_air_temp",
-            "hp_board_temp",
-            "hp_ds1_temp",
-            "hp_ds2_temp",
-            "hp_mode",
-            "hp_setpoint_temp",
-            "hp_pool_setpoint_temp",
-            "hp_spa_setpoint_temp",
-            "hp_fault_code",
-            "hp_top_fault_code",
-            "hp_top_fault_count",
-            "heatpump_online",
-            "heatpump_fault",
-            "heatpump_flow",
-            "heatpump_compressor",
-            "heatpump_fan",
-            "heatpump_ext_ctrl",
-            "heatpump_in_group",
-            "temperature_output_control",
-            "heat_mode",
-            "pump_rpm",
-            "pump_rpm_control",
-            "pump_priming",
-            "valve_position",
-            "group_info",
-        }
-    ),
-}
+
+def _build_entity_key_whitelist() -> dict[str, set[str]]:
+    """Merge all platform entity key whitelists into a single role→keys mapping.
+
+    This is the single source of truth for which entity keys are valid
+    for each device role. The whitelist is derived directly from the
+    platform-level description tuples, so it stays in sync automatically.
+    """
+    merged: dict[str, set[str]] = {}
+    for module in (
+        poolsync_binary_sensor,
+        poolsync_button,
+        poolsync_number,
+        poolsync_select,
+        poolsync_sensor,
+        poolsync_switch,
+    ):
+        fn = getattr(module, "get_valid_entity_keys", None)
+        if fn is None:
+            continue
+        for role, keys in fn().items():
+            merged.setdefault(role, set()).update(keys)
+    return merged
+
+
+_ENTITY_KEY_WHITELIST = _build_entity_key_whitelist()
 
 
 def _resolve_migration_target(
@@ -107,17 +78,16 @@ def _resolve_migration_target(
       "heat_pump_42_water_temp" → heat pump whose nodeAddr == 42
     """
     for role_key, device_list in parsed_data.devices.items():
+        role_keys = _ENTITY_KEY_WHITELIST.get(role_key, set())
         # Check first-instance format (BC): simple key match
-        if entity_suffix in _ROLE_ENTITY_KEYS.get(role_key, frozenset()):
+        if entity_suffix in role_keys:
             return f"{role_key}_0"
         # Check second-instance format: {role_key}_{nodeAddr}_{key}
         for index, device in enumerate(device_list):
             if device.node_addr is not None:
                 prefix = f"{role_key}_{device.node_addr}_"
                 stripped = entity_suffix.removeprefix(prefix)
-                if stripped != entity_suffix and stripped in _ROLE_ENTITY_KEYS.get(
-                    role_key, frozenset()
-                ):
+                if stripped != entity_suffix and stripped in role_keys:
                     return f"{role_key}_{index}"
     return None
 
@@ -177,6 +147,81 @@ def _async_migrate_entity_device_assignments(
         entity_registry.async_update_entity(
             entity_entry.entity_id,
             device_id=target_device_id,
+        )
+
+
+def _async_cleanup_orphan_entities(
+    hass: HomeAssistant,
+    entry: PoolSyncConfigEntry,
+    coordinator: PoolSyncDataUpdateCoordinator,
+) -> None:
+    """Remove entities from the registry that are no longer valid.
+
+    Each entity's unique_id suffix is validated against the whitelist
+    derived from the platform description tuples. Entities whose key
+    is not in the whitelist for their device role are removed.
+
+    This handles three patterns:
+      - {mac}_{key}              → role-based entity (validated via whitelist)
+      - {mac}_equip_{slot}_{key} → equipment entity (validated via equipment whitelist)
+      - {mac}_heat_pump_group_X  → dynamic group switch (validated via parsed groups)
+    """
+    entity_registry = er.async_get(hass)
+    unique_id_prefix = f"{coordinator.mac_address}_"
+
+    # Try to get parsed data; if unavailable, skip dynamic group validation
+    try:
+        parsed_data = coordinator.get_parsed_data()
+    except (HomeAssistantError, AttributeError):
+        parsed_data = None
+
+    # Collect dynamic group keys from parsed data
+    group_keys: set[str] = set()
+    if parsed_data is not None:
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is not None and isinstance(equip_runtime.raw_groups, dict):
+            for group_key in equip_runtime.raw_groups:
+                if isinstance(group_key, str):
+                    group_keys.add(f"group_{group_key}")
+
+    for entity_entry in er.async_entries_for_config_entry(
+        entity_registry, entry.entry_id
+    ):
+        if entity_entry.unique_id is None or not entity_entry.unique_id.startswith(
+            unique_id_prefix
+        ):
+            continue
+
+        entity_suffix = entity_entry.unique_id.removeprefix(unique_id_prefix)
+
+        # Pattern 1: Controller-level entity — {mac}_{key} (no role prefix)
+        if entity_suffix in _ENTITY_KEY_WHITELIST.get("controller", set()):
+            continue  # Valid controller entity
+
+        # Pattern 2: Equipment entity — {mac}_equip_{slot}_{key}
+        if entity_suffix.startswith("equip_"):
+            parts = entity_suffix.split("_", 2)
+            if len(parts) == 3 and parts[2] in _ENTITY_KEY_WHITELIST.get(
+                "equipment", set()
+            ):
+                continue  # Valid equipment entity
+
+        # Pattern 3: Role-based entity — {mac}_{key} or {mac}_{role}_{nodeAddr}_{key}
+        elif parsed_data is not None and _resolve_migration_target(
+            entity_suffix, parsed_data
+        ) is not None:
+            continue  # Valid role entity
+
+        # Pattern 4: Group switch — {mac}_heat_pump_group_{key}
+        elif entity_suffix in group_keys:
+            continue  # Valid group switch
+
+        # Not in any whitelist — remove
+        entity_registry.async_remove(entity_entry.entity_id)
+        _LOGGER.info(
+            "Removed orphan entity %s (unique_id: %s)",
+            entity_entry.entity_id,
+            entity_entry.unique_id,
         )
 
 
@@ -250,6 +295,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> 
 
     entry.async_on_unload(entry.add_update_listener(async_update_options_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Clean up orphan entities after platforms are set up
+    _async_cleanup_orphan_entities(hass, entry, coordinator)
 
     _LOGGER.info("PoolSync integration setup complete for %s", entry.title)
     return True
