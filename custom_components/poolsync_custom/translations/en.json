@@ -245,6 +245,12 @@
       "pump_rpm": {
         "name": "Pump RPM"
       },
+      "pump_rpm_min": {
+        "name": "Pump RPM min"
+      },
+      "pump_rpm_max": {
+        "name": "Pump RPM max"
+      },
       "salt_level": {
         "name": "Salt level"
       },

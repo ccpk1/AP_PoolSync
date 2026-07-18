@@ -32,10 +32,12 @@ from homeassistant.util import dt as dt_util
 
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
+    PoolSyncParsedData,
     build_unique_id,
     ensure_parsed_data,
     get_equipment_runtime,
     get_sensor_value,
+    get_valve_position_name,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -545,6 +547,28 @@ SENSOR_DESCRIPTIONS_EQUIPMENT: tuple[SensorDescription, ...] = (
     ),
     (
         SensorEntityDescription(
+            key="pump_rpm_min",
+            translation_key="pump_rpm_min",
+            native_unit_of_measurement="RPM",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="pump_rpm_max",
+            translation_key="pump_rpm_max",
+            native_unit_of_measurement="RPM",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
             key="valve_position",
             translation_key="valve_position",
         ),
@@ -681,7 +705,7 @@ async def async_setup_entry(
                 for desc, vfn in [
                     (d, v)
                     for d, v in SENSOR_DESCRIPTIONS_EQUIPMENT
-                    if d.key == "pump_rpm"
+                    if d.key in ("pump_rpm", "pump_rpm_min", "pump_rpm_max")
                 ]:
                     equip_sensors.append(
                         PoolSyncSensor(
@@ -691,6 +715,7 @@ async def async_setup_entry(
                             vfn,
                             _device_info=device_info,
                             _unique_id=f"{prefix}{desc.key}",
+                            _equip_slot_key=equip.slot_key,
                         )
                     )
             elif equip.is_valve:
@@ -707,6 +732,7 @@ async def async_setup_entry(
                             vfn,
                             _device_info=device_info,
                             _unique_id=f"{prefix}{desc.key}",
+                            _equip_slot_key=equip.slot_key,
                         )
                     )
 
@@ -738,6 +764,7 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         _unique_id: str | None = None,
         _device_index: int = 0,
         _device_node_addr: int | None = None,
+        _equip_slot_key: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
@@ -745,6 +772,7 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         self._role_key = role
         self._device_index = _device_index
         self._device_node_addr = _device_node_addr
+        self._equip_slot_key = _equip_slot_key
         self._attr_unique_id = _unique_id or self._build_unique_id(
             coordinator.mac_address, role, description.key
         )
@@ -752,6 +780,25 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
             role, index=_device_index
         )
         self._update_attrs()
+
+    def _get_equipment_value(self, parsed_data: PoolSyncParsedData) -> Any:
+        """Read a value from this entity's specific equipment slot."""
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is None:
+            return None
+        equip = equip_runtime.equipment.get(self._equip_slot_key)
+        if equip is None:
+            return None
+        key = self.entity_description.key
+        if key == "pump_rpm":
+            return equip.pump_rpm
+        if key == "pump_rpm_min":
+            return equip.pump_rpm_min
+        if key == "pump_rpm_max":
+            return equip.pump_rpm_max
+        if key == "valve_position":
+            return get_valve_position_name(equip_runtime)
+        return None
 
     def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
         """Build a stable unique ID, delegating to the shared function."""
@@ -767,7 +814,9 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        if self._device_index > 0:
+        if self._equip_slot_key is not None:
+            value = self._get_equipment_value(parsed_data)
+        elif self._device_index > 0:
             value = get_sensor_value(
                 parsed_data,
                 self.entity_description.key,

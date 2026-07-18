@@ -29,6 +29,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
+    PoolSyncParsedData,
     build_unique_id,
     ensure_parsed_data,
     get_equipment_runtime,
@@ -266,16 +267,16 @@ async def async_setup_entry(
             device_info = coordinator.get_equipment_device_info(equip)
             prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
             for desc, vfn in NUMBER_DESCRIPTIONS_EQUIPMENT:
-                number_entities.append(
-                    PoolSyncChlorOutputNumberEntity(
-                        coordinator,
-                        "equipment",
-                        desc,
-                        vfn,
-                        _device_info=device_info,
-                        _unique_id=f"{prefix}{desc.key}",
-                    )
+                entity = PoolSyncChlorOutputNumberEntity(
+                    coordinator,
+                    "equipment",
+                    desc,
+                    vfn,
+                    _device_info=device_info,
+                    _unique_id=f"{prefix}{desc.key}",
                 )
+                entity._equip_slot_key = equip.slot_key  # pylint: disable=protected-access
+                number_entities.append(entity)
 
     for index, device in enumerate(parsed_data.devices.get("heat_pump", [])):
         if device.is_present:
@@ -339,6 +340,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._role_key = role
         self._device_index = _device_index
         self._device_node_addr = _device_node_addr
+        self._equip_slot_key: str | None = None
 
         self._attr_unique_id = _unique_id or self._build_unique_id(
             coordinator.mac_address, role, description.key
@@ -354,6 +356,16 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             self._attr_unique_id,
         )
 
+    def _get_equipment_value(self, parsed_data: PoolSyncParsedData) -> Any:
+        """Read a value from this entity's specific equipment slot."""
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is None or self._equip_slot_key is None:
+            return None
+        equip = equip_runtime.equipment.get(self._equip_slot_key)
+        if equip is None:
+            return None
+        return equip.pump_rpm
+
     def _build_unique_id(self, mac_address: str, role: str, key: str) -> str:
         """Build a stable unique ID, delegating to the shared function."""
         return build_unique_id(
@@ -368,7 +380,9 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        if self._device_index > 0:
+        if self._equip_slot_key is not None:
+            value = self._get_equipment_value(parsed_data)
+        elif self._device_index > 0:
             value = get_number_value(
                 parsed_data,
                 self.entity_description.key,
@@ -404,18 +418,16 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         super()._handle_coordinator_update()
 
     @property
-    def available(self) -> bool:
+    def available(self) -> bool:  # type: ignore[override]
         """Return True if the entity has a usable current value."""
         return super().available and self.native_value is not None
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
-        new_value = int(value)
-
         _LOGGER.info(
             "NUMBER_ENTITY %s: Attempting to set native_value to %s (device_index: %d)",
             self.entity_description.key,
-            new_value,
+            value,
             self._device_index,
         )
 
@@ -426,17 +438,18 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             )
             raise HomeAssistantError("API password not available to set value.")
 
+        # pH setpoint needs float precision; int-cast other values
+        write_value: int | float = (
+            value
+            if self.entity_description.key in ("chem_ph_setpoint",)
+            else int(value)
+        )
+
         try:
             if (method_name := _WRITE_METHODS.get(self.entity_description.key)) is None:
                 raise HomeAssistantError(
                     f"Unsupported number command: {self.entity_description.key}"
                 )
-
-            # pH setpoint needs float precision; int-cast other values
-            if self.entity_description.key in ("chem_ph_setpoint",):
-                write_value = value
-            else:
-                write_value = int(value)
 
             method = getattr(self.coordinator, method_name)
             if method_name == "async_set_chem_config":

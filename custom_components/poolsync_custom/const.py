@@ -53,10 +53,15 @@ PLATFORMS = ["sensor", "binary_sensor", "number", "select", "button", "climate"]
 # Option keys
 OPTION_SCAN_INTERVAL = "scan_interval"
 
-# Equipment type constants (from equip[N][0])
-EQUIP_TYPE_VS_PUMP = 0
-EQUIP_TYPE_VALVE = 1
-EQUIP_TYPE_HEAT_PUMP = 3
+# Equipment type constants (from equip[N][0], APK VIRTUAL_EQUIPMENT_TYPE)
+# Status display functions per type: getPumpStatus, getValveStatus, getRelayStatus,
+# getHpStatus, getChlorStatus, getLightStatus
+EQUIP_TYPE_VS_PUMP = 0  # VS pump or single-speed pump
+EQUIP_TYPE_VALVE = 1  # Motorized valve actuator
+EQUIP_TYPE_RELAY = 2  # Generic relay
+EQUIP_TYPE_HEAT_PUMP = 3  # Heat pump (temperature-based)
+EQUIP_TYPE_CHLORINATOR = 4  # ChlorSync cell
+EQUIP_TYPE_LIGHT = 5  # Pool/spa light
 
 # Pump RPM multiplier (internal units × 50 = real RPM)
 PUMP_RPM_FACTOR = 50
@@ -65,11 +70,30 @@ PUMP_RPM_FACTOR = 50
 # Unknown until API traffic is captured; trial-and-error with beta users.
 EQUIP_PUMP_RPM_WRITE_KEY = "rpm"
 
-# Equipment slot indices (confirmed changing values)
-PUMP_IDX_CURRENT_SPEED = 7
-PUMP_IDX_PRIMING_FLAG = 14
-VALVE_IDX_MOVE_TIME = 5
-VALVE_IDX_POSITIONS_START = 8  # Pairs of (name, value) from here onward
+# Equipment array indices (from APK VIRTUAL_EQUIPMENT_* constants)
+EQUIP_IDX_TYPE = 0
+EQUIP_IDX_NAME = 1
+EQUIP_IDX_NAME_ID = 2
+EQUIP_IDX_SUB_TYPE = 3
+EQUIP_IDX_PORT = 4
+EQUIP_IDX_TIME_START = 5
+EQUIP_IDX_TIME_LEFT = 6
+EQUIP_IDX_STATE = 7
+EQUIP_IDX_PARAM_8 = 8
+EQUIP_IDX_PARAM_9 = 9
+EQUIP_IDX_PARAM_10 = 10
+EQUIP_IDX_PARAM_11 = 11
+EQUIP_IDX_PARAM_12 = 12
+EQUIP_IDX_PARAM_13 = 13
+EQUIP_IDX_PARAM_14 = 14
+
+# Pump-specific aliases
+PUMP_IDX_CURRENT_SPEED = EQUIP_IDX_STATE  # state × 50 = RPM
+PUMP_IDX_PRIMING_FLAG = EQUIP_IDX_PARAM_14  # Confirmed by APK pump display logic
+
+# Valve-specific aliases
+VALVE_IDX_MOVE_TIME = EQUIP_IDX_TIME_START  # Timer duration for valve movement
+VALVE_IDX_POSITIONS_START = EQUIP_IDX_PARAM_8  # Pairs of (name, value) from here onward
 
 # Group config array indices
 GROUP_IDX_STATE = 3

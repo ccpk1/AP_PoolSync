@@ -17,6 +17,12 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
+from . import binary_sensor as poolsync_binary_sensor
+from . import button as poolsync_button
+from . import number as poolsync_number
+from . import select as poolsync_select
+from . import sensor as poolsync_sensor
+from . import switch as poolsync_switch
 from .api import PoolSyncApiClient, async_create_poolsync_session
 from .const import (
     API_RESPONSE_MAC_ADDRESS,
@@ -26,12 +32,6 @@ from .const import (
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import PoolSyncParsedData, ensure_parsed_data, get_equipment_runtime
-from . import binary_sensor as poolsync_binary_sensor
-from . import button as poolsync_button
-from . import number as poolsync_number
-from . import select as poolsync_select
-from . import sensor as poolsync_sensor
-from . import switch as poolsync_switch
 
 _LOGGER = logging.getLogger(__name__)
 

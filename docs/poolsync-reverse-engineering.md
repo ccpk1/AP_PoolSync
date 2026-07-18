@@ -327,18 +327,91 @@ The decompiled app contains a master mapping object (`DEVICES`) that translates 
 
 #### Equipment (positional array indices)
 
-Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPMENT_*` constants map array indices:
+Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPMENT_*` constants map array indices, confirmed from the decompiled APK source:
 
-| Constant | Array Index | Meaning |
-|----------|-------------|---------|
-| `VIRTUAL_EQUIPMENT_TYPE` | `[0]` | Equipment type code |
-| `VIRTUAL_EQUIPMENT_NAME` | `[1]` | Display name string |
-| `VIRTUAL_EQUIPMENT_NAME_ID` | `[2]` | Name ID |
-| `VIRTUAL_EQUIPMENT_SUB_TYPE` | `[3]` | Sub-type code |
-| `VIRTUAL_EQUIPMENT_PORT` | `[4]` | Port number |
-| `VIRTUAL_EQUIPMENT_TIME_START` | `[5]` | Timer start |
-| `VIRTUAL_EQUIPMENT_TIME_LEFT` | `[6]` | Timer remaining |
-| `VIRTUAL_EQUIPMENT_STATE` | `[7]` | On/off state |
+| Index | APK Constant | Meaning | Used By |
+|-------|-------------|---------|---------|
+| 0 | `VIRTUAL_EQUIPMENT_TYPE` | Equipment type code | All |
+| 1 | `VIRTUAL_EQUIPMENT_NAME` | Display name string | All |
+| 2 | `VIRTUAL_EQUIPMENT_NAME_ID` | Name ID | All |
+| 3 | `VIRTUAL_EQUIPMENT_SUB_TYPE` | Sub-type code | Pump, Valve |
+| 4 | `VIRTUAL_EQUIPMENT_PORT` | Port/relay number | All |
+| 5 | `VIRTUAL_EQUIPMENT_TIME_START` | Timer start remaining | All |
+| 6 | `VIRTUAL_EQUIPMENT_TIME_LEFT` | Timer remaining | All |
+| 7 | `VIRTUAL_EQUIPMENT_STATE` | On/off state (×50 = RPM for pumps) | All |
+| 8 | `VIRTUAL_EQUIPMENT_PARAM_8` | Type-specific | Pump (minRPM?), Valve (position name) |
+| 9 | `VIRTUAL_EQUIPMENT_PARAM_9` | Type-specific | Pump |
+| 10 | `VIRTUAL_EQUIPMENT_PARAM_10` | Type-specific | Valve (position name), Pump |
+| 11 | `VIRTUAL_EQUIPMENT_PARAM_11` | Type-specific | Pump |
+| 12 | `VIRTUAL_EQUIPMENT_PARAM_12` | Type-specific | Pump |
+| 13 | `VIRTUAL_EQUIPMENT_PARAM_13` | Type-specific | Pump |
+| 14 | `VIRTUAL_EQUIPMENT_PARAM_14` | Priming flag (pump) | Pump |
+
+#### Equipment Type Codes
+
+The APK defines 6 equipment types, with dedicated status display functions for each:
+
+| Type Code | Virtual Equipment Key | Status Function | Description |
+|-----------|----------------------|-----------------|-------------|
+| 0 | `standard` / `variableSpeedPump` | `getPumpStatus` | VS pump or single-speed pump |
+| 1 | `valve` | `getValveStatus` | Motorized valve actuator |
+| 2 | `relay` | `getRelayStatus` | Generic relay (on/off) |
+| 3 | `heatPump` | `getHpStatus` | Heat pump (temperature-based) |
+| 4 | `chlorinator` | `getChlorStatus` | ChlorSync cell (output %) |
+| 5 | `light` | `getLightStatus` | Pool/spa light (color, on/off) |
+
+#### Pump Sub-Type Mapping
+
+Pumps use `subType` (index 3) to distinguish VS pump configurations:
+
+| Sub-Type | Description |
+|----------|-------------|
+| 0 | (unknown — possibly single-speed) |
+| 1 | `Single Speed` — has `minRPM`, `maxRPM`, `primeRPM`, `primeTime`, `runRPM` |
+
+#### Type-Specific Status Functions (from APK)
+
+Each function reads the equipment array and/or group equipment mapping to produce a display status string:
+
+**`getPumpStatus(equip, groupConfig, equipIndex)`:**
+- `GROUP_EQUIPMENT_PARAM0` (index 0 in group equip mapping) → RPM value
+- `GROUP_EQUIPMENT_PARAM1` (index 1 in group equip mapping) → priming flag
+- If state == 0 (off): "Off" (or "On" if `PARAM0 == 1` for single-speed)
+- If state > 0 (running): if `PARAM1 == 1` → "Priming", else → `{RPM × 50} RPM`
+- Standalone (non-group): reads `PARAM_14` (index 14) as priming flag
+
+**`getValveStatus(equip, groupConfig, equipIndex)`:**
+- `GROUP_EQUIPMENT_PARAM0` → state (0=off, 1=on)
+- `VIRTUAL_EQUIPMENT_PARAM_10` (index 10) → position name
+- `VIRTUAL_EQUIPMENT_PARAM_8` (index 8) → On/Off at position
+- Returns position name or "Off"/"On"
+
+**`getRelayStatus(equip)`:**
+- `GROUP_EQUIPMENT_PARAM0` → state
+- Returns "On" if state == 1, else "Off"
+
+**`getHpStatus(equip)`:**
+- `GROUP_EQUIPMENT_PARAM0` → state (0=off, 1=on)
+- `GROUP_EQUIPMENT_PARAM1` → temperature
+- Returns `{temperature}° {mode}`
+
+**`getChlorStatus(equip)`:**
+- `GROUP_EQUIPMENT_PARAM0` → output level
+- Returns `{level}%`
+
+**`getLightStatus(equip, groupConfig, equipIndex)`:**
+- `VIRTUAL_EQUIPMENT_PARAM_8` (index 8) → show name lookup
+- `GROUP_EQUIPMENT_PARAM0` → on/off state
+- Returns show name or "Off"
+
+#### Group Equipment Mapping (per-group)
+
+Within a group's `equip` sub-object, the equipment mapping uses a separate index scheme:
+
+| Index | Constant | Meaning |
+|-------|----------|---------|
+| 0 | `GROUP_EQUIPMENT_PARAM0` | Primary value (RPM, state, output%) |
+| 1 | `GROUP_EQUIPMENT_PARAM1` | Secondary value (priming flag, temperature) |
 
 #### Default display names
 

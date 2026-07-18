@@ -11,11 +11,16 @@ from typing import Any, Literal, cast
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    EQUIP_IDX_PARAM_8,
+    EQUIP_IDX_PARAM_9,
+    EQUIP_IDX_PARAM_14,
+    EQUIP_IDX_STATE,
+    EQUIP_TYPE_CHLORINATOR,
     EQUIP_TYPE_HEAT_PUMP,
+    EQUIP_TYPE_LIGHT,
+    EQUIP_TYPE_RELAY,
     EQUIP_TYPE_VALVE,
     EQUIP_TYPE_VS_PUMP,
-    PUMP_IDX_CURRENT_SPEED,
-    PUMP_IDX_PRIMING_FLAG,
     PUMP_RPM_FACTOR,
     VALVE_IDX_POSITIONS_START,
     WIFI_RSSI_FAIR_MIN,
@@ -279,6 +284,8 @@ class PoolSyncEquipmentData:
     name: str
     raw: list[Any]
 
+    # --- Type checks ---
+
     @property
     def is_pump(self) -> bool:
         """Return whether this is a variable-speed pump."""
@@ -293,6 +300,90 @@ class PoolSyncEquipmentData:
     def is_heat_pump(self) -> bool:
         """Return whether this is a heat pump equipment entry."""
         return self.equip_type == EQUIP_TYPE_HEAT_PUMP
+
+    @property
+    def is_relay(self) -> bool:
+        """Return whether this is a generic relay."""
+        return self.equip_type == EQUIP_TYPE_RELAY
+
+    @property
+    def is_chlorinator(self) -> bool:
+        """Return whether this is a chlorinator equipment entry."""
+        return self.equip_type == EQUIP_TYPE_CHLORINATOR
+
+    @property
+    def is_light(self) -> bool:
+        """Return whether this is a light equipment entry."""
+        return self.equip_type == EQUIP_TYPE_LIGHT
+
+    # --- Pump properties ---
+
+    @property
+    def pump_rpm(self) -> int | None:
+        """Current pump RPM (state × 50). None if not a pump or not running."""
+        if not self.is_pump:
+            return None
+        speed = self.get_int(EQUIP_IDX_STATE)
+        return speed * PUMP_RPM_FACTOR if speed > 0 else None
+
+    @property
+    def pump_is_priming(self) -> bool | None:
+        """Whether pump is in priming mode. None if not a pump."""
+        if not self.is_pump:
+            return None
+        return self.get_int(EQUIP_IDX_PARAM_14) != 0
+
+    @property
+    def pump_rpm_min(self) -> int | None:
+        """Minimum RPM for this pump. None if not a pump."""
+        if not self.is_pump:
+            return None
+        val = self.get_int(EQUIP_IDX_PARAM_8)
+        return val * PUMP_RPM_FACTOR if val > 0 else None
+
+    @property
+    def pump_rpm_max(self) -> int | None:
+        """Maximum RPM for this pump. None if not a pump."""
+        if not self.is_pump:
+            return None
+        val = self.get_int(EQUIP_IDX_PARAM_9)
+        return val * PUMP_RPM_FACTOR if val > 0 else None
+
+    # --- Valve properties ---
+
+    @property
+    def valve_positions(self) -> list[tuple[str, int]]:
+        """Named position pairs from the valve equipment entry."""
+        if not self.is_valve:
+            return []
+        positions: list[tuple[str, int]] = []
+        idx = VALVE_IDX_POSITIONS_START
+        while idx + 1 < len(self.raw):
+            pos_name = self.raw[idx]
+            pos_val = self.raw[idx + 1]
+            if isinstance(pos_name, str) and isinstance(pos_val, int):
+                positions.append((pos_name, pos_val))
+            idx += 2
+        return positions
+
+    @property
+    def valve_position_options(self) -> list[str] | None:
+        """Available position names. None if not a valve."""
+        if not self.is_valve:
+            return None
+        options = [name for name, _ in self.valve_positions]
+        return options if options else None
+
+    # --- Heat pump properties ---
+
+    @property
+    def hp_state(self) -> int | None:
+        """Heat pump on/off state. None if not a heat pump."""
+        if not self.is_heat_pump:
+            return None
+        return self.get_int(EQUIP_IDX_STATE)
+
+    # --- Generic helpers ---
 
     def get_int(self, index: int, default: int = 0) -> int:
         """Safely read an int from a raw array index."""
@@ -416,10 +507,8 @@ def get_pump_rpm(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            speed = equip.get_int(PUMP_IDX_CURRENT_SPEED)
-            if speed > 0:
-                return speed * PUMP_RPM_FACTOR
+        if (rpm := equip.pump_rpm) is not None:
+            return rpm
     return None
 
 
@@ -428,8 +517,8 @@ def get_pump_priming(equip_runtime: PoolSyncEquipmentRuntime | None) -> bool | N
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            return equip.get_int(PUMP_IDX_PRIMING_FLAG) != 0
+        if (priming := equip.pump_is_priming) is not None:
+            return priming
     return None
 
 
@@ -438,9 +527,8 @@ def get_pump_rpm_min(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | No
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            val = equip.get_int(8)
-            return val * PUMP_RPM_FACTOR if val > 0 else None
+        if (rpm_min := equip.pump_rpm_min) is not None:
+            return rpm_min
     return None
 
 
@@ -449,9 +537,8 @@ def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | No
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            val = equip.get_int(9)
-            return val * PUMP_RPM_FACTOR if val > 0 else None
+        if (rpm_max := equip.pump_rpm_max) is not None:
+            return rpm_max
     return None
 
 
@@ -469,15 +556,15 @@ def get_valve_position_name(
         return None
 
     # Find the valve equipment first to get its position mapping
-    valve: PoolSyncEquipmentData | None = None
+    valve_positions: list[tuple[str, int]] = []
     valve_slot: str | None = None
     for slot_key, equip in equip_runtime.equipment.items():
         if equip.is_valve:
-            valve = equip
+            valve_positions = equip.valve_positions
             valve_slot = slot_key
             break
 
-    if valve is None or valve_slot is None:
+    if not valve_positions or valve_slot is None:
         return None
 
     # Scan all active groups for a valve position setting
@@ -502,14 +589,9 @@ def get_valve_position_name(
             continue
 
         # Map position value through valve's named positions
-        idx = VALVE_IDX_POSITIONS_START
-        while idx + 1 < len(valve.raw):
-            pos_name = valve.raw[idx]
-            pos_val = valve.raw[idx + 1]
-            if isinstance(pos_name, str) and isinstance(pos_val, int):
-                if pos_val == position_value:
-                    return pos_name
-            idx += 2
+        for pos_name, pos_val in valve_positions:
+            if pos_val == position_value:
+                return pos_name
         return str(position_value)
 
     return None
@@ -522,15 +604,8 @@ def get_valve_position_options(
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_valve:
-            options: list[str] = []
-            idx = VALVE_IDX_POSITIONS_START
-            while idx < len(equip.raw):
-                pos_name = equip.raw[idx]
-                if isinstance(pos_name, str):
-                    options.append(pos_name)
-                idx += 2
-            return options if options else None
+        if (options := equip.valve_position_options) is not None:
+            return options
     return None
 
 
@@ -539,9 +614,9 @@ def get_hp_in_group(equip_runtime: PoolSyncEquipmentRuntime | None) -> bool | No
     if equip_runtime is None:
         return None
     hp_equip = equip_runtime.equipment.get("0")
-    if hp_equip is None or hp_equip.equip_type != EQUIP_TYPE_HEAT_PUMP:
+    if hp_equip is None or not hp_equip.is_heat_pump:
         return None
-    return hp_equip.get_int(7) != 0
+    return hp_equip.hp_state != 0
 
 
 _AQUACAL_MODEL_NUMBER_PATTERN = re.compile(
