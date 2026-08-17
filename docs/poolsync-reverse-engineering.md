@@ -327,6 +327,8 @@ The decompiled app contains a master mapping object (`DEVICES`) that translates 
 
 #### Equipment (positional array indices)
 
+> **⚠️ Source note:** The `VIRTUAL_EQUIPMENT_*` index mapping below is **derived from the decompiled app code (v4.73) and is NOT yet verified against live device writes.** The index *positions* are confirmed by real diagnostics (see F1/F2), but the *semantic meaning* of each named constant is inferred from the app's display logic and has not been confirmed to match the device's write API.
+
 Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPMENT_*` constants map array indices:
 
 | Constant | Array Index | Meaning |
@@ -339,6 +341,35 @@ Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPM
 | `VIRTUAL_EQUIPMENT_TIME_START` | `[5]` | Timer start |
 | `VIRTUAL_EQUIPMENT_TIME_LEFT` | `[6]` | Timer remaining |
 | `VIRTUAL_EQUIPMENT_STATE` | `[7]` | On/off state |
+| `VIRTUAL_EQUIPMENT_PARAM_8` | `[8]` | Type-specific parameter 8 |
+| `VIRTUAL_EQUIPMENT_PARAM_9` | `[9]` | Type-specific parameter 9 |
+| `VIRTUAL_EQUIPMENT_PARAM_10` | `[10]` | Type-specific parameter 10 |
+| `VIRTUAL_EQUIPMENT_PARAM_11` | `[11]` | Type-specific parameter 11 |
+| `VIRTUAL_EQUIPMENT_PARAM_12` | `[12]` | Type-specific parameter 12 |
+| `VIRTUAL_EQUIPMENT_PARAM_13` | `[13]` | Type-specific parameter 13 |
+| `VIRTUAL_EQUIPMENT_PARAM_14` | `[14]` | Type-specific parameter 14 |
+
+**From decompiled app (2026-08-17, unverified):** The app dispatches on `VIRTUAL_EQUIPMENT_TYPE` (`[0]`) to render each equipment type. The pump (type 0) display logic reads `GROUP_EQUIPMENT_PARAM0` (the speed value) and multiplies by 50 to show RPM, or shows "Priming" when the priming flag is set. This is consistent with the verified ×50 RPM factor and priming flag location from diagnostics, but the app's display logic itself is unverified against live writes.
+
+#### Group config array (field mapping from decompiled app)
+
+> **⚠️ Source note:** The `GROUP_*` field mapping below is **derived from the decompiled app code (v4.73) and is NOT yet verified against live device writes.** The `config[3]` active-state position is verified by real diagnostics (see F6), but the other field meanings are inferred from the app's constant names and have not been confirmed against the device's write API.
+
+The master `DEVICES` mapping object in the decompiled app defines the exact group config array structure:
+
+| Constant | Array Index | Meaning |
+|----------|-------------|---------|
+| `GROUP_NAME` | `config[0]` | Group display name |
+| `GROUP_NAME_ID` | `config[1]` | Name ID |
+| `GROUP_MAX_ACTIVE` | `config[2]` | Max active count |
+| `GROUP_STATE` | `config[3]` | Active state (0=off, >0=on) |
+| `GROUP_TIME_SET` | `config[4]` | Duration set (seconds) |
+| `GROUP_TIME_LEFT` | `config[5]` | Time remaining |
+| `GROUP_FREEZE_PROTECTING` | `config[6]` | Freeze protection flag |
+| `GROUP_SCHEDULE_MODE` | `config[7]` | Schedule mode |
+| `GROUP_EQUIPMENT` | `equip` | Equipment settings dict |
+
+**Confirmed (2026-08-17):** `GROUP_STATE` = `config[3]` matches our `GROUP_IDX_STATE = 3`. The app checks `config[3] > 0` to determine if a group is active. `GROUP_EQUIPMENT` = `equip` confirms the group's equipment settings sub-object.
 
 #### Default display names
 
@@ -679,9 +710,25 @@ Raw array (actual values from 1750 RPM sample):
 
 **Only indices 7 and 14 are confirmed to change with operating state.** Indices 8–12 are constant across all three samples — they're likely static capability values (min/max RPM, etc.) but this is unconfirmed. Indices 2–6, 10, and 13 have unknown purpose.
 
-**RPM factor confirmed as ×50:** 35→1750, 58→2900, 69→3450 — all three match the filenames from the user.
+**RPM factor confirmed as ×50:** 35→1750, 58→2900, 69→3450 — all three match the filenames from the user. **Also confirmed from the decompiled app (2026-08-17):** the pump display logic reads the speed value and multiplies by 50 to render RPM, and shows "Priming" when the priming flag is set.
 
-**Manual override (2026-08-15):** A diagnostic with a manual pump override to 2000 RPM shows `raw[7]=40` (40×50=2000) while only the POOL group is active (which would normally run at 1750). This confirms manual override is reflected in `raw[7]`. Notably, in the manual-override sample `raw[5]=2147483640` (≈0x7FFFFFF8, near INT32_MAX) and `raw[6]=4294896` — large/garbage values that appear to flag manual-override mode, distinct from the group-driven case where `raw[5]=300` (the group's RPM setting) and `raw[6]=0`. This flag is not yet decoded.
+**Manual override (2026-08-15, VERIFIED):** A diagnostic with a manual pump override to 2000 RPM shows `raw[7]=40` (40×50=2000) while only the POOL group is active (which would normally run at 1750). This confirms manual override is reflected in `raw[7]`. Notably, in the manual-override sample `raw[5]=2147483640` (≈0x7FFFFFF8, near INT32_MAX) and `raw[6]=4294896` — large/garbage values that appear to flag manual-override mode, distinct from the group-driven case where `raw[5]=300` (the group's RPM setting) and `raw[6]=0`. This flag is not yet decoded.
+
+**⚠️ Manual RPM write path (from decompiled app — UNVERIFIED):** The app's `handleRPMChange` function builds a `devicePayload` and writes the pump's equipment entry. The RPM value is divided by `RPM_INCREMENTS` (50) before writing. The hypothesized write payload is:
+
+```json
+{
+  "devices": {
+    "<device_id>": {
+      "equipment": {
+        "<equipIndex>": [rpm / 50, 0]
+      }
+    }
+  }
+}
+```
+
+The `increaseRPM`/`decreaseRPM` functions clamp the value to `MIN_RPM`/`MAX_RPM` and step by `RPM_INCREMENTS`. **This is reconstructed from the app code and has NOT been verified against live hardware** — the user reported the current pump control has "no effect," and the `?cmd=devices&device=` endpoint returned 401 in live testing. This is a hypothesis to verify against a packet capture, not a confirmed implementation.
 
 **⚠️ Write key gap:** Equipment data is a positional array, not a named object like `config.{key}`. The read-side has no named keys to observe, so the write API key for setting pump speed is unknown. Candidates (`rpm`, `speed`, `pumpSpeed`) are guesses until API traffic is captured or trial-and-error confirms one. The existing write pattern (`PATCH … → config.{key}`) is proven for device-level config keys, but equipment-level writes may use a different path entirely.
 
@@ -722,14 +769,20 @@ Raw array:
 
 **Source:** `devices[0].groups["0".."5"]`
 
-Group config array: `[name, ?, ?, activeState, durationSec, lastRunTs, scheduleMode, ?]`
+Group config array: `[name, nameId, maxActive, state, timeSet, timeLeft, freezeProtecting, scheduleMode]`
+
+The field names are **confirmed** from the decompiled app's `GROUP_*` constants (see "Group config array" section above).
 
 | Index | Field | Range |
 |-------|-------|-------|
 | 0 | Name | "POOL", "WATERFALL", "FILTRATION", "AMBIANCE", "CLEANER" |
-| 3 | Active state | 0=off, 1=active (filtration), 2=active with heat |
-| 4 | Duration | Seconds (172800=48h, 14400=4h, 5400=90m, 900=15m) |
-| 6 | Schedule mode | 0=manual, 1=scheduled |
+| 1 | Name ID | 0, 22, 2, 8, 3 |
+| 2 | Max active | 192, 24, 32, 48 |
+| 3 | State | 0=off, 1=active (filtration), 2=active with heat |
+| 4 | Time set | Seconds (172800=48h, 14400=4h, 5400=90m, 900=15m) |
+| 5 | Time left | Seconds remaining |
+| 6 | Freeze protecting | 0/1 |
+| 7 | Schedule mode | 0=manual, 1=scheduled |
 
 Group equip sub-object maps equipment IDs to settings for that group:
 
@@ -763,17 +816,19 @@ Group equip sub-object maps equipment IDs to settings for that group:
 
 #### F5. Equipment Type Taxonomy
 
+**From decompiled app (2026-08-17, unverified):** The decompiled app dispatches on `VIRTUAL_EQUIPMENT_TYPE` (`[0]`) with distinct branches for types 0, 1, 2, and 3. Types 0 (pump) and 1 (valve) are **verified** by real diagnostics; types 2 and 3 are inferred from the app's dispatch logic.
+
 | Type | Name | Seen In | Notes |
 |------|------|---------|-------|
-| 0 | Variable Speed Pump | equip[1] | Internal RPM × 50 = real RPM |
-| 1 | Valve/Actuator | equip[3] | Named positions, timed movement |
+| 0 | Variable Speed Pump | equip[1] | **Verified** — Internal RPM × 50 = real RPM; priming flag at param1 |
+| 1 | Valve/Actuator | equip[3] | **Verified** — Named positions, timed movement |
 | 2 | (unknown) | — | All null in 090; possibly single-speed pump, light, or booster |
 | 3 | Heat Pump | equip[0] | Already handled by existing integration |
 | 4–15 | (unknown) | — | All null in 090; may include lights, solar valves, chemical feeders, additional heat pumps |
 
 #### F6. Group index 3 Active State Semantics
 
-Any positive value is considered active (the app checks `config[3] > 0`). What distinct values 1, 2, etc. mean is unclear — they may encode priority, activation source (manual vs schedule), or a sub-state. User testing confirmed groups are additive, so state values do not imply mutual exclusion.
+**Verified (2026-08-17):** `GROUP_STATE` = `config[3]`. The app checks `config[3] > 0` to determine if a group is active (confirmed by both diagnostics and the app's constant name). Any positive value is active. What distinct values 1, 2, etc. mean is unclear — they may encode priority, activation source (manual vs schedule), or a sub-state. User testing confirmed groups are additive, so state values do not imply mutual exclusion.
 
 | Value | Meaning | Evidence |
 |-------|---------|----------|
@@ -803,17 +858,45 @@ Each group has up to 4 schedule slots: `[dayMask, startTime, endTime]`
 
 ### 🟠 MEDIUM CONFIDENCE — Reasonable inference
 
-#### F8. Group index 1 May Be an Equipment Filter or Category
+#### F8. Group index 1 Is the Name ID
 
-Values: 0 (POOL), 22 (WATERFALL), 2 (FILTRATION), 8 (AMBIANCE), 3 (CLEANER). Not obviously bitmask-mapped to equipment types. Could be a group category/preset ID.
+**From decompiled app (2026-08-17, unverified):** `GROUP_NAME_ID` = `config[1]`. Values: 0 (POOL), 22 (WATERFALL), 2 (FILTRATION), 8 (AMBIANCE), 3 (CLEANER). Not obviously bitmask-mapped to equipment types. Could be a group category/preset ID. The index position is verified by diagnostics; the semantic meaning is inferred from the app's constant name.
 
-#### F9. Group index 2 May Be a Flow or Speed Target
+#### F9. Group index 2 Is Max Active
 
-Values: 192 (POOL/FILTRATION), 24 (WATERFALL), 32 (AMBIANCE), 48 (CLEANER). Does not match RPM (RPM comes from equip sub-object). Could be GPM target, priority, or display category.
+**From decompiled app (2026-08-17, unverified):** `GROUP_MAX_ACTIVE` = `config[2]`. Values: 192 (POOL/FILTRATION), 24 (WATERFALL), 32 (AMBIANCE), 48 (CLEANER). Does not match RPM (RPM comes from equip sub-object). Could be GPM target, priority, or display category. The index position is verified by diagnostics; the semantic meaning is inferred from the app's constant name.
 
 #### F10. Group Duration Is Auto-Shutoff Timer
 
-Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). Index 5 (`lastRunTs`) is non-zero when the group has been running — possibly a countdown remaining or a start timestamp.
+**From decompiled app (2026-08-17, unverified):** `GROUP_TIME_SET` = `config[4]` and `GROUP_TIME_LEFT` = `config[5]`. Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). `config[5]` is non-zero when the group has been running — a countdown remaining or a start timestamp. The index positions are verified by diagnostics; the semantic meanings are inferred from the app's constant names.
+
+#### F10a. Group Write Path (from decompiled app — UNVERIFIED)
+
+> **⚠️ UNVERIFIED:** This write path is **reconstructed from the decompiled app code (v4.73) and has NOT been confirmed to work on live hardware.** The `?cmd=devices&device=` endpoint returned **401 Unauthorized** in live testing on fw 860 (see section 0b). The user's empirical testing also reported group/pump writes having "no effect." This is a strong hypothesis to verify against a packet capture, not a confirmed implementation.
+
+**From decompiled app (2026-08-17):** The app's `updateDevice` function builds a `{devices: {...}}` PATCH payload. For each device, it iterates the `HP_GROUPS` (groups) and writes three fields per group via the `#25557` function:
+
+| Field | Constant | Array Index |
+|-------|----------|-------------|
+| State | `GROUP_STATE` | `config[3]` |
+| Time set | `GROUP_TIME_SET` | `config[4]` |
+| Time left | `GROUP_TIME_LEFT` | `config[5]` |
+
+The `groups` and `schedules` keys are **excluded** from the generic device write and handled by this dedicated group path. This is consistent with the verified `GROUP_IDX_STATE = 3` (from diagnostics) and reveals the hypothesized group toggle write format:
+
+```json
+{
+  "devices": {
+    "<device_id>": {
+      "groups": {
+        "<group_key>": {
+          "config": [name, nameId, maxActive, STATE, timeSet, timeLeft, freezeProtecting, scheduleMode]
+        }
+      }
+    }
+  }
+}
+```
 
 ---
 
