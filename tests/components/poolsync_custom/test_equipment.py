@@ -79,6 +79,42 @@ def parsed_090_pool(runtime_090_pool: dict):
     return parse_poolsync_runtime_data(runtime_090_pool)
 
 
+@pytest.fixture(scope="module")
+def runtime_090_all_off() -> dict:
+    """090 — all groups off, pump idle."""
+    return _load_diagnostics_json("090-all-off.json")
+
+
+@pytest.fixture(scope="module")
+def runtime_090_pool_waterfall() -> dict:
+    """090 — POOL + WATERFALL groups active, valve at FOUNTAIN."""
+    return _load_diagnostics_json("090-pool-waterfall-valve-fountain.json")
+
+
+@pytest.fixture(scope="module")
+def runtime_090_manual_2000rpm() -> dict:
+    """090 — POOL group active with manual pump override to 2000 RPM."""
+    return _load_diagnostics_json("090-manual-2000rpm.json")
+
+
+@pytest.fixture(scope="module")
+def parsed_090_all_off(runtime_090_all_off: dict):
+    """Parsed data for 090 all-off snapshot."""
+    return parse_poolsync_runtime_data(runtime_090_all_off)
+
+
+@pytest.fixture(scope="module")
+def parsed_090_pool_waterfall(runtime_090_pool_waterfall: dict):
+    """Parsed data for 090 POOL+WATERFALL snapshot."""
+    return parse_poolsync_runtime_data(runtime_090_pool_waterfall)
+
+
+@pytest.fixture(scope="module")
+def parsed_090_manual_2000rpm(runtime_090_manual_2000rpm: dict):
+    """Parsed data for 090 manual 2000 RPM snapshot."""
+    return parse_poolsync_runtime_data(runtime_090_manual_2000rpm)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures: T75 system (no equip/groups — all null)
 # ---------------------------------------------------------------------------
@@ -198,6 +234,21 @@ class TestPumpRPM:
         er = get_equipment_runtime(parsed_090_pool)
         assert get_pump_rpm(er) == 2900
 
+    def test_all_off_no_rpm(self, parsed_090_all_off) -> None:
+        """All groups off: pump idle, no RPM."""
+        er = get_equipment_runtime(parsed_090_all_off)
+        assert get_pump_rpm(er) is None
+
+    def test_pool_waterfall_3000_rpm(self, parsed_090_pool_waterfall) -> None:
+        """POOL + WATERFALL active: pump at fastest group speed (3000 RPM)."""
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        assert get_pump_rpm(er) == 3000
+
+    def test_manual_2000_rpm(self, parsed_090_manual_2000rpm) -> None:
+        """Manual override: pump at 2000 RPM despite POOL group default."""
+        er = get_equipment_runtime(parsed_090_manual_2000rpm)
+        assert get_pump_rpm(er) == 2000
+
     def test_t75_returns_none(self, parsed_t75_heat_pool) -> None:
         """T75 (no equipment) returns None."""
         er = get_equipment_runtime(parsed_t75_heat_pool)
@@ -254,20 +305,39 @@ class TestPumpPriming:
 class TestValvePosition:
     """Tests for valve position extraction."""
 
-    def test_filtration_no_valve_setting(self, parsed_090_filtration) -> None:
-        """Filtration group does not control the valve — position is unknown."""
+    def test_filtration_defaults_to_pool(self, parsed_090_filtration) -> None:
+        """Filtration group does not control the valve — defaults to POOL."""
         er = get_equipment_runtime(parsed_090_filtration)
-        # FILTRATION group has no valve equip entry, so position is None
-        assert get_valve_position_name(er) is None
+        assert get_valve_position_name(er) == "POOL"
 
-    def test_priming_no_valve_setting(self, parsed_090_priming) -> None:
-        """Priming (still filtration group) — valve not controlled."""
+    def test_priming_defaults_to_pool(self, parsed_090_priming) -> None:
+        """Priming (still filtration group) — valve defaults to POOL."""
         er = get_equipment_runtime(parsed_090_priming)
-        assert get_valve_position_name(er) is None
+        assert get_valve_position_name(er) == "POOL"
 
     def test_pool_group_pool_position(self, parsed_090_pool) -> None:
         """Pool group active: valve POOL (0)."""
         er = get_equipment_runtime(parsed_090_pool)
+        assert get_valve_position_name(er) == "POOL"
+
+    def test_all_off_defaults_to_pool(self, parsed_090_all_off) -> None:
+        """All groups off: valve defaults to POOL."""
+        er = get_equipment_runtime(parsed_090_all_off)
+        assert get_valve_position_name(er) == "POOL"
+
+    def test_pool_waterfall_reports_fountain(self, parsed_090_pool_waterfall) -> None:
+        """POOL + WATERFALL active: valve reports FOUNTAIN (not POOL).
+
+        Regression test for the multi-group conflict where the old logic
+        returned the first active group's setting (POOL) instead of the
+        actual valve position (FOUNTAIN).
+        """
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        assert get_valve_position_name(er) == "FOUNTAIN"
+
+    def test_manual_2000rpm_defaults_to_pool(self, parsed_090_manual_2000rpm) -> None:
+        """Manual pump override with POOL group: valve defaults to POOL."""
+        er = get_equipment_runtime(parsed_090_manual_2000rpm)
         assert get_valve_position_name(er) == "POOL"
 
     def test_valve_position_options(self, parsed_090_filtration) -> None:

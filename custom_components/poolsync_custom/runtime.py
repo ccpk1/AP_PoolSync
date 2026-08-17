@@ -17,6 +17,7 @@ from .const import (
     PUMP_IDX_CURRENT_SPEED,
     PUMP_IDX_PRIMING_FLAG,
     PUMP_RPM_FACTOR,
+    VALVE_IDX_CURRENT_POSITION,
     VALVE_IDX_POSITIONS_START,
     WIFI_RSSI_FAIR_MIN,
     WIFI_RSSI_GOOD_MIN,
@@ -294,6 +295,21 @@ class PoolSyncEquipmentData:
         """Return whether this is a heat pump equipment entry."""
         return self.equip_type == EQUIP_TYPE_HEAT_PUMP
 
+    @property
+    def valve_positions(self) -> list[tuple[str, int]]:
+        """Named position pairs from the valve equipment entry."""
+        if not self.is_valve:
+            return []
+        positions: list[tuple[str, int]] = []
+        idx = VALVE_IDX_POSITIONS_START
+        while idx + 1 < len(self.raw):
+            pos_name = self.raw[idx]
+            pos_val = self.raw[idx + 1]
+            if isinstance(pos_name, str) and isinstance(pos_val, int):
+                positions.append((pos_name, pos_val))
+            idx += 2
+        return positions
+
     def get_int(self, index: int, default: int = 0) -> int:
         """Safely read an int from a raw array index."""
         if index < len(self.raw):
@@ -458,59 +474,33 @@ def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | No
 def get_valve_position_name(
     equip_runtime: PoolSyncEquipmentRuntime | None,
 ) -> str | None:
-    """Return the current valve position name from active groups.
+    """Return the current valve position name.
 
-    When multiple groups are active, the first group that sets the valve
-    position wins (order is undefined by the device).
+    The valve equipment entry reports its current position directly via
+    ``raw[VALVE_IDX_CURRENT_POSITION]`` — a 1-based index into the named
+    positions list, where 0 means the default (last) position. This is
+    authoritative and independent of which groups are active, so it is
+    correct even when multiple groups with conflicting valve settings are
+    active simultaneously.
     """
     if equip_runtime is None:
         return None
-    if not isinstance(equip_runtime.raw_groups, dict):
+
+    for equip in equip_runtime.equipment.values():
+        if not equip.is_valve:
+            continue
+
+        positions = equip.valve_positions
+        if not positions:
+            return None
+
+        current = equip.get_int(VALVE_IDX_CURRENT_POSITION)
+        if current <= 0:
+            # 0 = default position (the last named position)
+            return positions[-1][0]
+        if current <= len(positions):
+            return positions[current - 1][0]
         return None
-
-    # Find the valve equipment first to get its position mapping
-    valve: PoolSyncEquipmentData | None = None
-    valve_slot: str | None = None
-    for slot_key, equip in equip_runtime.equipment.items():
-        if equip.is_valve:
-            valve = equip
-            valve_slot = slot_key
-            break
-
-    if valve is None or valve_slot is None:
-        return None
-
-    # Scan all active groups for a valve position setting
-    for _group_key, group_data in equip_runtime.raw_groups.items():
-        if not isinstance(group_data, dict):
-            continue
-        config = group_data.get("config")
-        if not isinstance(config, list) or len(config) < 4:
-            continue
-        if not isinstance(config[3], int) or config[3] == 0:
-            continue
-
-        # This is an active group — check for valve setting
-        equip_map = group_data.get("equip")
-        if not isinstance(equip_map, dict):
-            continue
-        valve_setting = equip_map.get(valve_slot)
-        if not isinstance(valve_setting, list) or len(valve_setting) < 1:
-            continue
-        position_value = valve_setting[0]
-        if not isinstance(position_value, int):
-            continue
-
-        # Map position value through valve's named positions
-        idx = VALVE_IDX_POSITIONS_START
-        while idx + 1 < len(valve.raw):
-            pos_name = valve.raw[idx]
-            pos_val = valve.raw[idx + 1]
-            if isinstance(pos_name, str) and isinstance(pos_val, int):
-                if pos_val == position_value:
-                    return pos_name
-            idx += 2
-        return str(position_value)
 
     return None
 
