@@ -69,6 +69,7 @@ EQUIP_PUMP_RPM_WRITE_KEY = "rpm"
 PUMP_IDX_CURRENT_SPEED = 7
 PUMP_IDX_PRIMING_FLAG = 14
 VALVE_IDX_MOVE_TIME = 5
+VALVE_IDX_CURRENT_POSITION = 7  # 1-based index into named positions; 0 = default (last)
 VALVE_IDX_POSITIONS_START = 8  # Pairs of (name, value) from here onward
 
 # Group config array indices

@@ -681,6 +681,8 @@ Raw array (actual values from 1750 RPM sample):
 
 **RPM factor confirmed as ×50:** 35→1750, 58→2900, 69→3450 — all three match the filenames from the user.
 
+**Manual override (2026-08-15):** A diagnostic with a manual pump override to 2000 RPM shows `raw[7]=40` (40×50=2000) while only the POOL group is active (which would normally run at 1750). This confirms manual override is reflected in `raw[7]`. Notably, in the manual-override sample `raw[5]=2147483640` (≈0x7FFFFFF8, near INT32_MAX) and `raw[6]=4294896` — large/garbage values that appear to flag manual-override mode, distinct from the group-driven case where `raw[5]=300` (the group's RPM setting) and `raw[6]=0`. This flag is not yet decoded.
+
 **⚠️ Write key gap:** Equipment data is a positional array, not a named object like `config.{key}`. The read-side has no named keys to observe, so the write API key for setting pump speed is unknown. Candidates (`rpm`, `speed`, `pumpSpeed`) are guesses until API traffic is captured or trial-and-error confirms one. The existing write pattern (`PATCH … → config.{key}`) is proven for device-level config keys, but equipment-level writes may use a different path entirely.
 
 **Proposed entities:** `sensor` for current pump RPM (index 7 × 50), `binary_sensor` for priming flag (index 14), `number` for RPM control (requires write key discovery).
@@ -702,7 +704,8 @@ Raw array:
 | 1 | Display name | "RETURN VALVE" | String |
 | 2–4 | Unknown | 1, 0, 1 | Constant |
 | 5 | Movement time | 300 | Likely milliseconds for actuator travel |
-| 6–7 | Unknown | 0, 0 | Constant |
+| 6 | Unknown | 0 | Constant |
+| 7 | **Current position index** | 0 or 1 | **1-based index into named positions; 0 = default (last). Confirmed 2026-08-15: FOUNTAIN active → 1, POOL → 0** |
 | 8 | Position A name | "FOUNTAIN" | Named position in active groups |
 | 9 | Position A value | 3 | Matches valve setting in WATERFALL/AMBIANCE groups |
 | 10 | Position B name | "POOL" | Named position in active groups |
@@ -711,7 +714,9 @@ Raw array:
 
 **⚠️ Write key gap:** Same issue as F1. Additionally, user feedback (2026-07-15) indicates **valve position is not independently controllable** — it's a side effect of group membership. Changing the valve requires changing which groups are active. An independent write control would not work.
 
-**Proposed entities:** `sensor` for current position (from active group's `equip["3"][0]`, mapped through names). No select control.
+**✅ Current position is reported directly (2026-08-15):** The valve equipment entry reports its current position via `raw[7]` — a 1-based index into the named positions list, where `0` means the default (last) position. This is **authoritative and independent of active groups**, so it is correct even when multiple groups with conflicting valve settings are active simultaneously. This supersedes the earlier approach of deriving the position from the active group's `equip["3"][0]` setting, which returned the wrong value (POOL) when POOL + WATERFALL were both active and the valve was actually at FOUNTAIN.
+
+**Proposed entities:** `sensor` for current position (from `raw[7]`, mapped through named positions). No select control.
 
 #### F3. Groups as Combined Equipment Scenes
 
