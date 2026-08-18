@@ -15,12 +15,12 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_MILLION,
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfRatio,
     UnitOfTemperature,
     UnitOfVolume,
 )
@@ -79,7 +79,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
         SensorEntityDescription(
             key="salt_ppm",
             translation_key="salt_level",
-            native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+            native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
         ),
