@@ -34,12 +34,12 @@ Before setup, make sure:
 1. Your PoolSync device is powered on and connected to your local Wi-Fi network.
 2. Home Assistant can reach the device on your local network.
 3. You know the device IP address.
-4. You are running Home Assistant 2023.1.0 or newer.
+4. You are running Home Assistant 2025.1.0 or newer.
 5. HACS is installed if you plan to install this as a custom repository.
 
 ## Compatibility at a glance
 
-- Home Assistant Core 2023.1.0 or newer
+- Home Assistant Core 2025.1.0 or newer
 - Local network access to the PoolSync device is required
 - Confirmed scope today: PoolSync controller data, ChlorSync data and output control, and supported heat-pump data and control surfaces exposed through PoolSync
 - If you validate additional equipment or firmware combinations, please share results in the community thread or GitHub Discussions so the support list can be tightened over time
