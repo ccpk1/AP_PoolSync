@@ -20,10 +20,18 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
-    UnitOfRatio,
     UnitOfTemperature,
     UnitOfVolume,
 )
+
+try:
+    # Available since Home Assistant 2026.6
+    from homeassistant.const import UnitOfRatio
+
+    SALT_LEVEL_UNIT = UnitOfRatio.PARTS_PER_MILLION
+except ImportError:
+    # Fallback for Home Assistant < 2026.6 (removed in 2027.8)
+    from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION as SALT_LEVEL_UNIT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -79,7 +87,7 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
         SensorEntityDescription(
             key="salt_ppm",
             translation_key="salt_level",
-            native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
+            native_unit_of_measurement=SALT_LEVEL_UNIT,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
         ),
