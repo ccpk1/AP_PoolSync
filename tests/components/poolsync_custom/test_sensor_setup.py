@@ -12,11 +12,12 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.util import dt as dt_util
 
 from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 from custom_components.poolsync_custom.sensor import (
+    SENSOR_DESCRIPTIONS_CHEMSYNC,
     SENSOR_DESCRIPTIONS_CHLORSYNC,
     SENSOR_DESCRIPTIONS_HEATPUMP,
     SENSOR_DESCRIPTIONS_POOLSYNC,
@@ -184,6 +185,12 @@ async def test_async_setup_entry_skips_missing_remapped_device(hass) -> None:
         "system_datetime",
         "firmware_version",
         "hardware_version",
+        "display_brightness",
+        "wifi_disconnects",
+        "aws_disconnects",
+        "num_powerups",
+        "system_restarts",
+        "num_device_offline",
     }
 
 
@@ -417,6 +424,169 @@ async def test_heat_pump_sensors_stay_fahrenheit_native() -> None:
         sensors_by_key["hp_spa_setpoint_temp"].native_unit_of_measurement
         is UnitOfTemperature.FAHRENHEIT
     )
+
+
+async def test_chem_sync_config_sensors_expose_diagnostic_values() -> None:
+    """Test ChemSync pH min/max, tank alert, and feed rate sensors."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_chem_sync")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "0": {
+                "config": {
+                    "phMin": 7.2,
+                    "phMax": 7.8,
+                    "acidTankAlertAmount": 640,
+                    "feedRate": 87662,
+                },
+                "status": {},
+            }
+        },
+        "deviceType": {"0": "chemSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensors_by_key = {
+        description.key: PoolSyncSensor(coordinator, "chem_sync", description, value_fn)
+        for description, value_fn in SENSOR_DESCRIPTIONS_CHEMSYNC
+        if description.key
+        in {"chem_ph_min", "chem_ph_max", "chem_acid_tank_alert", "chem_feed_rate"}
+    }
+
+    assert sensors_by_key["chem_ph_min"].native_value == 7.2
+    assert sensors_by_key["chem_ph_max"].native_value == 7.8
+    assert sensors_by_key["chem_acid_tank_alert"].native_value == 640
+    assert sensors_by_key["chem_feed_rate"].native_value == 87662
+
+    for key in ("chem_ph_min", "chem_ph_max", "chem_acid_tank_alert", "chem_feed_rate"):
+        description = sensors_by_key[key].entity_description
+        assert description.entity_category is EntityCategory.DIAGNOSTIC
+        assert description.entity_registry_enabled_default is False
+        assert sensors_by_key[key].device_info["identifiers"] == {
+            ("poolsync_custom", "AABBCCDDEEFF_chem_sync")
+        }
+
+
+async def test_chlorinator_config_sensors_expose_diagnostic_values() -> None:
+    """Test Chlorinator config sensors (pool cover, gallons, polarity, ORP input)."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_chlorinator")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "0": {
+                "config": {
+                    "poolCoverCtrl": True,
+                    "gallons": 60000,
+                    "polarityChangeTime": 48,
+                    "orpInputCtrl": False,
+                },
+                "status": {},
+            }
+        },
+        "deviceType": {"0": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensors_by_key = {
+        description.key: PoolSyncSensor(
+            coordinator, "chlorinator", description, value_fn
+        )
+        for description, value_fn in SENSOR_DESCRIPTIONS_CHLORSYNC
+        if description.key
+        in {
+            "pool_cover_control",
+            "pool_gallons",
+            "polarity_change_time",
+            "orp_input_control",
+        }
+    }
+
+    assert sensors_by_key["pool_cover_control"].native_value == "on"
+    assert sensors_by_key["pool_gallons"].native_value == 60000
+    assert sensors_by_key["polarity_change_time"].native_value == 48
+    assert sensors_by_key["orp_input_control"].native_value == "off"
+
+    for key in (
+        "pool_cover_control",
+        "pool_gallons",
+        "polarity_change_time",
+        "orp_input_control",
+    ):
+        description = sensors_by_key[key].entity_description
+        assert description.entity_category is EntityCategory.DIAGNOSTIC
+        assert description.entity_registry_enabled_default is False
+        assert sensors_by_key[key].device_info["identifiers"] == {
+            ("poolsync_custom", "AABBCCDDEEFF_chlorinator")
+        }
+
+
+async def test_controller_connection_stats_sensors_expose_diagnostic_values() -> None:
+    """Test controller connection stats and brightness sensors."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {
+            "config": {"brightness": 80},
+            "stats": {
+                "wifiDisconnects": 3,
+                "awsDisconnects": 1,
+                "upTimeSecs": 86400,
+                "numPowerups": 2,
+                "systemRestarts": 1,
+                "numDeviceOffline": 4,
+            },
+        },
+        "devices": {},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    sensors_by_key = {
+        description.key: PoolSyncSensor(
+            coordinator, "controller", description, value_fn
+        )
+        for description, value_fn in SENSOR_DESCRIPTIONS_POOLSYNC
+        if description.key
+        in {
+            "display_brightness",
+            "wifi_disconnects",
+            "aws_disconnects",
+            "num_powerups",
+            "system_restarts",
+            "num_device_offline",
+        }
+    }
+
+    assert sensors_by_key["display_brightness"].native_value == 80
+    assert sensors_by_key["wifi_disconnects"].native_value == 3
+    assert sensors_by_key["aws_disconnects"].native_value == 1
+    assert sensors_by_key["num_powerups"].native_value == 2
+    assert sensors_by_key["system_restarts"].native_value == 1
+    assert sensors_by_key["num_device_offline"].native_value == 4
+
+    for key in sensors_by_key:
+        description = sensors_by_key[key].entity_description
+        assert description.entity_category is EntityCategory.DIAGNOSTIC
+        assert description.entity_registry_enabled_default is False
+        assert sensors_by_key[key].device_info["identifiers"] == {
+            ("poolsync_custom", "AABBCCDDEEFF_controller")
+        }
 
     board_temp_description = next(
         description

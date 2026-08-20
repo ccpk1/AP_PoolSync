@@ -47,6 +47,10 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "chlorsync_online",
             "chlorsync_fault",
             "chlor_output_control",
+            "pool_cover_control",
+            "pool_gallons",
+            "polarity_change_time",
+            "orp_input_control",
         }
     ),
     "chem_sync": frozenset(
@@ -55,6 +59,10 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "chem_orp",
             "chem_board_temp",
             "chem_acid_consumed",
+            "chem_ph_min",
+            "chem_ph_max",
+            "chem_acid_tank_alert",
+            "chem_feed_rate",
             "chem_sync_online",
             "chem_sync_fault",
             "chem_sync_flow",

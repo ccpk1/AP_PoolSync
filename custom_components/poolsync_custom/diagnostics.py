@@ -11,10 +11,13 @@ from homeassistant.helpers import device_registry as dr
 
 from . import PoolSyncConfigEntry
 from .const import API_RESPONSE_MAC_ADDRESS, DOMAIN
+from .fault_codes import decode_faults
 from .runtime import (
     ensure_parsed_data,
+    get_binary_sensor_value,
     get_equipment_runtime,
     get_heat_pump_runtime,
+    get_number_value,
     get_pump_priming,
     get_pump_rpm,
     get_pump_rpm_max,
@@ -134,6 +137,12 @@ async def async_get_config_entry_diagnostics(
             "system_datetime",
             "firmware_version",
             "hardware_version",
+            "display_brightness",
+            "wifi_disconnects",
+            "aws_disconnects",
+            "num_powerups",
+            "system_restarts",
+            "num_device_offline",
         ):
             sensor_values[key] = get_sensor_value(parsed_data, key)
 
@@ -160,6 +169,10 @@ async def async_get_config_entry_diagnostics(
                     "drv_model_num",
                     "drv_fw_version",
                     "drv_hw_version",
+                    "pool_cover_control",
+                    "pool_gallons",
+                    "polarity_change_time",
+                    "orp_input_control",
                 ):
                     sensor_values[f"{prefix}{key}"] = get_sensor_value(
                         parsed_data, key, role_key="chlorinator", index=idx
@@ -175,6 +188,10 @@ async def async_get_config_entry_diagnostics(
                     "chem_orp",
                     "chem_board_temp",
                     "chem_acid_consumed",
+                    "chem_ph_min",
+                    "chem_ph_max",
+                    "chem_acid_tank_alert",
+                    "chem_feed_rate",
                     "chem_fw_version",
                     "chem_hw_version",
                     "chem_model_num",
@@ -208,6 +225,124 @@ async def async_get_config_entry_diagnostics(
                     )
 
         result["mapped_sensor_values"] = sensor_values
+
+        # --- All mapped binary sensor values ---
+        binary_values: dict[str, Any] = {}
+        for key in (
+            "poolsync_online",
+            "service_mode_active",
+            "system_fault",
+        ):
+            binary_values[key] = get_binary_sensor_value(parsed_data, key)
+
+        # Chlorinator binary values
+        chlor_devices = parsed_data.devices.get("chlorinator", [])
+        if chlor_devices:
+            for idx in range(len(chlor_devices)):
+                prefix = f"chlorinator_{idx}_"
+                for key in (
+                    "chlorsync_online",
+                    "chlorsync_fault",
+                ):
+                    binary_values[f"{prefix}{key}"] = get_binary_sensor_value(
+                        parsed_data, key, role_key="chlorinator", index=idx
+                    )
+
+        # ChemSync binary values
+        chem_devices = parsed_data.devices.get("chem_sync", [])
+        if chem_devices:
+            for idx in range(len(chem_devices)):
+                prefix = f"chem_sync_{idx}_"
+                for key in (
+                    "chem_sync_online",
+                    "chem_sync_fault",
+                    "chem_sync_flow",
+                ):
+                    binary_values[f"{prefix}{key}"] = get_binary_sensor_value(
+                        parsed_data, key, role_key="chem_sync", index=idx
+                    )
+
+        # Heat pump binary values
+        hp_devices = parsed_data.devices.get("heat_pump", [])
+        if hp_devices:
+            for idx in range(len(hp_devices)):
+                prefix = f"heat_pump_{idx}_"
+                for key in (
+                    "heatpump_online",
+                    "heatpump_fault",
+                    "heatpump_flow",
+                    "heatpump_compressor",
+                    "heatpump_fan",
+                    "heatpump_ext_ctrl",
+                    "heatpump_in_group",
+                ):
+                    binary_values[f"{prefix}{key}"] = get_binary_sensor_value(
+                        parsed_data, key, role_key="heat_pump", index=idx
+                    )
+
+        result["mapped_binary_sensor_values"] = binary_values
+
+        # --- All mapped number/control values ---
+        number_values: dict[str, Any] = {}
+        # Chlorinator number values
+        if chlor_devices:
+            for idx in range(len(chlor_devices)):
+                prefix = f"chlorinator_{idx}_"
+                for key in ("chlor_output_control",):
+                    number_values[f"{prefix}{key}"] = get_number_value(
+                        parsed_data, key, role_key="chlorinator", index=idx
+                    )
+
+        # ChemSync number values
+        if chem_devices:
+            for idx in range(len(chem_devices)):
+                prefix = f"chem_sync_{idx}_"
+                for key in (
+                    "chem_ph_setpoint",
+                    "chem_orp_setpoint",
+                    "chem_max_daily_feed",
+                ):
+                    number_values[f"{prefix}{key}"] = get_number_value(
+                        parsed_data, key, role_key="chem_sync", index=idx
+                    )
+
+        # Heat pump number values
+        if hp_devices:
+            for idx in range(len(hp_devices)):
+                prefix = f"heat_pump_{idx}_"
+                for key in (
+                    "temperature_output_control",
+                    "pool_temperature_output_control",
+                    "spa_temperature_output_control",
+                ):
+                    number_values[f"{prefix}{key}"] = get_number_value(
+                        parsed_data, key, role_key="heat_pump", index=idx
+                    )
+
+        # Equipment number values (pump RPM)
+        number_values["pump_rpm_control"] = get_number_value(
+            parsed_data, "pump_rpm_control"
+        )
+
+        result["mapped_number_values"] = number_values
+
+        # --- Decoded fault names per device ---
+        faults_debug: dict[str, Any] = {}
+        for role_key in ("chlorinator", "chem_sync", "heat_pump"):
+            devices = parsed_data.devices.get(role_key, [])
+            for idx, device in enumerate(devices):
+                if device.data is None:
+                    continue
+                raw_faults = device.data.get("faults")
+                if not isinstance(raw_faults, list):
+                    continue
+                prefix = f"{role_key}_{idx}"
+                faults_debug[prefix] = {
+                    "raw": raw_faults,
+                    "active_faults": decode_faults(role_key, raw_faults),
+                }
+        if faults_debug:
+            result["faults_debug"] = faults_debug
 
     if device := dr.async_get(hass).async_get_device(
         identifiers={(DOMAIN, coordinator.mac_address)}

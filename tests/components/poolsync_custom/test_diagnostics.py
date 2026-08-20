@@ -143,6 +143,32 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     assert "error_in_diagnostics" not in diagnostics
     assert diagnostics["runtime_data"]["poolSync"]["config"]["name"] != "stale-owner"
 
+    # New mapped sections
+    assert diagnostics["mapped_binary_sensor_values"]["heat_pump_0_heatpump_fault"] == [
+        8,
+        0,
+    ]
+    assert (
+        diagnostics["mapped_number_values"]["heat_pump_0_temperature_output_control"]
+        == 88
+    )
+    assert (
+        diagnostics["mapped_number_values"][
+            "heat_pump_0_pool_temperature_output_control"
+        ]
+        == 78
+    )
+    assert (
+        diagnostics["mapped_number_values"][
+            "heat_pump_0_spa_temperature_output_control"
+        ]
+        == 88
+    )
+    assert diagnostics["faults_debug"]["heat_pump_0"] == {
+        "raw": [8, 0],
+        "active_faults": ["HP5 Lockout"],
+    }
+
 
 async def test_diagnostics_handle_missing_runtime_data(hass) -> None:
     """Test diagnostics still return redacted entry data before runtime setup."""
