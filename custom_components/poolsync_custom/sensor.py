@@ -21,6 +21,7 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfTemperature,
+    UnitOfTime,
     UnitOfVolume,
 )
 
@@ -69,6 +70,15 @@ def _parse_poolsync_datetime(value: Any) -> datetime | None:
         return None
 
     return dt_util.as_utc(local_datetime.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE))
+
+
+def _bool_to_on_off(value: Any) -> str | None:
+    """Map a boolean config value to an on/off enum state."""
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, int):
+        return "on" if value else "off"
+    return None
 
 
 SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
@@ -245,6 +255,53 @@ SENSOR_DESCRIPTIONS_CHLORSYNC: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
+    (
+        SensorEntityDescription(
+            key="pool_cover_control",
+            translation_key="pool_cover_control",
+            device_class=SensorDeviceClass.ENUM,
+            options=["off", "on"],
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        _bool_to_on_off,
+    ),
+    (
+        SensorEntityDescription(
+            key="pool_gallons",
+            translation_key="pool_gallons",
+            native_unit_of_measurement=UnitOfVolume.GALLONS,
+            device_class=SensorDeviceClass.VOLUME,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="polarity_change_time",
+            translation_key="polarity_change_time",
+            native_unit_of_measurement=UnitOfTime.HOURS,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="orp_input_control",
+            translation_key="orp_input_control",
+            device_class=SensorDeviceClass.ENUM,
+            options=["off", "on"],
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        _bool_to_on_off,
+    ),
 )
 SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
     (
@@ -287,6 +344,53 @@ SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
             device_class=SensorDeviceClass.VOLUME,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_ph_min",
+            translation_key="ph_min",
+            device_class=SensorDeviceClass.PH,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=2,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_ph_max",
+            translation_key="ph_max",
+            device_class=SensorDeviceClass.PH,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=2,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_acid_tank_alert",
+            translation_key="acid_tank_alert_threshold",
+            native_unit_of_measurement=UnitOfVolume.FLUID_OUNCES,
+            device_class=SensorDeviceClass.VOLUME,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="chem_feed_rate",
+            translation_key="feed_rate",
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         ),
         None,
     ),
@@ -379,6 +483,72 @@ SENSOR_DESCRIPTIONS_POOLSYNC: tuple[SensorDescription, ...] = (
             translation_key="hardware_version",
             entity_registry_enabled_default=False,
             entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="display_brightness",
+            translation_key="display_brightness",
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="wifi_disconnects",
+            translation_key="wifi_disconnects",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="aws_disconnects",
+            translation_key="aws_disconnects",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="num_powerups",
+            translation_key="num_powerups",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="system_restarts",
+            translation_key="system_restarts",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
+        ),
+        None,
+    ),
+    (
+        SensorEntityDescription(
+            key="num_device_offline",
+            translation_key="num_device_offline",
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            suggested_display_precision=0,
         ),
         None,
     ),

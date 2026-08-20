@@ -285,6 +285,56 @@
       },
       "acid_consumed": {
         "name": "Acid consumed"
+      },
+      "ph_min": {
+        "name": "pH minimum"
+      },
+      "ph_max": {
+        "name": "pH maximum"
+      },
+      "acid_tank_alert_threshold": {
+        "name": "Acid tank alert threshold"
+      },
+      "feed_rate": {
+        "name": "Feed rate"
+      },
+      "pool_cover_control": {
+        "name": "Pool cover control",
+        "state": {
+          "off": "Off",
+          "on": "On"
+        }
+      },
+      "pool_gallons": {
+        "name": "Pool gallons"
+      },
+      "polarity_change_time": {
+        "name": "Polarity change time"
+      },
+      "orp_input_control": {
+        "name": "ORP input control",
+        "state": {
+          "off": "Off",
+          "on": "On"
+        }
+      },
+      "display_brightness": {
+        "name": "Display brightness"
+      },
+      "wifi_disconnects": {
+        "name": "Wi-Fi disconnects"
+      },
+      "aws_disconnects": {
+        "name": "AWS disconnects"
+      },
+      "num_powerups": {
+        "name": "Power-ups"
+      },
+      "system_restarts": {
+        "name": "System restarts"
+      },
+      "num_device_offline": {
+        "name": "Device offline events"
       }
     },
     "select": {

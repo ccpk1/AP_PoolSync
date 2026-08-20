@@ -382,6 +382,58 @@ The app defines these default names for device types:
 | `CHLOR_DEFAULT_NAME` | `Chlorinator` | ChlorSync |
 | `CHEM_DEFAULT_NAME` | `Chem Controller` | ChemSync |
 
+### 0d. Fault Code Mapping (from APK Decompilation)
+
+> **Source of truth:** The fault tables below come from the **vendor's own app (v4.73)** — the `faultParser` dispatch logic and the `CHLOR_FAULTS` / `CHEM_FAULTS` / `COMM_CHLOR_FAULTS` / `HP_FAULTS` object definitions. Because this is the vendor's shipped client, we treat it as **authoritative** for how faults are surfaced to users. The vendor manual's display strings (e.g. "Lo SaLt", "CLn CELL", "NO FLO") are the user-facing subset of the same faults, just with display labels instead of internal identifiers.
+>
+> **Adjustment policy:** We implement against these tables as-is. If a concrete counter-example ever surfaces (a device reporting a fault code that decodes to an implausible name), we adjust that single entry. We do **not** wait on packet captures or exhaustive fault-code testing — those can never cover every code, so they are not a realistic validation path.
+
+The app decodes a device's `faults[]` array as a **bitmask**. The `faultParser` function dispatches on device PID to select the correct fault table, then converts the fault code to a binary string, reverses it, and marks each fault name whose bit is set as active.
+
+**PID dispatch:**
+- PID `9729` / `9730` (ChlorSync / Chlor Cell) → `CHLOR_FAULTS`
+- PID `9731` → `COMM_CHLOR_FAULTS` (multi-cell / comm units)
+- PID `10752` (ChemSync) → `CHEM_FAULTS`
+- PID `9984` / `9985` / `9986` (heat pumps) → `HP_FAULTS`
+
+**`CHLOR_FAULTS`** (ChlorSync / Chlor Cell):
+
+| Bit | Fault Name |
+|-----|-----------|
+| 0 | `cellNotConnectedError` |
+| 1 | `authFailedError` |
+| 2 | `lowTemp` |
+| 3 | `CaBuildupError` |
+| 4 | `openCellError` |
+| 5 | `overCurrentError` |
+| 6 | `sensorError` |
+| 7 | `powerFailError` |
+| 8 | `underVoltageError` |
+| 9 | `highSaltWarning` |
+| 10 | `cleanCellWarning` |
+| 11 | `noFlow` |
+| 12 | `lowSaltWarning` |
+| 13 | `minSaltError` |
+
+**`CHEM_FAULTS`** (ChemSync):
+
+| Bit | Fault Name |
+|-----|-----------|
+| 0 | `PCBTemp` |
+| 1 | `pHMin` |
+| 2 | `pHMax` |
+| 3 | `flowSensor` |
+| 4 | `pHProbe` |
+| 5 | `ORPProbe` |
+
+**`COMM_CHLOR_FAULTS`** (multi-cell / comm units, PID 9731): `lowSalt`, `addSalt`, `highSalt`, `tempSensor`, `noFlow`, then `cpOne…cpNine` × (`CommLoss` / `HighAmps` / `LowAmps` / `CleanCell`), and `noCellsDetected`. *Not currently implemented in the integration — there is no `comm_chlor` device role yet. Documented for reference if multi-cell units are ever detected.*
+
+**`HP_FAULTS`** (heat pump): `lowPressure`, `highPressure`, `lp5Lockout`, `hp5Lockout`, `ds1Open`, `ds1Short`, `ds2Open`, `ds2Short`, `airTempOpen`, `airTempShort`, `highWaterTemp`, `overTempAlarm`, `smartComms`, `multiUnitComms`, `poolSpaInletWaterTempOpen`, `poolSpaInletWaterTempShort`, `solarRoofTempOpen`, `solarRoofTempShort`, `lowClockBattery`, `highHpcPcbTemp`, `highDisplayTemp`, `variableDrive`, `sourceFlow`, `poolSpaOutletTempOpen`, `poolSpaOutletTempShort`, `sourceInletTempOpen`, `sourceInletTempShort`, `sourceOutletTempOpen`, `sourceOutletTempShort`, `sourceInletHighWaterTemp`, `sourceInletLowWaterTemp`, `internalExpansionModule`, `dualTempSensor`, `pump1Comms`, `pump2Comms`, `pump3Comms`, `pump4Comms`, `solarPoolSpaInletTempOpen`, `solarPoolSpaInletTempShort`, `freezeProtectSensorShort`, `freezeProtectSensorOpen`, `multiplePrimaryDetected`, `compressorProtect`, `compressorProtectLockout`.
+
+**Example decode (fault code 512):** 512 = 2⁹ → bit 9 → **`highSaltWarning`** (High Salt Warning). This matches the Beach Spa diagnostic, where the chlorinator reported `saltPPM: 5995` (elevated) with `faults: [512]`.
+
+**Fault-count histogram structure:** The `faultCounts` histogram groups faults into `stats[]` buckets — ChlorSync uses `stats[13–18]` (4 faults per bucket), ChemSync uses `stats[6–8]`. The `CHLOR_FAULTS` field maps to the raw `faults` array in the API payload (confirmed via the `CHLOR_FAULTS: 'faults'` key mapping).
+
 ---
 
 ## 0. Architecture: Device Type Registry & Multi-Device Model

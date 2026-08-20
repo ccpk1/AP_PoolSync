@@ -16,6 +16,7 @@ from unittest.mock import Mock
 import pytest
 
 from custom_components.poolsync_custom.binary_sensor import (
+    BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC,
     BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC,
     BINARY_SENSOR_DESCRIPTIONS_HEATPUMP,
     PoolSyncBinarySensor,
@@ -245,3 +246,117 @@ async def test_heat_pump_binary_sensors_from_all_diagnostics(
     assert flow_sensor.is_on is expected_flow
     assert compressor_sensor.is_on is expected_compressor
     assert fan_sensor.is_on is expected_fan
+
+
+def _build_fault_coordinator(faults: list[int], role: str = "chlorinator") -> Mock:
+    """Build a coordinator with a device reporting the given faults."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", f"AABBCCDDEEFF_{role}")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {"status": {"online": 1}, "config": {}, "faults": 0},
+        "devices": {
+            "5": {
+                "nodeAttr": {"online": 1},
+                "faults": faults,
+                "status": {},
+                "config": {},
+            }
+        },
+        "deviceType": {"5": "chlorSync"},
+    }
+    return coordinator
+
+
+def _find_fault_sensor(entities, key: str) -> PoolSyncBinarySensor:
+    """Find a fault sensor by entity key."""
+    return next(entity for entity in entities if entity.entity_description.key == key)
+
+
+@pytest.mark.parametrize(
+    ("faults", "expected_code", "expected_active"),
+    [
+        ([512], 512, ["High Salt"]),
+        ([4], 4, ["Low Temperature"]),
+        ([0], None, []),
+        ([], None, []),
+        ([1], 1, ["Cell Not Connected"]),
+    ],
+)
+def test_chlor_fault_attributes(
+    faults: list[int], expected_code: int | None, expected_active: list[str]
+) -> None:
+    """Test the chlorinator fault sensor exposes fault_code and active_faults."""
+    coordinator = _build_fault_coordinator(faults)
+    sensor = PoolSyncBinarySensor(
+        coordinator,
+        "chlorinator",
+        BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[1][0],
+        BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[1][1],
+    )
+
+    attrs = sensor.extra_state_attributes or {}
+    assert attrs.get("fault_code") == expected_code
+    assert attrs.get("active_faults", []) == expected_active
+    assert sensor.is_on is (expected_code is not None)
+    assert sensor.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_chlorinator")
+    }
+
+
+def test_chem_fault_attributes() -> None:
+    """Test the ChemSync fault sensor exposes decoded fault names."""
+    coordinator = _build_fault_coordinator([4], role="chem_sync")
+    coordinator.data["deviceType"] = {"5": "chemSync"}
+    sensor = PoolSyncBinarySensor(
+        coordinator,
+        "chem_sync",
+        BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC[1][0],
+        BINARY_SENSOR_DESCRIPTIONS_CHEMSYNC[1][1],
+    )
+
+    attrs = sensor.extra_state_attributes or {}
+    assert attrs.get("fault_code") == 4
+    assert attrs.get("active_faults") == ["pH Above Max"]
+    assert sensor.is_on is True
+    assert sensor.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_chem_sync")
+    }
+
+
+def test_heat_pump_fault_attributes() -> None:
+    """Test the heat pump fault sensor exposes fault_code and decoded active_faults."""
+    coordinator = _build_fault_coordinator([8, 0], role="heat_pump")
+    coordinator.data["deviceType"] = {"5": "heatPump"}
+    sensor = PoolSyncBinarySensor(
+        coordinator,
+        "heat_pump",
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[1][0],
+        BINARY_SENSOR_DESCRIPTIONS_HEATPUMP[1][1],
+    )
+
+    attrs = sensor.extra_state_attributes or {}
+    assert attrs.get("fault_code") == 8
+    assert attrs.get("active_faults") == ["HP5 Lockout"]
+    assert sensor.is_on is True
+    assert sensor.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_heat_pump")
+    }
+
+
+def test_fault_attributes_none_when_no_faults() -> None:
+    """Test fault attributes are None when there are no active faults."""
+    coordinator = _build_fault_coordinator([0])
+    sensor = PoolSyncBinarySensor(
+        coordinator,
+        "chlorinator",
+        BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[1][0],
+        BINARY_SENSOR_DESCRIPTIONS_CHLORSYNC[1][1],
+    )
+
+    assert sensor.extra_state_attributes is None
+    assert sensor.is_on is False

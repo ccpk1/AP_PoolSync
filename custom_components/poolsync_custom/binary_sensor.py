@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .fault_codes import decode_faults
 from .runtime import (
     build_unique_id,
     ensure_parsed_data,
@@ -432,3 +433,38 @@ class PoolSyncBinarySensor(
     def available(self) -> bool:
         """Return True if entity is available."""
         return super().available and self.is_on is not None
+
+    @property  # pyright: ignore[reportIncompatibleVariableOverride]
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes for fault sensors."""
+        if self.entity_description.key not in (
+            "chlorsync_fault",
+            "chem_sync_fault",
+            "heatpump_fault",
+        ):
+            return None
+
+        parsed_data = ensure_parsed_data(self.coordinator)
+        if self._device_index > 0:
+            faults = get_binary_sensor_value(
+                parsed_data,
+                self.entity_description.key,
+                role_key=self._role_key,
+                index=self._device_index,
+            )
+        else:
+            faults = get_binary_sensor_value(parsed_data, self.entity_description.key)
+
+        if not isinstance(faults, list):
+            return None
+
+        attrs: dict[str, Any] = {}
+        for fault_code in faults:
+            if isinstance(fault_code, bool) or not isinstance(fault_code, int):
+                continue
+            if fault_code != 0:
+                attrs["fault_code"] = fault_code
+                break
+        if active := decode_faults(self._role_key, faults):
+            attrs["active_faults"] = active
+        return attrs or None

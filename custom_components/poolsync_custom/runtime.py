@@ -1276,6 +1276,24 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "hardware_version": lambda parsed_data, **kwargs: _get_dict_value(
         parsed_data.system.system, "hwVersion"
     ),
+    "display_brightness": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.config, "brightness"
+    ),
+    "wifi_disconnects": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.stats, "wifiDisconnects"
+    ),
+    "aws_disconnects": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.stats, "awsDisconnects"
+    ),
+    "num_powerups": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.stats, "numPowerups"
+    ),
+    "system_restarts": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.stats, "systemRestarts"
+    ),
+    "num_device_offline": lambda parsed_data, **kwargs: _get_dict_value(
+        parsed_data.system.stats, "numDeviceOffline"
+    ),
     # The device-reported upTimeSecs never seemed to reset, even after reboot and
     # full power removal, so we intentionally do not expose it as a sensor.
     "water_temp": _dv("chlorinator", "status", "waterTemp"),
@@ -1295,10 +1313,18 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "drv_model_num": _dv("chlorinator", "system", "drvModelNum"),
     "drv_fw_version": _dv("chlorinator", "system", "drvFwVersion"),
     "drv_hw_version": _dv("chlorinator", "system", "drvHwVersion"),
+    "pool_cover_control": _dv("chlorinator", "config", "poolCoverCtrl"),
+    "pool_gallons": _dv("chlorinator", "config", "gallons"),
+    "polarity_change_time": _dv("chlorinator", "config", "polarityChangeTime"),
+    "orp_input_control": _dv("chlorinator", "config", "orpInputCtrl"),
     "chem_ph": _dv("chem_sync", "status", "ph"),
     "chem_orp": _dv("chem_sync", "status", "orp"),
     "chem_board_temp": _dv("chem_sync", "status", "boardTemp"),
     "chem_acid_consumed": _dv("chem_sync", "status", "acidConsumed"),
+    "chem_ph_min": _dv("chem_sync", "config", "phMin"),
+    "chem_ph_max": _dv("chem_sync", "config", "phMax"),
+    "chem_acid_tank_alert": _dv("chem_sync", "config", "acidTankAlertAmount"),
+    "chem_feed_rate": _dv("chem_sync", "config", "feedRate"),
     "chem_fw_version": _dv("chem_sync", "system", "fwVersion"),
     "chem_hw_version": _dv("chem_sync", "system", "hwVersion"),
     "chem_model_num": _dv("chem_sync", "system", "modelNum"),
