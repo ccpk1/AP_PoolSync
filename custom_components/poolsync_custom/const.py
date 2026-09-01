@@ -48,7 +48,15 @@ WIFI_RSSI_GOOD_MIN = -75
 WIFI_RSSI_FAIR_MIN = -80
 
 # Platform
-PLATFORMS = ["sensor", "binary_sensor", "number", "select", "button", "switch", "climate"]
+PLATFORMS = [
+    "sensor",
+    "binary_sensor",
+    "number",
+    "select",
+    "button",
+    "switch",
+    "climate",
+]
 
 # Option keys
 OPTION_SCAN_INTERVAL = "scan_interval"

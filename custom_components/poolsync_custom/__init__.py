@@ -109,6 +109,16 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "group_info",
         }
     ),
+    "equipment": frozenset(
+        {
+            "pump_mode",
+        }
+    ),
+    "controller": frozenset(
+        {
+            "group_duration",
+        }
+    ),
 }
 
 
@@ -237,7 +247,9 @@ async def _async_register_services(
                 )
             duration_seconds = int(minutes * 60)
 
-        await coordinator.async_set_group_state(group_key, state, duration=duration_seconds)
+        await coordinator.async_set_group_state(
+            group_key, state, duration=duration_seconds
+        )
 
     async def _async_set_pump_mode(call: ServiceCall) -> None:
         """Set the pump mode: auto, manual, or off."""

@@ -566,3 +566,20 @@ class TestParseDurationToMinutes:
         assert parse_duration_to_minutes("not-a-duration") is None
         assert parse_duration_to_minutes("") is None
         assert parse_duration_to_minutes(None) is None
+
+    def test_rejects_compact_tokens(self) -> None:
+        """Compact forms without spaces are rejected."""
+        assert parse_duration_to_minutes("1d10h22m") is None
+        assert parse_duration_to_minutes("1h30m") is None
+
+    def test_rejects_trailing_garbage(self) -> None:
+        """Trailing garbage is rejected."""
+        assert parse_duration_to_minutes("1d 10h 22m extra") is None
+
+    def test_rejects_malformed_numbers(self) -> None:
+        """Malformed numbers are rejected."""
+        assert parse_duration_to_minutes("1.5.5h") is None
+
+    def test_accepts_spaced_tokens(self) -> None:
+        """Whitespace-separated tokens parse correctly."""
+        assert parse_duration_to_minutes("1d 10h 22m 30s") == 2062.5

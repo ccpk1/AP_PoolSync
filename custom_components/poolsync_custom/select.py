@@ -240,9 +240,7 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        self._attr_current_option = get_pump_mode(
-            get_equipment_runtime(parsed_data)
-        )
+        self._attr_current_option = get_pump_mode(get_equipment_runtime(parsed_data))
         self._attr_available = (
             super().available
             and self._attr_current_option is not None
@@ -274,7 +272,9 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
 
         rpm = None
         if option == PUMP_MODE_MANUAL:
-            rpm = get_pump_rpm(get_equipment_runtime(ensure_parsed_data(self.coordinator)))
+            rpm = get_pump_rpm(
+                get_equipment_runtime(ensure_parsed_data(self.coordinator))
+            )
             if not rpm:
                 rpm = 1800  # Fallback to a sensible default when unknown
 

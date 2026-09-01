@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import GROUP_IDX_STATE
 from .coordinator import PoolSyncDataUpdateCoordinator
@@ -18,7 +19,7 @@ from .runtime import (
     ensure_parsed_data,
     get_equipment_runtime,
     get_group_duration,
-    get_group_time_left,
+    get_group_ends_at,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -120,14 +121,19 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         state = config[GROUP_IDX_STATE]
         self._attr_is_on = bool(state) if isinstance(state, int) else None
         self._attr_available = super().available and self._attr_is_on is not None
-        # Timing attributes (anti-noise: only update when shifted meaningfully)
+
+        # Timing attributes (anti-noise: ends_at is a fixed timestamp that only
+        # moves when the device extends/cancels the timer, so it rarely writes)
         duration = get_group_duration(equip_runtime, self._group_key)
-        time_left = get_group_time_left(equip_runtime, self._group_key)
+        ends_at = get_group_ends_at(
+            equip_runtime, self._group_key, dt_util.utcnow()
+        )
         self._attr_extra_state_attributes = {}
         if duration is not None:
             self._attr_extra_state_attributes["duration"] = duration
-        if time_left:
-            self._attr_extra_state_attributes["time_left"] = time_left
+        if ends_at is not None:
+            self._attr_extra_state_attributes["ends_at"] = ends_at.isoformat()
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""

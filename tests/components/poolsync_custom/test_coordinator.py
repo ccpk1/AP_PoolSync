@@ -1025,3 +1025,16 @@ async def test_async_set_group_duration_converts_minutes_to_seconds(hass) -> Non
         password=TEST_PASSWORD,
         json_data_override={"groups": {"1": {"state": [1, 3480]}}},
     )
+
+
+async def test_async_set_group_duration_rejects_off_group(hass) -> None:
+    """Group duration write rejects groups that are currently off."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    # Group "2" (FILTRATION) is off in the POOL+WATERFALL fixture
+    with pytest.raises(HomeAssistantError, match="can only be changed while on"):
+        await coordinator.async_set_group_duration("2", 58)
+
+    api_client.async_set_device_config_value.assert_not_awaited()

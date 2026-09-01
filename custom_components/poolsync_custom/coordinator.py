@@ -23,6 +23,7 @@ from .api import (
 from .const import (
     DEFAULT_NAME,
     DOMAIN,
+    GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
     PUMP_MANUAL_FLAG,
@@ -929,9 +930,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Pump write target is not available")
         return hp_devices[0].device_id
 
-    async def async_set_pump_mode(
-        self, mode: str, rpm: int | None = None
-    ) -> None:
+    async def async_set_pump_mode(self, mode: str, rpm: int | None = None) -> None:
         """Set the pump operating mode: auto, manual, or off.
 
         Confirmed write formats (2026-09-01):
@@ -994,9 +993,12 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("PoolSync heat pump target is not available")
 
         if state and duration is None:
-            duration = get_group_duration(
-                get_equipment_runtime(self.get_parsed_data()), group_id
-            ) or 0
+            duration = (
+                get_group_duration(
+                    get_equipment_runtime(self.get_parsed_data()), group_id
+                )
+                or 0
+            )
 
         try:
             await self.api_client.async_set_device_config_value(
@@ -1005,9 +1007,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 value=1 if state else 0,
                 password=self.password,
                 json_data_override={
-                    "groups": {
-                        group_id: {"state": [1 if state else 0, duration or 0]}
-                    }
+                    "groups": {group_id: {"state": [1 if state else 0, duration or 0]}}
                 },
             )
             await self.async_request_refresh()
@@ -1017,7 +1017,28 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_group_duration(
         self, group_id: str, duration_minutes: float, index: int = 0
     ) -> None:
-        """Change a group's duration while on (re-sends state:[1, duration])."""
+        """Change a group's duration while on (re-sends state:[1, duration]).
+
+        Only re-sends when the group is currently active; adjusting the
+        duration of an off group would otherwise turn it on unexpectedly.
+        """
+        equip_runtime = get_equipment_runtime(self.get_parsed_data())
+        if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
+            raise HomeAssistantError("PoolSync group target is not available")
+
+        group_data = equip_runtime.raw_groups.get(group_id)
+        if not isinstance(group_data, dict):
+            raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
+
+        config = group_data.get("config")
+        if not isinstance(config, list) or len(config) <= GROUP_IDX_STATE:
+            raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
+
+        if not config[GROUP_IDX_STATE]:
+            raise HomeAssistantError(
+                f"Group {group_id} is off; duration can only be changed while on"
+            )
+
         duration_seconds = int(duration_minutes * 60)
         await self.async_set_group_state(
             group_id, True, index=index, duration=duration_seconds

@@ -522,13 +522,13 @@ def get_group_time_left(
     if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
         return None
     group_data = equip_runtime.raw_groups.get(group_key)
-    if not isinstance(group_data,dict):
+    if not isinstance(group_data, dict):
         return None
     config = group_data.get("config")
     if not isinstance(config, list) or len(config) <= GROUP_IDX_TIME_LEFT:
         return None
     value = config[GROUP_IDX_TIME_LEFT]
-    return value if isinstance(value,int) and not isinstance(value,bool) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def get_group_ends_at(
@@ -1288,11 +1288,6 @@ _NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "pump_rpm_control": lambda parsed_data, **kwargs: get_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
-    "group_duration": lambda parsed_data, **kwargs: (
-        get_group_duration(
-            get_equipment_runtime(parsed_data), kwargs.get("group_key", "0")
-        )
-    ),
 }
 
 
@@ -1593,8 +1588,8 @@ def get_chem_sync_mode_options() -> list[str]:
     return ["off", "auto", "manual"]
 
 
-_DURATION_PART_RE = re.compile(
-    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>d|h|m|min|s)\b",
+_DURATION_TOKEN_RE = re.compile(
+    r"^(\d+(?:\.\d+)?)\s*(d|h|m|min|s)$",
     re.IGNORECASE,
 )
 
@@ -1621,13 +1616,15 @@ def parse_duration_to_minutes(value: str | int | float) -> float | None:
     if re.fullmatch(r"\d+(?:\.\d+)?", text):
         return float(text)
 
-    # Compound duration (e.g. "1d 10h 22m")
+    # Compound duration (e.g. "1d 10h 22m") — each whitespace-separated
+    # token must be a value+unit pair; anything else is rejected.
     total_minutes = 0.0
-    matched_any = False
-    for match in _DURATION_PART_RE.finditer(text):
-        matched_any = True
-        part_value = float(match.group("value"))
-        unit = match.group("unit").lower()
+    for token in text.split():
+        match = _DURATION_TOKEN_RE.fullmatch(token)
+        if match is None:
+            return None
+        part_value = float(match.group(1))
+        unit = match.group(2).lower()
         if unit == "d":
             total_minutes += part_value * 24 * 60
         elif unit == "h":
@@ -1637,8 +1634,6 @@ def parse_duration_to_minutes(value: str | int | float) -> float | None:
         elif unit == "s":
             total_minutes += part_value / 60
 
-    if not matched_any:
-        return None
     return total_minutes
 
 
@@ -1658,9 +1653,6 @@ def get_select_value(
         if isinstance(raw_value, int) and 0 <= raw_value < len(options):
             return options[raw_value]
         return None
-
-    if key == "pump_mode":
-        return get_pump_mode(get_equipment_runtime(parsed_data))
 
     if key != "heat_mode":
         return None
