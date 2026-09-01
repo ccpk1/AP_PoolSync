@@ -34,9 +34,7 @@ except ImportError:
     # Fallback for Home Assistant < 2026.6 (removed in 2027.8)
     import homeassistant.const as ha_const
 
-    SALT_LEVEL_UNIT = getattr(
-        ha_const, "CONCENTRATION_PARTS_PER_MILLION", "ppm"
-    )
+    SALT_LEVEL_UNIT = getattr(ha_const, "CONCENTRATION_PARTS_PER_MILLION", "ppm")
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback

@@ -273,9 +273,7 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
 
         rpm = None
         if option == PUMP_MODE_MANUAL:
-            equip_runtime = get_equipment_runtime(
-                ensure_parsed_data(self.coordinator)
-            )
+            equip_runtime = get_equipment_runtime(ensure_parsed_data(self.coordinator))
             rpm = get_pump_rpm(equip_runtime)
             if not rpm:
                 # Start at the pump's minimum speed when it is not running

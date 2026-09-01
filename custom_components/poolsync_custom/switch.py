@@ -125,9 +125,7 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         # Timing attributes (anti-noise: ends_at is a fixed timestamp that only
         # moves when the device extends/cancels the timer, so it rarely writes)
         duration = get_group_duration(equip_runtime, self._group_key)
-        ends_at = get_group_ends_at(
-            equip_runtime, self._group_key, dt_util.utcnow()
-        )
+        ends_at = get_group_ends_at(equip_runtime, self._group_key, dt_util.utcnow())
         self._attr_extra_state_attributes = {}
         if duration is not None:
             self._attr_extra_state_attributes["duration"] = duration
