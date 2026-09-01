@@ -22,10 +22,12 @@ from .api import (
 from .const import (
     DEFAULT_NAME,
     DOMAIN,
-    EQUIP_PUMP_RPM_WRITE_KEY,
-    GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
+    PUMP_MANUAL_FLAG,
+    PUMP_MODE_AUTO,
+    PUMP_MODE_MANUAL,
+    PUMP_MODE_OFF,
     PUMP_RPM_FACTOR,
 )
 from .runtime import (
@@ -48,6 +50,8 @@ from .runtime import (
     PoolSyncHeatPumpModeContext,
     PoolSyncParsedData,
     ensure_parsed_data,
+    get_equipment_runtime,
+    get_group_duration,
     get_heat_pump_climate_preset_mode,
     get_heat_pump_runtime,
     get_role_data,
@@ -230,7 +234,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         *,
         role: PoolSyncDeviceRole,
-        updates: dict[str, int],
+        updates: dict[str, int | float],
         description: str,
         index: int = 0,
     ) -> None:
@@ -864,43 +868,134 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Build device info for an equipment entry."""
         return self._build_device_info(
             identifier=(DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}"),
-            name=equip.name,
+            name=self._normalize_equipment_name(equip.name),
             via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
         )
+
+    @staticmethod
+    def _normalize_equipment_name(name: str) -> str:
+        """Normalize vendor equipment display names to title case.
+
+        The API reports all-caps names (e.g. "CIRCULATION PUMP", "RETURN VALVE").
+        Title-casing them gives gold-quality device names ("Circulation Pump", "Return Valve")
+        while preserving any user-customized registry names (handled by _build_device_info).
+        """
+        return name.strip().title()
 
     def get_equipment_identifier(self, equip: PoolSyncEquipmentData) -> tuple[str, str]:
         """Return the stable device registry identifier for equipment."""
         return (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
 
     async def async_set_pump_rpm(self, value: int) -> None:
-        """Set the circulation pump RPM via the heat pump device config."""
+        """Set the circulation pump RPM via manual override.
+
+        Confirmed write format (2026-09-01): ``equip.{slot} = [rpm/50, flag]``.
+        """
         if not self.password:
             raise HomeAssistantError("API password not available")
 
         parsed_data = self.get_parsed_data()
-        hp_devices = parsed_data.devices.get("heat_pump", [])
-        if not hp_devices or hp_devices[0].device_id is None:
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is None:
+            raise HomeAssistantError("Pump write target is not available")
+
+        pump_slot = next(
+            (slot for slot, equip in equip_runtime.equipment.items() if equip.is_pump),
+            None,
+        )
+        if pump_slot is None:
             raise HomeAssistantError("Pump write target is not available")
 
         internal_value = value // PUMP_RPM_FACTOR
         try:
             await self.api_client.async_set_device_config_value(
-                device_id=hp_devices[0].device_id,
-                key_id=EQUIP_PUMP_RPM_WRITE_KEY,
+                device_id=self._get_pump_device_id(parsed_data),
+                key_id="pump_rpm",
                 value=internal_value,
                 password=self.password,
+                json_data_override={
+                    "equip": {pump_slot: [internal_value, PUMP_MANUAL_FLAG]}
+                },
             )
             await self.async_request_refresh()
         except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error("pump RPM", err)
 
-    async def async_set_group_state(
-        self, group_id: str, state: bool, index: int = 0
+    def _get_pump_device_id(self, parsed_data: PoolSyncParsedData) -> str:
+        """Return the device ID that hosts the pump equipment."""
+        hp_devices = parsed_data.devices.get("heat_pump", [])
+        if not hp_devices or hp_devices[0].device_id is None:
+            raise HomeAssistantError("Pump write target is not available")
+        return hp_devices[0].device_id
+
+    async def async_set_pump_mode(
+        self, mode: str, rpm: int | None = None
     ) -> None:
-        """Turn a group on or off by setting its state in config[3]."""
+        """Set the pump operating mode: auto, manual, or off.
+
+        Confirmed write formats (2026-09-01):
+          auto   → ``equip.{slot} = [0, 0]``
+          manual → ``equip.{slot} = [rpm/50, flag]``
+          off    → ``equip.{slot} = [0, flag]``
+        """
+        if not self.password:
+            raise HomeAssistantError("API password not available")
+
+        parsed_data = self.get_parsed_data()
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is None:
+            raise HomeAssistantError("Pump write target is not available")
+
+        pump_slot = next(
+            (slot for slot, equip in equip_runtime.equipment.items() if equip.is_pump),
+            None,
+        )
+        if pump_slot is None:
+            raise HomeAssistantError("Pump write target is not available")
+
+        if mode == PUMP_MODE_MANUAL:
+            if rpm is None:
+                raise HomeAssistantError("RPM is required when mode is manual")
+            internal_value = max(0, rpm // PUMP_RPM_FACTOR)
+            payload = [internal_value, PUMP_MANUAL_FLAG]
+        elif mode == PUMP_MODE_AUTO:
+            payload = [0, 0]
+        elif mode == PUMP_MODE_OFF:
+            payload = [0, PUMP_MANUAL_FLAG]
+        else:
+            raise HomeAssistantError(f"Unsupported pump mode: {mode}")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=self._get_pump_device_id(parsed_data),
+                key_id="pump_mode",
+                value=0,
+                password=self.password,
+                json_data_override={"equip": {pump_slot: payload}},
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("pump mode", err)
+
+    async def async_set_group_state(
+        self, group_id: str, state: bool, index: int = 0, duration: int | None = None
+    ) -> None:
+        """Turn a group on or off by setting its state array.
+
+        Confirmed write format (2026-09-01): ``groups.{key}.state = [on/off, duration]``.
+
+        When turning on without an explicit duration, the group's configured
+        ``timeSet`` default is used. Turning off always sends ``[0, 0]``.
+        """
         role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
+
         if role_data is None or role_data.device_id is None:
             raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        if state and duration is None:
+            duration = get_group_duration(
+                get_equipment_runtime(self.get_parsed_data()), group_id
+            ) or 0
 
         try:
             await self.api_client.async_set_device_config_value(
@@ -910,10 +1005,19 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 password=self.password,
                 json_data_override={
                     "groups": {
-                        group_id: {"config": {str(GROUP_IDX_STATE): 1 if state else 0}}
+                        group_id: {"state": [1 if state else 0, duration or 0]}
                     }
                 },
             )
             await self.async_request_refresh()
         except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error(f"group {group_id} state", err)
+
+    async def async_set_group_duration(
+        self, group_id: str, duration_minutes: float, index: int = 0
+    ) -> None:
+        """Change a group's duration while on (re-sends state:[1, duration])."""
+        duration_seconds = int(duration_minutes * 60)
+        await self.async_set_group_state(
+            group_id, True, index=index, duration=duration_seconds
+        )

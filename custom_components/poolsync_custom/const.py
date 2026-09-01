@@ -48,7 +48,7 @@ WIFI_RSSI_GOOD_MIN = -75
 WIFI_RSSI_FAIR_MIN = -80
 
 # Platform
-PLATFORMS = ["sensor", "binary_sensor", "number", "select", "button", "climate"]
+PLATFORMS = ["sensor", "binary_sensor", "number", "select", "button", "switch", "climate"]
 
 # Option keys
 OPTION_SCAN_INTERVAL = "scan_interval"
@@ -61,9 +61,16 @@ EQUIP_TYPE_HEAT_PUMP = 3
 # Pump RPM multiplier (internal units × 50 = real RPM)
 PUMP_RPM_FACTOR = 50
 
-# Best-guess write key for pump RPM control.
-# Unknown until API traffic is captured; trial-and-error with beta users.
-EQUIP_PUMP_RPM_WRITE_KEY = "rpm"
+# Pump mode write flag (confirmed from user packet capture, 2026-09-01)
+# 4294967295 (0xFFFFFFFF, int32 −1) = manual override/on; 0 = auto
+PUMP_MANUAL_FLAG = 4294967295
+# Read-side manual-override sentinel seen in equip[1][5] when manual (0x7FFFFFF8)
+PUMP_MODE_MANUAL_SENTINEL = 2147483640
+
+# Pump mode select options
+PUMP_MODE_AUTO = "auto"
+PUMP_MODE_MANUAL = "manual"
+PUMP_MODE_OFF = "off"
 
 # Equipment slot indices (confirmed changing values)
 PUMP_IDX_CURRENT_SPEED = 7
@@ -74,3 +81,5 @@ VALVE_IDX_POSITIONS_START = 8  # Pairs of (name, value) from here onward
 
 # Group config array indices
 GROUP_IDX_STATE = 3
+GROUP_IDX_TIME_SET = 4
+GROUP_IDX_TIME_LEFT = 5

@@ -44,6 +44,8 @@ from .runtime import (
     build_unique_id,
     ensure_parsed_data,
     get_equipment_runtime,
+    get_group_duration,
+    get_group_time_left,
     get_sensor_value,
 )
 
@@ -990,7 +992,24 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         if self.entity_description.key == "group_info":
             equip_runtime = get_equipment_runtime(parsed_data)
             if equip_runtime is not None:
-                return equip_runtime.active_group_attributes
+                attrs = equip_runtime.active_group_attributes
+                if attrs is None:
+                    return None
+                result: dict[str, Any] = {}
+                for group_key, group_attrs in attrs.items():
+                    duration = get_group_duration(equip_runtime, group_key)
+                    time_left = get_group_time_left(equip_runtime, group_key)
+                    decoded: dict[str, Any] = {}
+                    if duration is not None:
+                        decoded["duration_seconds"] = duration
+                    if time_left:
+                        decoded["time_left_seconds"] = time_left
+                    result[group_key] = {
+                        "config": group_attrs.get("config"),
+                        "equip": group_attrs.get("equip"),
+                        "timing": decoded,
+                    }
+                return result
             return None
 
         return None
