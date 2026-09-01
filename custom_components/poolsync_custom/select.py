@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -10,12 +12,19 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import PUMP_MODE_AUTO, PUMP_MODE_MANUAL, PUMP_MODE_OFF
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
+    PoolSyncEquipmentData,
+    PoolSyncHeatPumpModeContext,
     build_unique_id,
     ensure_parsed_data,
     get_chem_sync_mode_options,
+    get_equipment_runtime,
     get_heat_pump_mode_options,
+    get_pump_mode,
+    get_pump_rpm,
+    get_pump_rpm_min,
     get_select_value,
 )
 
@@ -32,7 +41,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     parsed_data = ensure_parsed_data(coordinator)
 
-    entities: list[PoolSyncHeatModeSelect] = []
+    entities: list[SelectEntity] = []
 
     # ChemSync system mode select
     chem_sys_mode_options = get_chem_sync_mode_options()
@@ -53,6 +62,24 @@ async def async_setup_entry(
                 device_node_addr=device.node_addr,
             )
         )
+
+    # Pump mode select (attached to the pump's equipment device)
+    if equip_runtime := get_equipment_runtime(parsed_data):
+        for equip in equip_runtime.equipment.values():
+            if not equip.is_pump:
+                continue
+            entities.append(
+                PoolSyncPumpModeSelect(
+                    coordinator,
+                    SelectEntityDescription(
+                        key="pump_mode",
+                        options=[PUMP_MODE_AUTO, PUMP_MODE_MANUAL, PUMP_MODE_OFF],
+                        translation_key="pump_mode",
+                        entity_category=EntityCategory.CONFIG,
+                    ),
+                    equip=equip,
+                )
+            )
 
     # Heat pump mode select
     hp_devices = parsed_data.devices.get("heat_pump", [])
@@ -182,5 +209,74 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
             )
         else:
             await self.coordinator.async_set_heat_pump_mode_context(
-                option, index=self._device_index
+                cast(PoolSyncHeatPumpModeContext, option), index=self._device_index
             )
+
+
+class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator], SelectEntity
+):
+    """Representation of the circulation pump mode select."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: PoolSyncDataUpdateCoordinator,
+        description: SelectEntityDescription,
+        *,
+        equip: PoolSyncEquipmentData,
+    ) -> None:
+        """Initialize the pump mode select."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._equip = equip
+        self._attr_unique_id = (
+            f"{coordinator.mac_address}_equip_{equip.slot_key}_{description.key}"
+        )
+        self._attr_device_info = coordinator.get_equipment_device_info(equip)
+        self._update_attrs()
+
+    @callback
+    def _update_attrs(self) -> None:
+        """Update cached entity attributes from coordinator data."""
+        parsed_data = ensure_parsed_data(self.coordinator)
+        self._attr_current_option = get_pump_mode(get_equipment_runtime(parsed_data))
+        self._attr_available = (
+            super().available
+            and self._attr_current_option is not None
+            and self._attr_current_option in self._attr_options
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        ensure_parsed_data(self.coordinator, refresh=True)
+        self._update_attrs()
+        super()._handle_coordinator_update()
+
+    def select_option(self, option: str) -> None:
+        """Select a new mode from a synchronous context."""
+        if self.hass is None:
+            raise HomeAssistantError("Entity is not added to Home Assistant")
+
+        self.hass.add_job(self.async_select_option, option)
+
+    async def async_select_option(self, option: str) -> None:
+        """Select a new pump mode."""
+        if option not in self.options:
+            raise HomeAssistantError(f"Unsupported option: {option}")
+
+        self._attr_current_option = option
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+        rpm = None
+        if option == PUMP_MODE_MANUAL:
+            equip_runtime = get_equipment_runtime(ensure_parsed_data(self.coordinator))
+            rpm = get_pump_rpm(equip_runtime)
+            if not rpm:
+                # Start at the pump's minimum speed when it is not running
+                rpm = get_pump_rpm_min(equip_runtime) or 600
+
+        await self.coordinator.async_set_pump_mode(option, rpm=rpm)

@@ -10,10 +10,17 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import GROUP_IDX_STATE
 from .coordinator import PoolSyncDataUpdateCoordinator
-from .runtime import build_unique_id, ensure_parsed_data, get_equipment_runtime
+from .runtime import (
+    build_unique_id,
+    ensure_parsed_data,
+    get_equipment_runtime,
+    get_group_duration,
+    get_group_ends_at,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,14 +39,9 @@ async def async_setup_entry(
 
     entities: list[PoolSyncGroupSwitch] = []
 
-    # Group switches — one per heat pump device that has groups
-    for hp_index, device in enumerate(parsed_data.devices.get("heat_pump", [])):
-        if not device.is_present:
-            continue
-        equip_runtime = get_equipment_runtime(parsed_data)
-        if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
-            continue
-
+    # Group switches — one per group, attached to the controller device
+    equip_runtime = get_equipment_runtime(parsed_data)
+    if equip_runtime is not None and isinstance(equip_runtime.raw_groups, dict):
         for group_key, group_data in equip_runtime.raw_groups.items():
             if not isinstance(group_data, dict):
                 continue
@@ -55,11 +57,10 @@ async def async_setup_entry(
                     coordinator,
                     SwitchEntityDescription(
                         key=f"group_{group_key}",
-                        name=group_name,
+                        translation_key="group",
                     ),
                     group_key=group_key,
                     group_name=group_name,
-                    hp_index=hp_index,
                 )
             )
 
@@ -72,7 +73,7 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
 ):
     """Representation of a PoolSync group on/off switch."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -81,23 +82,19 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         *,
         group_key: str,
         group_name: str,
-        hp_index: int = 0,
     ) -> None:
         """Initialize the group switch."""
         super().__init__(coordinator)
         self.entity_description = description
         self._group_key = group_key
         self._group_name = group_name
-        self._hp_index = hp_index
         self._attr_unique_id = build_unique_id(
             coordinator.mac_address,
-            "heat_pump",
+            "controller",
             f"group_{group_key}",
-            device_index=hp_index,
         )
-        self._attr_device_info = coordinator.get_device_info(
-            "heat_pump", index=hp_index
-        )
+        self._attr_device_info = coordinator.get_device_info("controller")
+        self._update_translation_placeholders()
         self._update_attrs()
 
     @callback
@@ -126,20 +123,46 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         self._attr_is_on = bool(state) if isinstance(state, int) else None
         self._attr_available = super().available and self._attr_is_on is not None
 
+        # Timing attributes (anti-noise: ends_at is a fixed timestamp that only
+        # moves when the device extends/cancels the timer, so it rarely writes)
+        duration = get_group_duration(equip_runtime, self._group_key)
+        ends_at = get_group_ends_at(equip_runtime, self._group_key, dt_util.utcnow())
+        self._attr_extra_state_attributes = {}
+        if duration is not None:
+            self._attr_extra_state_attributes["duration"] = duration
+        if ends_at is not None:
+            self._attr_extra_state_attributes["ends_at"] = ends_at.isoformat()
+
+    def _update_translation_placeholders(self) -> None:
+        """Refresh name placeholders from the latest group view."""
+        group_name = self._group_name
+        equip_runtime = get_equipment_runtime(ensure_parsed_data(self.coordinator))
+        if equip_runtime is not None and isinstance(equip_runtime.raw_groups, dict):
+            group_data = equip_runtime.raw_groups.get(self._group_key)
+            if isinstance(group_data, dict):
+                config = group_data.get("config")
+                if (
+                    isinstance(config, list)
+                    and len(config) >= 4
+                    and isinstance(config[0], str)
+                ):
+                    group_name = config[0]
+        self._attr_translation_placeholders = {
+            "group_name": group_name or f"Group {self._group_key}"
+        }
+        self.__dict__.pop("name", None)
+
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+        """Refresh dynamic placeholders before writing updated state."""
+        self._update_translation_placeholders()
         self._update_attrs()
         super()._handle_coordinator_update()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the group on."""
-        await self.coordinator.async_set_group_state(
-            self._group_key, True, index=self._hp_index
-        )
+        """Turn the group on (uses the group's default duration)."""
+        await self.coordinator.async_set_group_state(self._group_key, True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the group off."""
-        await self.coordinator.async_set_group_state(
-            self._group_key, False, index=self._hp_index
-        )
+        await self.coordinator.async_set_group_state(self._group_key, False)

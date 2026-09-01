@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -22,10 +23,13 @@ from .api import (
 from .const import (
     DEFAULT_NAME,
     DOMAIN,
-    EQUIP_PUMP_RPM_WRITE_KEY,
     GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
+    PUMP_MANUAL_FLAG,
+    PUMP_MODE_AUTO,
+    PUMP_MODE_MANUAL,
+    PUMP_MODE_OFF,
     PUMP_RPM_FACTOR,
 )
 from .runtime import (
@@ -48,6 +52,8 @@ from .runtime import (
     PoolSyncHeatPumpModeContext,
     PoolSyncParsedData,
     ensure_parsed_data,
+    get_equipment_runtime,
+    get_group_duration,
     get_heat_pump_climate_preset_mode,
     get_heat_pump_runtime,
     get_role_data,
@@ -230,7 +236,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         *,
         role: PoolSyncDeviceRole,
-        updates: dict[str, int],
+        updates: Mapping[str, int | float],
         description: str,
         index: int = 0,
     ) -> None:
@@ -663,6 +669,32 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return (domain, f"{self.mac_address}_{role_key}_{node_addr}")
         return (domain, f"{self.mac_address}_{role_key}_{index}")
 
+    def _get_or_create_device_id(self, identifier: tuple[str, str]) -> str | None:
+        """Resolve a parent identifier to a device ID, creating it if needed.
+
+        ``via_device_id`` requires the parent device to already exist, so the
+        parent is created on demand before a child references it. When the
+        config entry is not yet registered (e.g. during unit tests), no via
+        link is created. On HA versions before 2026.8 the new API is not
+        available, so no via link is created here (the legacy ``via_device``
+        tuple is used instead).
+        """
+        device_registry = dr.async_get(self.hass)
+        if not hasattr(device_registry, "async_get_device_by_identifier"):
+            return None
+        existing = device_registry.async_get_device_by_identifier(
+            identifier, self.config_entry_id
+        )
+        if existing is not None:
+            return existing.id
+        if self.hass.config_entries.async_get_entry(self.config_entry_id) is None:
+            return None
+        return device_registry.async_get_or_create(
+            config_entry_id=self.config_entry_id,
+            identifiers={identifier},
+            manufacturer=MANUFACTURER,
+        ).id
+
     def _build_device_info(
         self,
         *,
@@ -672,6 +704,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sw_version: str | None = None,
         hw_version: str | None = None,
         configuration_url: str | None = None,
+        via_device_id: str | None = None,
         via_device: tuple[str, str] | None = None,
     ) -> DeviceInfo:
         """Build DeviceInfo, only setting name when the device doesn't exist yet.
@@ -681,7 +714,12 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entries to preserve user customizations.
         """
         device_registry = dr.async_get(self.hass)
-        existing = device_registry.async_get_device(identifiers={identifier})
+        if hasattr(device_registry, "async_get_device_by_identifier"):
+            existing = device_registry.async_get_device_by_identifier(
+                identifier, self.config_entry_id
+            )
+        else:
+            existing = device_registry.async_get_device(identifiers={identifier})
 
         info: dict[str, Any] = {
             "identifiers": {identifier},
@@ -697,7 +735,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             info["hw_version"] = hw_version
         if configuration_url is not None:
             info["configuration_url"] = configuration_url
-        if via_device is not None:
+        if hasattr(device_registry, "async_get_device_by_identifier"):
+            if via_device_id is not None:
+                info["via_device_id"] = via_device_id
+        elif via_device is not None:
             info["via_device"] = via_device
 
         return DeviceInfo(**info)
@@ -857,6 +898,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             model=str(model_name) if model_name else default_model,
             sw_version=str(sw_version) if sw_version is not None else None,
             hw_version=str(hw_version) if hw_version is not None else None,
+            via_device_id=self._get_or_create_device_id(
+                self._get_controller_identifier()
+            ),
             via_device=self._get_controller_identifier(),
         )
 
@@ -864,43 +908,138 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Build device info for an equipment entry."""
         return self._build_device_info(
             identifier=(DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}"),
-            name=equip.name,
+            name=self._normalize_equipment_name(equip.name),
+            via_device_id=self._get_or_create_device_id(
+                (DOMAIN, f"{self.mac_address}_heat_pump")
+            ),
             via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
         )
+
+    @staticmethod
+    def _normalize_equipment_name(name: str) -> str:
+        """Normalize vendor equipment display names to title case.
+
+        The API reports all-caps names (e.g. "CIRCULATION PUMP", "RETURN VALVE").
+        Title-casing them gives gold-quality device names ("Circulation Pump", "Return Valve")
+        while preserving any user-customized registry names (handled by _build_device_info).
+        """
+        return name.strip().title()
 
     def get_equipment_identifier(self, equip: PoolSyncEquipmentData) -> tuple[str, str]:
         """Return the stable device registry identifier for equipment."""
         return (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
 
     async def async_set_pump_rpm(self, value: int) -> None:
-        """Set the circulation pump RPM via the heat pump device config."""
+        """Set the circulation pump RPM via manual override.
+
+        Confirmed write format (2026-09-01): ``equip.{slot} = [rpm/50, flag]``.
+        """
         if not self.password:
             raise HomeAssistantError("API password not available")
 
         parsed_data = self.get_parsed_data()
-        hp_devices = parsed_data.devices.get("heat_pump", [])
-        if not hp_devices or hp_devices[0].device_id is None:
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is None:
+            raise HomeAssistantError("Pump write target is not available")
+
+        pump_slot = next(
+            (slot for slot, equip in equip_runtime.equipment.items() if equip.is_pump),
+            None,
+        )
+        if pump_slot is None:
             raise HomeAssistantError("Pump write target is not available")
 
         internal_value = value // PUMP_RPM_FACTOR
         try:
             await self.api_client.async_set_device_config_value(
-                device_id=hp_devices[0].device_id,
-                key_id=EQUIP_PUMP_RPM_WRITE_KEY,
+                device_id=self._get_pump_device_id(parsed_data),
+                key_id="pump_rpm",
                 value=internal_value,
                 password=self.password,
+                json_data_override={
+                    "equip": {pump_slot: [internal_value, PUMP_MANUAL_FLAG]}
+                },
             )
             await self.async_request_refresh()
         except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error("pump RPM", err)
 
+    def _get_pump_device_id(self, parsed_data: PoolSyncParsedData) -> str:
+        """Return the device ID that hosts the pump equipment."""
+        hp_devices = parsed_data.devices.get("heat_pump", [])
+        if not hp_devices or hp_devices[0].device_id is None:
+            raise HomeAssistantError("Pump write target is not available")
+        return hp_devices[0].device_id
+
+    async def async_set_pump_mode(self, mode: str, rpm: int | None = None) -> None:
+        """Set the pump operating mode: auto, manual, or off.
+
+        Confirmed write formats (2026-09-01):
+          auto   → ``equip.{slot} = [0, 0]``
+          manual → ``equip.{slot} = [rpm/50, flag]``
+          off    → ``equip.{slot} = [0, flag]``
+        """
+        if not self.password:
+            raise HomeAssistantError("API password not available")
+
+        parsed_data = self.get_parsed_data()
+        equip_runtime = get_equipment_runtime(parsed_data)
+        if equip_runtime is None:
+            raise HomeAssistantError("Pump write target is not available")
+
+        pump_slot = next(
+            (slot for slot, equip in equip_runtime.equipment.items() if equip.is_pump),
+            None,
+        )
+        if pump_slot is None:
+            raise HomeAssistantError("Pump write target is not available")
+
+        if mode == PUMP_MODE_MANUAL:
+            if rpm is None:
+                raise HomeAssistantError("RPM is required when mode is manual")
+            internal_value = max(0, rpm // PUMP_RPM_FACTOR)
+            payload = [internal_value, PUMP_MANUAL_FLAG]
+        elif mode == PUMP_MODE_AUTO:
+            payload = [0, 0]
+        elif mode == PUMP_MODE_OFF:
+            payload = [0, PUMP_MANUAL_FLAG]
+        else:
+            raise HomeAssistantError(f"Unsupported pump mode: {mode}")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=self._get_pump_device_id(parsed_data),
+                key_id="pump_mode",
+                value=0,
+                password=self.password,
+                json_data_override={"equip": {pump_slot: payload}},
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error("pump mode", err)
+
     async def async_set_group_state(
-        self, group_id: str, state: bool, index: int = 0
+        self, group_id: str, state: bool, index: int = 0, duration: int | None = None
     ) -> None:
-        """Turn a group on or off by setting its state in config[3]."""
+        """Turn a group on or off by setting its state array.
+
+        Confirmed write format (2026-09-01): ``groups.{key}.state = [on/off, duration]``.
+
+        When turning on without an explicit duration, the group's configured
+        ``timeSet`` default is used. Turning off always sends ``[0, 0]``.
+        """
         role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
+
         if role_data is None or role_data.device_id is None:
             raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        if state and duration is None:
+            duration = (
+                get_group_duration(
+                    get_equipment_runtime(self.get_parsed_data()), group_id
+                )
+                or 0
+            )
 
         try:
             await self.api_client.async_set_device_config_value(
@@ -909,11 +1048,39 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 value=1 if state else 0,
                 password=self.password,
                 json_data_override={
-                    "groups": {
-                        group_id: {"config": {str(GROUP_IDX_STATE): 1 if state else 0}}
-                    }
+                    "groups": {group_id: {"state": [1 if state else 0, duration or 0]}}
                 },
             )
             await self.async_request_refresh()
         except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error(f"group {group_id} state", err)
+
+    async def async_set_group_duration(
+        self, group_id: str, duration_minutes: float, index: int = 0
+    ) -> None:
+        """Change a group's duration while on (re-sends state:[1, duration]).
+
+        Only re-sends when the group is currently active; adjusting the
+        duration of an off group would otherwise turn it on unexpectedly.
+        """
+        equip_runtime = get_equipment_runtime(self.get_parsed_data())
+        if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
+            raise HomeAssistantError("PoolSync group target is not available")
+
+        group_data = equip_runtime.raw_groups.get(group_id)
+        if not isinstance(group_data, dict):
+            raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
+
+        config = group_data.get("config")
+        if not isinstance(config, list) or len(config) <= GROUP_IDX_STATE:
+            raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
+
+        if not config[GROUP_IDX_STATE]:
+            raise HomeAssistantError(
+                f"Group {group_id} is off; duration can only be changed while on"
+            )
+
+        duration_seconds = int(duration_minutes * 60)
+        await self.async_set_group_state(
+            group_id, True, index=index, duration=duration_seconds
+        )

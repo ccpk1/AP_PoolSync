@@ -4,27 +4,37 @@ from __future__ import annotations
 
 import logging
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
     ConfigEntryError,
     ConfigEntryNotReady,
+    HomeAssistantError,
 )
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .api import PoolSyncApiClient, async_create_poolsync_session
 from .const import (
     API_RESPONSE_MAC_ADDRESS,
     DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
     OPTION_SCAN_INTERVAL,
     PLATFORMS,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
-from .runtime import PoolSyncParsedData, ensure_parsed_data, get_equipment_runtime
+from .runtime import (
+    PoolSyncParsedData,
+    ensure_parsed_data,
+    get_equipment_runtime,
+    parse_duration_to_minutes,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,6 +107,16 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "pump_priming",
             "valve_position",
             "group_info",
+        }
+    ),
+    "equipment": frozenset(
+        {
+            "pump_mode",
+        }
+    ),
+    "controller": frozenset(
+        {
+            "group_duration",
         }
     ),
 }
@@ -188,6 +208,82 @@ def _async_migrate_entity_device_assignments(
         )
 
 
+async def _async_register_services(
+    hass: HomeAssistant, coordinator: PoolSyncDataUpdateCoordinator
+) -> None:
+    """Register PoolSync control services."""
+
+    async def _async_set_group_state(call: ServiceCall) -> None:
+        """Turn a group on or off, optionally with a duration."""
+        group = call.data["group"]
+        state = call.data["state"]
+        duration_raw = call.data.get("duration")
+
+        # Resolve group key from name or key
+        parsed_data = ensure_parsed_data(coordinator)
+        equip_runtime = get_equipment_runtime(parsed_data)
+        group_key = None
+        if equip_runtime is not None and isinstance(equip_runtime.raw_groups, dict):
+            for key, group_data in equip_runtime.raw_groups.items():
+                if not isinstance(group_data, dict):
+                    continue
+                config = group_data.get("config")
+                if not isinstance(config, list) or len(config) < 1:
+                    continue
+                if group in (key, config[0]):
+                    group_key = key
+                    break
+        if group_key is None:
+            raise HomeAssistantError(f"Unknown PoolSync group: {group}")
+
+        duration_seconds = None
+        if duration_raw is not None:
+            minutes = parse_duration_to_minutes(duration_raw)
+            if minutes is None:
+                raise HomeAssistantError(
+                    "Invalid duration: "
+                    f"{duration_raw}. Use minutes or a human-readable value "
+                    "like '1d 10h 22m'."
+                )
+            duration_seconds = int(minutes * 60)
+
+        await coordinator.async_set_group_state(
+            group_key, state, duration=duration_seconds
+        )
+
+    async def _async_set_pump_mode(call: ServiceCall) -> None:
+        """Set the pump mode: auto, manual, or off."""
+        mode = call.data["mode"]
+        rpm = call.data.get("rpm")
+        await coordinator.async_set_pump_mode(mode, rpm=rpm)
+
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        "set_group_state",
+        _async_set_group_state,
+        vol.Schema(
+            {
+                vol.Required("group"): str,
+                vol.Required("state"): cv.boolean,
+                vol.Optional("duration"): vol.Any(str, int, float),
+            }
+        ),
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        "set_pump_mode",
+        _async_set_pump_mode,
+        vol.Schema(
+            {
+                vol.Required("mode"): vol.In(["auto", "manual", "off"]),
+                vol.Optional("rpm"): vol.Any(int, float),
+            }
+        ),
+    )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> bool:
     """Set up PoolSync Custom from a config entry."""
     _LOGGER.info(
@@ -244,6 +340,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> 
 
     entry.runtime_data = coordinator
     _async_migrate_entity_device_assignments(hass, entry, coordinator)
+    await _async_register_services(hass, coordinator)
 
     # Create equipment devices when equip data is present
     if isinstance(coordinator.data, dict):

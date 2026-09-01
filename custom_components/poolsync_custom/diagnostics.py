@@ -16,8 +16,10 @@ from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
     get_equipment_runtime,
+    get_group_duration,
     get_heat_pump_runtime,
     get_number_value,
+    get_pump_mode,
     get_pump_priming,
     get_pump_rpm,
     get_pump_rpm_max,
@@ -324,7 +326,24 @@ async def async_get_config_entry_diagnostics(
             parsed_data, "pump_rpm_control"
         )
 
+        # Group duration number values (one per group)
+        if equip_runtime := get_equipment_runtime(parsed_data):
+            if isinstance(equip_runtime.raw_groups, dict):
+                for group_key in equip_runtime.raw_groups:
+                    duration = get_group_duration(equip_runtime, group_key)
+                    if duration is not None:
+                        number_values[f"group_{group_key}_duration"] = duration
+
         result["mapped_number_values"] = number_values
+
+        # --- All mapped select values ---
+        select_values: dict[str, Any] = {}
+        if equip_runtime := get_equipment_runtime(parsed_data):
+            pump_mode = get_pump_mode(equip_runtime)
+            if pump_mode is not None:
+                select_values["pump_mode"] = pump_mode
+
+        result["mapped_select_values"] = select_values
 
         # --- Decoded fault names per device ---
         faults_debug: dict[str, Any] = {}

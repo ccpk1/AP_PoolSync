@@ -43,10 +43,12 @@ The `User` header is **required** for PATCH requests alongside `Authorization`. 
 | `{"config": {"mode": 1}}` | ✅ 200 | Device config write (proven in production) |
 | `{"config": {"chlorOutput": 50}}` | ✅ 200 | Chlorinator output write |
 | `{"groups": {"0": {"config": ["POOL",0,192,1,172800,0,1,1]}}}` | ✅ 200 | Full group config array replacement |
-| `{"groups": {"0": {"config": {"3": 1}}}}` | ✅ 200 | Sparse group state toggle |
+| `{"groups": {"0": {"config": {"3": 1}}}}` | ✅ 200 | Sparse group state toggle (format later superseded — see F10a) |
 | `{"groups": {"2": {"config": [...], "equip": {"1": [35,0]}}}}` | ✅ 200 | Group config + equipment mapping |
 | `{"primePump": 1}` | ✅ 200 | Action command |
 | `{"equip": {"1": {"7": 58}}}` | ✅ 200 | Equipment array index write |
+
+> **⚠️ Note on the "✅ 200" rows above:** These were validated on a T75 (fw 860) which has no groups/ChemSync/ChlorSync hardware. The device accepted the JSON at the HTTP layer but the writes had no observable effect on that hardware. **The user's packet capture (2026-09-01) on real 090 hardware confirmed the actual group and pump write formats** — see F1 (pump `equip` array) and F10a (group `state` array). Those confirmed formats supersede any guessed payloads in the table above.
 
 **Required PATCH headers:**
 ```
@@ -766,25 +768,26 @@ Raw array (actual values from 1750 RPM sample):
 
 **Manual override (2026-08-15, VERIFIED):** A diagnostic with a manual pump override to 2000 RPM shows `raw[7]=40` (40×50=2000) while only the POOL group is active (which would normally run at 1750). This confirms manual override is reflected in `raw[7]`. Notably, in the manual-override sample `raw[5]=2147483640` (≈0x7FFFFFF8, near INT32_MAX) and `raw[6]=4294896` — large/garbage values that appear to flag manual-override mode, distinct from the group-driven case where `raw[5]=300` (the group's RPM setting) and `raw[6]=0`. This flag is not yet decoded.
 
-**⚠️ Manual RPM write path (from decompiled app — UNVERIFIED):** The app's `handleRPMChange` function builds a `devicePayload` and writes the pump's equipment entry. The RPM value is divided by `RPM_INCREMENTS` (50) before writing. The hypothesized write payload is:
+**✅ Manual RPM write path (CONFIRMED from user packet capture, 2026-09-01):** The user captured the exact PATCH payloads the app sends to `?cmd=devices&device=0`:
 
 ```json
-{
-  "devices": {
-    "<device_id>": {
-      "equipment": {
-        "<equipIndex>": [rpm / 50, 0]
-      }
-    }
-  }
-}
+// Manual override to 1800 RPM
+{"equip": {"1": [36, 4294967295]}}
+
+// Back to auto
+{"equip": {"1": [0, 0]}}
+
+// Turn pump off
+{"equip": {"1": [0, 4294967295]}}
 ```
 
-The `increaseRPM`/`decreaseRPM` functions clamp the value to `MIN_RPM`/`MAX_RPM` and step by `RPM_INCREMENTS`. **This is reconstructed from the app code and has NOT been verified against live hardware** — the user reported the current pump control has "no effect," and the `?cmd=devices&device=` endpoint returned 401 in live testing. This is a hypothesis to verify against a packet capture, not a confirmed implementation.
+**Key findings (all confirmed):**
+- The write targets the **`equip` array**, keyed by the pump's equipment slot (`"1"`)
+- The first element is the **speed ÷ 50** (36×50=1800 RPM)
+- The second element is a **flag**: `4294967295` (0xFFFFFFFF, int32 −1) = manual override/on, `0` = auto
+- This **supersedes** the earlier guess that the write key was `config.rpm` — the actual format is `equip.{slot} = [rpm/50, flag]`
 
-**⚠️ Write key gap:** Equipment data is a positional array, not a named object like `config.{key}`. The read-side has no named keys to observe, so the write API key for setting pump speed is unknown. Candidates (`rpm`, `speed`, `pumpSpeed`) are guesses until API traffic is captured or trial-and-error confirms one. The existing write pattern (`PATCH … → config.{key}`) is proven for device-level config keys, but equipment-level writes may use a different path entirely.
-
-**Proposed entities:** `sensor` for current pump RPM (index 7 × 50), `binary_sensor` for priming flag (index 14), `number` for RPM control (requires write key discovery).
+**Proposed entities:** `sensor` for current pump RPM (index 7 × 50), `binary_sensor` for priming flag (index 14), `number` for RPM control (now has confirmed write format).
 
 #### F2. Motorized Return Valve (equipment type 1)
 
@@ -922,35 +925,37 @@ Each group has up to 4 schedule slots: `[dayMask, startTime, endTime]`
 
 **From decompiled app (2026-08-17, unverified):** `GROUP_TIME_SET` = `config[4]` and `GROUP_TIME_LEFT` = `config[5]`. Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). `config[5]` is non-zero when the group has been running — a countdown remaining or a start timestamp. The index positions are verified by diagnostics; the semantic meanings are inferred from the app's constant names.
 
-#### F10a. Group Write Path (from decompiled app — UNVERIFIED)
+#### F10a. Group Write Path (CONFIRMED from user packet capture, 2026-09-01)
 
-> **⚠️ UNVERIFIED:** This write path is **reconstructed from the decompiled app code (v4.73) and has NOT been confirmed to work on live hardware.** The `?cmd=devices&device=` endpoint returned **401 Unauthorized** in live testing on fw 860 (see section 0b). The user's empirical testing also reported group/pump writes having "no effect." This is a strong hypothesis to verify against a packet capture, not a confirmed implementation.
-
-**From decompiled app (2026-08-17):** The app's `updateDevice` function builds a `{devices: {...}}` PATCH payload. For each device, it iterates the `HP_GROUPS` (groups) and writes three fields per group via the `#25557` function:
-
-| Field | Constant | Array Index |
-|-------|----------|-------------|
-| State | `GROUP_STATE` | `config[3]` |
-| Time set | `GROUP_TIME_SET` | `config[4]` |
-| Time left | `GROUP_TIME_LEFT` | `config[5]` |
-
-The `groups` and `schedules` keys are **excluded** from the generic device write and handled by this dedicated group path. This is consistent with the verified `GROUP_IDX_STATE = 3` (from diagnostics) and reveals the hypothesized group toggle write format:
+**✅ CONFIRMED:** The user captured the exact PATCH payloads the app sends to `?cmd=devices&device=0` for group control:
 
 ```json
-{
-  "devices": {
-    "<device_id>": {
-      "groups": {
-        "<group_key>": {
-          "config": [name, nameId, maxActive, STATE, timeSet, timeLeft, freezeProtecting, scheduleMode]
-        }
-      }
-    }
-  }
-}
+// Activate Waterfall group (default 6 hours)
+{"groups": {"1": {"state": [1, 21600]}}}
+
+// Change Waterfall to 58 minutes
+{"groups": {"1": {"state": [1, 3480]}}}
+
+// Turn Waterfall off
+{"groups": {"1": {"state": [0, 0]}}}
+
+// Activate Ambiance for 8 hours (default max)
+{"groups": {"3": {"state": [1, 28800]}}}
+
+// Turn Ambiance off
+{"groups": {"3": {"state": [0, 0]}}}
 ```
 
----
+**Key findings (all confirmed):**
+- The group write uses a **`state` key** with a **2-element array** `[state, duration]`
+- `state`: `1` = on, `0` = off
+- `duration`: time in **seconds** (21600=6h, 3480=58min, 28800=8h)
+- The endpoint is `?cmd=devices&device=0` (the heat pump device)
+- This **supersedes** the earlier guess that the write used `{"config": {"3": 1}}` — the actual format is `groups.{key}.state = [on/off, duration]`
+
+**Note:** The duration is only meaningful when turning a group on. Turning off uses `[0, 0]`. When turning on without a duration, the app uses the group's configured default max (e.g. 21600 for Waterfall).
+
+The earlier decompiled-app analysis (`updateDevice` → `{devices: {...}}` → `config[3]`) was a reasonable hypothesis but the **confirmed capture shows the real payload is flat** (`groups.{key}.state`), not wrapped in `devices.{id}`.
 
 ### 🟢 LOWER CONFIDENCE — Needs more data
 
@@ -975,17 +980,19 @@ Slots 2, 4–15 are null in the 090 system. Other PoolSync installations may hav
 
 The circulation pump has index 2 = 2. Could mean "variable speed" as opposed to 1=single-speed or 0=two-speed. Only one pump type observed.
 
-#### F14. Equipment Write API Format
+#### F14. Equipment Write API Format (RESOLVED by packet capture, 2026-09-01)
 
-The write endpoint `PATCH /api/poolsync?cmd=devices&device={id}` currently sends `config.{key}`. This pattern is proven for device-level config keys where the read payload has named objects (`config.setpoint`, `config.mode`, etc.) — the read key and write key match exactly.
+The write endpoint `PATCH /api/poolsync?cmd=devices&device={id}` sends JSON directly to the device. For **named config keys** (`config.setpoint`, `config.mode`, etc.) the payload is `{"config": {key: value}}` and the read/write keys match.
 
-Equipment data, however, is stored as **positional arrays** in the read payload (`equip["1"] = [0, "CIRCULATION PUMP", ...]`). There are no named keys to observe and match against. This means:
+For **equipment arrays** (positional `equip["1"] = [0, "CIRCULATION PUMP", ...]`), the confirmed capture (2026-09-01) shows the write replaces the equipment slot with a **partial array**:
 
-- We **cannot** determine equipment write keys from diagnostic data alone
-- The key name for setting pump speed or valve position is unknown
-- Candidates (`rpm`, `speed`, `pumpSpeed`, `position`, `valve`) are guesses
+```json
+{"equip": {"1": [36, 4294967295]}}   // pump: [rpm/50, manual-flag]
+```
 
-**Resolution requires:** API traffic capture between the PoolSync app and device during equipment control operations, or trial-and-error with a willing beta user.
+So the format is `equip.{slot} = [values...]` — a partial positional array where each element maps to the same index as the full read array. This **resolves** the earlier open question: we now know the pump RPM and flag write format (see F1).
+
+The **valve write key remains unknown** — the user confirmed (2026-07-15) the valve position is a side effect of group membership and not independently controllable, so a direct valve write is not needed.
 
 #### F15. Multi-Unit Heat Pump
 

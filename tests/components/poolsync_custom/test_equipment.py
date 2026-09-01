@@ -10,13 +10,18 @@ import pytest
 from custom_components.poolsync_custom.runtime import (
     _parse_raw_equipment,
     get_equipment_runtime,
+    get_group_duration,
+    get_group_ends_at,
+    get_group_time_left,
     get_hp_in_group,
+    get_pump_mode,
     get_pump_priming,
     get_pump_rpm,
     get_pump_rpm_max,
     get_pump_rpm_min,
     get_valve_position_name,
     get_valve_position_options,
+    parse_duration_to_minutes,
     parse_poolsync_runtime_data,
 )
 
@@ -447,3 +452,134 @@ class TestEquipmentDataHelpers:
         assert er is not None
         valve = er.equipment["3"]
         assert valve.get_str(999) == ""
+
+
+# ===================================================================
+# Pump mode
+# ===================================================================
+
+
+class TestPumpMode:
+    """Tests for pump mode extraction."""
+
+    def test_auto_mode(self, parsed_090_filtration) -> None:
+        """Group-driven pump reports auto."""
+        er = get_equipment_runtime(parsed_090_filtration)
+        assert get_pump_mode(er) == "auto"
+
+    def test_auto_mode_pool(self, parsed_090_pool) -> None:
+        """Pool-group pump reports auto."""
+        er = get_equipment_runtime(parsed_090_pool)
+        assert get_pump_mode(er) == "auto"
+
+    def test_manual_mode(self, parsed_090_manual_2000rpm) -> None:
+        """Manual override reports manual."""
+        er = get_equipment_runtime(parsed_090_manual_2000rpm)
+        assert get_pump_mode(er) == "manual"
+
+    def test_off_mode(self, parsed_090_all_off) -> None:
+        """Idle pump reports off."""
+        er = get_equipment_runtime(parsed_090_all_off)
+        assert get_pump_mode(er) == "off"
+
+    def test_no_equipment_returns_none(self, parsed_t75_heat_pool) -> None:
+        """T75 (no equipment) returns None."""
+        er = get_equipment_runtime(parsed_t75_heat_pool)
+        assert get_pump_mode(er) is None
+
+
+# ===================================================================
+# Group timing
+# ===================================================================
+
+
+class TestGroupTiming:
+    """Tests for group duration / time-left / ends-at helpers."""
+
+    def test_group_duration_waterfall(self, parsed_090_pool_waterfall) -> None:
+        """Waterfall duration is 6h (21600s)."""
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        assert get_group_duration(er, "1") == 21600
+
+    def test_group_duration_pool(self, parsed_090_pool_waterfall) -> None:
+        """POOL duration is 48h (172800s)."""
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        assert get_group_duration(er, "0") == 172800
+
+    def test_group_time_left_waterfall(self, parsed_090_pool_waterfall) -> None:
+        """Waterfall has a live countdown."""
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        assert get_group_time_left(er, "1") == 21586
+
+    def test_group_time_left_pool_is_zero(self, parsed_090_pool_waterfall) -> None:
+        """POOL runs indefinitely (timeLeft 0)."""
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        assert get_group_time_left(er, "0") == 0
+
+    def test_group_ends_at_only_when_countdown(self, parsed_090_pool_waterfall) -> None:
+        """ends_at is present for timed groups, None for indefinite ones."""
+        from datetime import datetime
+
+        er = get_equipment_runtime(parsed_090_pool_waterfall)
+        now = datetime(2026, 9, 1, 12, 0, 0)
+        ends_at = get_group_ends_at(er, "1", now)
+        assert ends_at is not None
+        # 12:00:00 + 21586s (timeLeft) = 17:59:46
+        assert ends_at == datetime(2026, 9, 1, 17, 59, 46)
+
+        assert get_group_ends_at(er, "0", now) is None
+
+    def test_group_helpers_none_for_missing_group(self, parsed_090_filtration) -> None:
+        """Unknown group returns None."""
+        er = get_equipment_runtime(parsed_090_filtration)
+        assert get_group_duration(er, "99") is None
+        assert get_group_time_left(er, "99") is None
+
+
+# ===================================================================
+# Duration parsing
+# ===================================================================
+
+
+class TestParseDurationToMinutes:
+    """Tests for the human-readable duration parser."""
+
+    def test_plain_minutes(self) -> None:
+        """Plain number is minutes."""
+        assert parse_duration_to_minutes(90) == 90.0
+        assert parse_duration_to_minutes("90") == 90.0
+
+    def test_compound_duration(self) -> None:
+        """Compound '1d 10h 22m' parses to minutes."""
+        assert parse_duration_to_minutes("1d 10h 22m") == 1 * 1440 + 10 * 60 + 22
+
+    def test_hours(self) -> None:
+        """'1.5h' parses to 90 minutes."""
+        assert parse_duration_to_minutes("1.5h") == 90.0
+
+    def test_seconds(self) -> None:
+        """'30s' parses to 0.5 minutes."""
+        assert parse_duration_to_minutes("30s") == 0.5
+
+    def test_invalid(self) -> None:
+        """Garbage returns None."""
+        assert parse_duration_to_minutes("not-a-duration") is None
+        assert parse_duration_to_minutes("") is None
+        assert parse_duration_to_minutes(None) is None
+
+    def test_rejects_compact_tokens(self) -> None:
+        """Compact forms without spaces are rejected."""
+        assert parse_duration_to_minutes("1d10h22m") is None
+        assert parse_duration_to_minutes("1h30m") is None
+
+    def test_rejects_trailing_garbage(self) -> None:
+        """Trailing garbage is rejected."""
+        assert parse_duration_to_minutes("1d 10h 22m extra") is None
+
+    def test_rejects_malformed_numbers(self) -> None:
+        """Malformed numbers are rejected."""
+        assert parse_duration_to_minutes("1.5.5h") is None
+
+    def test_accepts_spaced_tokens(self) -> None:
+        """Whitespace-separated tokens parse correctly."""
+        assert parse_duration_to_minutes("1d 10h 22m 30s") == 2062.5

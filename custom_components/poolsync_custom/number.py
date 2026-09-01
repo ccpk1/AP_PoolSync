@@ -32,6 +32,7 @@ from .runtime import (
     build_unique_id,
     ensure_parsed_data,
     get_equipment_runtime,
+    get_group_duration,
     get_number_value,
 )
 
@@ -46,6 +47,7 @@ _WRITE_METHODS: dict[str, str] = {
     "chem_ph_setpoint": "async_set_chem_config",
     "chem_orp_setpoint": "async_set_chem_config",
     "chem_max_daily_feed": "async_set_chem_config",
+    "group_duration": "async_set_group_duration",
 }
 
 type NumberDescription = tuple[NumberEntityDescription, Callable[[Any], Any] | None]
@@ -114,6 +116,22 @@ NUMBER_DESCRIPTIONS_EQUIPMENT: tuple[NumberDescription, ...] = (
             native_min_value=0,
             native_max_value=3450,
             native_step=50,
+            mode=NumberMode.BOX,
+        ),
+        None,
+    ),
+)
+
+NUMBER_DESCRIPTIONS_GROUPS: tuple[NumberDescription, ...] = (
+    (
+        NumberEntityDescription(
+            key="group_duration",
+            translation_key="group_duration",
+            entity_category=EntityCategory.CONFIG,
+            native_unit_of_measurement="min",
+            native_min_value=1,
+            native_max_value=10080,  # 7 days
+            native_step=1,
             mode=NumberMode.BOX,
         ),
         None,
@@ -267,6 +285,35 @@ async def async_setup_entry(
                     )
                 )
 
+    # Group duration number entities (one per group, attached to the controller)
+    if equip_runtime := get_equipment_runtime(parsed_data):
+        if isinstance(equip_runtime.raw_groups, dict):
+            controller_device_info = coordinator.get_device_info("controller")
+            for group_key, group_data in equip_runtime.raw_groups.items():
+                if not isinstance(group_data, dict):
+                    continue
+                config = group_data.get("config")
+                if not isinstance(config, list) or len(config) < 4:
+                    continue
+                group_name = (
+                    config[0] if isinstance(config[0], str) else f"Group {group_key}"
+                )
+                for desc, vfn in NUMBER_DESCRIPTIONS_GROUPS:
+                    number_entities.append(
+                        PoolSyncChlorOutputNumberEntity(
+                            coordinator,
+                            "controller",
+                            desc,
+                            vfn,
+                            _device_info=controller_device_info,
+                            _unique_id=(
+                                f"{coordinator.mac_address}_group_{group_key}_duration"
+                            ),
+                            _group_key=group_key,
+                            _group_name=group_name,
+                        )
+                    )
+
     for index, device in enumerate(parsed_data.devices.get("heat_pump", [])):
         if device.is_present:
             number_entities.extend(
@@ -319,6 +366,8 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         _device_node_addr: int | None = None,
         _device_info: DeviceInfo | None = None,
         _unique_id: str | None = None,
+        _group_key: str | None = None,
+        _group_name: str | None = None,
     ) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
@@ -329,6 +378,8 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._role_key = role
         self._device_index = _device_index
         self._device_node_addr = _device_node_addr
+        self._group_key = _group_key
+        self._group_name = _group_name
 
         self._attr_unique_id = _unique_id or self._build_unique_id(
             coordinator.mac_address, role, description.key
@@ -336,6 +387,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._attr_device_info = _device_info or coordinator.get_device_info(
             role, index=_device_index
         )
+        self._update_translation_placeholders()
         self._update_attrs()
 
         _LOGGER.debug(
@@ -358,7 +410,13 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        if self._device_index > 0:
+        if self._group_key is not None:
+            value = get_group_duration(
+                get_equipment_runtime(parsed_data), self._group_key
+            )
+            if value is not None:
+                value = value / 60  # seconds → minutes
+        elif self._device_index > 0:
             value = get_number_value(
                 parsed_data,
                 self.entity_description.key,
@@ -387,9 +445,31 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         self._attr_available = super().available
 
+    def _update_translation_placeholders(self) -> None:
+        """Refresh name placeholders from the latest group view."""
+        if self._group_key is None:
+            return
+        group_name = self._group_name
+        equip_runtime = get_equipment_runtime(ensure_parsed_data(self.coordinator))
+        if equip_runtime is not None and isinstance(equip_runtime.raw_groups, dict):
+            group_data = equip_runtime.raw_groups.get(self._group_key)
+            if isinstance(group_data, dict):
+                config = group_data.get("config")
+                if (
+                    isinstance(config, list)
+                    and len(config) >= 4
+                    and isinstance(config[0], str)
+                ):
+                    group_name = config[0]
+        self._attr_translation_placeholders = {
+            "group_name": group_name or f"Group {self._group_key}"
+        }
+        self.__dict__.pop("name", None)
+
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+        """Refresh dynamic placeholders before writing updated state."""
+        self._update_translation_placeholders()
         self._update_attrs()
         super()._handle_coordinator_update()
 
@@ -438,6 +518,8 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
                     )
                 else:
                     await method(self.entity_description.key, write_value)
+            elif method_name == "async_set_group_duration":
+                await method(self._group_key, write_value)
             elif self._device_index > 0:
                 await method(write_value, index=self._device_index)
             else:

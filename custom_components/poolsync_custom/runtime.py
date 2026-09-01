@@ -6,6 +6,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal, cast
 
 from homeassistant.exceptions import HomeAssistantError
@@ -14,8 +15,14 @@ from .const import (
     EQUIP_TYPE_HEAT_PUMP,
     EQUIP_TYPE_VALVE,
     EQUIP_TYPE_VS_PUMP,
+    GROUP_IDX_TIME_LEFT,
+    GROUP_IDX_TIME_SET,
     PUMP_IDX_CURRENT_SPEED,
     PUMP_IDX_PRIMING_FLAG,
+    PUMP_MODE_AUTO,
+    PUMP_MODE_MANUAL,
+    PUMP_MODE_MANUAL_SENTINEL,
+    PUMP_MODE_OFF,
     PUMP_RPM_FACTOR,
     VALVE_IDX_CURRENT_POSITION,
     VALVE_IDX_POSITIONS_START,
@@ -469,6 +476,75 @@ def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | No
             val = equip.get_int(9)
             return val * PUMP_RPM_FACTOR if val > 0 else None
     return None
+
+
+def get_pump_mode(equip_runtime: PoolSyncEquipmentRuntime | None) -> str | None:
+    """Return the pump operating mode: auto, manual, or off.
+
+    The manual-override sentinel (0x7FFFFFF8) in equip[1][5] is unique to
+    manual mode. Otherwise the pump is auto when running, off when idle.
+    """
+    if equip_runtime is None:
+        return None
+    for equip in equip_runtime.equipment.values():
+        if not equip.is_pump:
+            continue
+        if equip.get_int(5) == PUMP_MODE_MANUAL_SENTINEL:
+            return PUMP_MODE_MANUAL
+        if equip.get_int(PUMP_IDX_CURRENT_SPEED) > 0:
+            return PUMP_MODE_AUTO
+        return PUMP_MODE_OFF
+    return None
+
+
+def get_group_duration(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+) -> int | None:
+    """Return the configured duration (seconds) for a group from config[4]."""
+    if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
+        return None
+    group_data = equip_runtime.raw_groups.get(group_key)
+    if not isinstance(group_data, dict):
+        return None
+    config = group_data.get("config")
+    if not isinstance(config, list) or len(config) <= GROUP_IDX_TIME_SET:
+        return None
+    value = config[GROUP_IDX_TIME_SET]
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def get_group_time_left(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+) -> int | None:
+    """Return the remaining time (seconds) for a group from config[5]."""
+    if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
+        return None
+    group_data = equip_runtime.raw_groups.get(group_key)
+    if not isinstance(group_data, dict):
+        return None
+    config = group_data.get("config")
+    if not isinstance(config, list) or len(config) <= GROUP_IDX_TIME_LEFT:
+        return None
+    value = config[GROUP_IDX_TIME_LEFT]
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def get_group_ends_at(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+    now: datetime,
+) -> datetime | None:
+    """Return a fixed end timestamp for a timed group activation.
+
+    Only groups with a live countdown (timeLeft > 0) get an end time;
+    groups running indefinitely (timeLeft == 0) return None.
+    """
+    time_left = get_group_time_left(equip_runtime, group_key)
+    if not time_left:
+        return None
+    return now + timedelta(seconds=time_left)
 
 
 def get_valve_position_name(
@@ -1510,6 +1586,55 @@ def get_sensor_value(
 def get_chem_sync_mode_options() -> list[str]:
     """Return ChemSync system mode options."""
     return ["off", "auto", "manual"]
+
+
+_DURATION_TOKEN_RE = re.compile(
+    r"^(\d+(?:\.\d+)?)\s*(d|h|m|min|s)$",
+    re.IGNORECASE,
+)
+
+
+def parse_duration_to_minutes(value: str | int | float) -> float | None:
+    """Parse a human-readable duration to minutes.
+
+    Accepts plain numbers (minutes), or compound strings like
+    ``"1d 10h 22m"``, ``"90"``, ``"1.5h"``, ``"2h"``.
+
+    Returns None when the input cannot be parsed.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip().lower()
+    if not text:
+        return None
+
+    # Plain number → minutes
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        return float(text)
+
+    # Compound duration (e.g. "1d 10h 22m") — each whitespace-separated
+    # token must be a value+unit pair; anything else is rejected.
+    total_minutes = 0.0
+    for token in text.split():
+        match = _DURATION_TOKEN_RE.fullmatch(token)
+        if match is None:
+            return None
+        part_value = float(match.group(1))
+        unit = match.group(2).lower()
+        if unit == "d":
+            total_minutes += part_value * 24 * 60
+        elif unit == "h":
+            total_minutes += part_value * 60
+        elif unit in ("m", "min"):
+            total_minutes += part_value
+        elif unit == "s":
+            total_minutes += part_value / 60
+
+    return total_minutes
 
 
 def get_select_value(

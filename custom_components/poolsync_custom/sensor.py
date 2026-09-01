@@ -32,7 +32,9 @@ try:
     SALT_LEVEL_UNIT = UnitOfRatio.PARTS_PER_MILLION
 except ImportError:
     # Fallback for Home Assistant < 2026.6 (removed in 2027.8)
-    from homeassistant.const import CONCENTRATION_PARTS_PER_MILLION as SALT_LEVEL_UNIT
+    import homeassistant.const as ha_const
+
+    SALT_LEVEL_UNIT = getattr(ha_const, "CONCENTRATION_PARTS_PER_MILLION", "ppm")
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -44,6 +46,8 @@ from .runtime import (
     build_unique_id,
     ensure_parsed_data,
     get_equipment_runtime,
+    get_group_duration,
+    get_group_ends_at,
     get_sensor_value,
 )
 
@@ -990,7 +994,26 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
         if self.entity_description.key == "group_info":
             equip_runtime = get_equipment_runtime(parsed_data)
             if equip_runtime is not None:
-                return equip_runtime.active_group_attributes
+                attrs = equip_runtime.active_group_attributes
+                if attrs is None:
+                    return None
+                result: dict[str, Any] = {}
+                for group_key, group_attrs in attrs.items():
+                    duration = get_group_duration(equip_runtime, group_key)
+                    ends_at = get_group_ends_at(
+                        equip_runtime, group_key, dt_util.utcnow()
+                    )
+                    decoded: dict[str, Any] = {}
+                    if duration is not None:
+                        decoded["duration_seconds"] = duration
+                    if ends_at is not None:
+                        decoded["ends_at"] = ends_at.isoformat()
+                    result[group_key] = {
+                        "config": group_attrs.get("config"),
+                        "equip": group_attrs.get("equip"),
+                        "timing": decoded,
+                    }
+                return result
             return None
 
         return None

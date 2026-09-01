@@ -414,13 +414,15 @@ async def test_device_info_uses_parsed_role_metadata(hass) -> None:
     assert chlorinator_info["model"] == "ChlorSync Elite"
     assert chlorinator_info["sw_version"] == "8.7.6"
     assert chlorinator_info["hw_version"] == "2.1"
-    assert chlorinator_info["via_device"] == ("poolsync_custom", TEST_MAC_ADDRESS)
+    # No via link without a registered config entry (unit-test context).
+    assert "via_device_id" not in chlorinator_info
 
     assert heat_pump_info["name"] == "T75 Heat Pump"
     assert heat_pump_info["model"] == "075AHDSBLH"
     assert heat_pump_info["sw_version"] == "270"
     assert heat_pump_info["hw_version"] == "F"
-    assert heat_pump_info["via_device"] == ("poolsync_custom", TEST_MAC_ADDRESS)
+    # No via link without a registered config entry (unit-test context).
+    assert "via_device_id" not in heat_pump_info
 
 
 async def test_device_info_normalizes_default_chlorinator_name_and_versions(
@@ -848,3 +850,193 @@ async def test_controller_name_falls_back_to_mac_suffix(hass) -> None:
     coordinator = _build_coordinator(hass, Mock())
 
     assert coordinator._get_controller_name(None) == "PoolSync DDEEFF"
+
+
+# ===================================================================
+# Pump & group write methods (confirmed payloads, 2026-09-01)
+# ===================================================================
+
+
+def _load_runtime_json(sample_name: str) -> dict:
+    """Load a diagnostics runtime_data file."""
+    import json
+    from pathlib import Path
+
+    sample_path = (
+        Path(__file__).resolve().parents[2] / "sample_diagnostics" / sample_name
+    )
+    raw_text = sample_path.read_text(encoding="utf-8")
+    cleaned = raw_text.replace(",\n}", "\n}").replace(",\n]", "\n]")
+    cleaned = cleaned.replace(", }", " }").replace(", ]", " ]")
+    return json.loads(cleaned)["data"]["runtime_data"]
+
+
+def _build_pump_coordinator(hass, api_client: Mock) -> PoolSyncDataUpdateCoordinator:
+    """Create a coordinator with 090 pump/groups data."""
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = _load_runtime_json("090-pool-waterfall-valve-fountain.json")
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+    return coordinator
+
+
+async def test_async_set_pump_rpm_sends_confirmed_equip_payload(hass) -> None:
+    """Pump RPM write uses equip.{slot} = [rpm/50, manual flag]."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_pump_rpm(1800)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="pump_rpm",
+        value=36,
+        password=TEST_PASSWORD,
+        json_data_override={"equip": {"1": [36, 4294967295]}},
+    )
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_async_set_pump_mode_manual_sends_rpm_and_flag(hass) -> None:
+    """Manual pump mode sends rpm/50 with manual flag."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_pump_mode("manual", rpm=2000)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="pump_mode",
+        value=0,
+        password=TEST_PASSWORD,
+        json_data_override={"equip": {"1": [40, 4294967295]}},
+    )
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+async def test_async_set_pump_mode_auto_sends_zero_payload(hass) -> None:
+    """Auto pump mode sends equip.{slot} = [0, 0]."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_pump_mode("auto")
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="pump_mode",
+        value=0,
+        password=TEST_PASSWORD,
+        json_data_override={"equip": {"1": [0, 0]}},
+    )
+
+
+async def test_async_set_pump_mode_off_sends_off_flag(hass) -> None:
+    """Off pump mode sends equip.{slot} = [0, manual flag]."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_pump_mode("off")
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="pump_mode",
+        value=0,
+        password=TEST_PASSWORD,
+        json_data_override={"equip": {"1": [0, 4294967295]}},
+    )
+
+
+async def test_async_set_pump_mode_manual_requires_rpm(hass) -> None:
+    """Manual pump mode requires an rpm value."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    with pytest.raises(HomeAssistantError, match="RPM is required"):
+        await coordinator.async_set_pump_mode("manual")
+
+
+async def test_async_set_group_state_on_uses_default_duration(hass) -> None:
+    """Group on sends state:[1, default_timeSet] when no duration given."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_group_state("1", True)
+
+    # Waterfall default duration is 21600 (6h)
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_state",
+        value=1,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"state": [1, 21600]}}},
+    )
+
+
+async def test_async_set_group_state_on_with_duration(hass) -> None:
+    """Group on with explicit duration sends state:[1, duration]."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_group_state("1", True, duration=3480)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_state",
+        value=1,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"state": [1, 3480]}}},
+    )
+
+
+async def test_async_set_group_state_off_sends_zero(hass) -> None:
+    """Group off sends state:[0, 0]."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_group_state("1", False)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_state",
+        value=0,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"state": [0, 0]}}},
+    )
+
+
+async def test_async_set_group_duration_converts_minutes_to_seconds(hass) -> None:
+    """Group duration write converts minutes to seconds."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_group_duration("1", 58)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_state",
+        value=1,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"state": [1, 3480]}}},
+    )
+
+
+async def test_async_set_group_duration_rejects_off_group(hass) -> None:
+    """Group duration write rejects groups that are currently off."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    # Group "2" (FILTRATION) is off in the POOL+WATERFALL fixture
+    with pytest.raises(HomeAssistantError, match="can only be changed while on"):
+        await coordinator.async_set_group_duration("2", 58)
+
+    api_client.async_set_device_config_value.assert_not_awaited()

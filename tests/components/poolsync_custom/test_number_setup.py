@@ -92,3 +92,51 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     )
     assert NUMBER_DESCRIPTIONS_CHLOR[0][0].key == "chlor_output_control"
     assert NUMBER_DESCRIPTIONS_HEATPUMP_F[0][0].key == "temperature_output_control"
+
+
+async def test_group_duration_number_uses_translation_placeholders(hass) -> None:
+    """Test group-duration numbers use translation placeholders, not _attr_name."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {
+                    "0": [3, "HEAT PUMP"],
+                    "1": [0, "CIRCULATION PUMP"],
+                    "3": [1, "RETURN VALVE"],
+                },
+                "groups": {
+                    "1": {
+                        "config": ["WATERFALL", 22, 24, 1, 21600, 21586, 1, 1],
+                        "equip": {"1": [60, 0], "3": [3, 0]},
+                    },
+                },
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    added_entities: list = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    group_duration = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "group_duration"
+    )
+    assert group_duration.translation_key == "group_duration"
+    assert group_duration.translation_placeholders == {"group_name": "WATERFALL"}
+    assert not hasattr(group_duration, "_attr_name")
+    assert group_duration.has_entity_name is True
+    assert group_duration.native_value == 360.0  # 21600 seconds → 360 minutes
