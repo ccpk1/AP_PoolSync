@@ -90,7 +90,7 @@ class PoolSyncApiClient:
         self,
         device_id: str,
         key_id: str,
-        value: int,
+        value: int | float,
         password: str,
         *,
         json_data_override: dict[str, Any] | None = None,

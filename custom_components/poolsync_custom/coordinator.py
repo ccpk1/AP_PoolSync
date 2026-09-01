@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -234,7 +235,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         *,
         role: PoolSyncDeviceRole,
-        updates: dict[str, int | float],
+        updates: Mapping[str, int | float],
         description: str,
         index: int = 0,
     ) -> None:
