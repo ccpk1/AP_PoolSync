@@ -380,8 +380,6 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._device_node_addr = _device_node_addr
         self._group_key = _group_key
         self._group_name = _group_name
-        if _group_name is not None:
-            self._attr_name = f"{_group_name} duration"
 
         self._attr_unique_id = _unique_id or self._build_unique_id(
             coordinator.mac_address, role, description.key
@@ -389,6 +387,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._attr_device_info = _device_info or coordinator.get_device_info(
             role, index=_device_index
         )
+        self._update_translation_placeholders()
         self._update_attrs()
 
         _LOGGER.debug(
@@ -446,9 +445,31 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         self._attr_available = super().available
 
+    def _update_translation_placeholders(self) -> None:
+        """Refresh name placeholders from the latest group view."""
+        if self._group_key is None:
+            return
+        group_name = self._group_name
+        equip_runtime = get_equipment_runtime(ensure_parsed_data(self.coordinator))
+        if equip_runtime is not None and isinstance(equip_runtime.raw_groups, dict):
+            group_data = equip_runtime.raw_groups.get(self._group_key)
+            if isinstance(group_data, dict):
+                config = group_data.get("config")
+                if (
+                    isinstance(config, list)
+                    and len(config) >= 4
+                    and isinstance(config[0], str)
+                ):
+                    group_name = config[0]
+        self._attr_translation_placeholders = {
+            "group_name": group_name or f"Group {self._group_key}"
+        }
+        self.__dict__.pop("name", None)
+
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+        """Refresh dynamic placeholders before writing updated state."""
+        self._update_translation_placeholders()
         self._update_attrs()
         super()._handle_coordinator_update()
 

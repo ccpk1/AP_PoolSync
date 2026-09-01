@@ -113,18 +113,35 @@
     },
     "select": {
       "mode": {
-        "name": "Mode"
+        "name": "Mode",
+        "state": {
+          "off": "Off",
+          "heat_pool": "Heat Pool",
+          "heat_spa": "Heat Spa",
+          "cool_pool": "Cool Pool",
+          "auto_pool": "Auto Pool"
+        }
       },
       "chem_sys_mode": {
-        "name": "System mode"
+        "name": "System mode",
+        "state": {
+          "off": "Off",
+          "auto": "Auto",
+          "manual": "Manual"
+        }
       },
       "pump_mode": {
-        "name": "Pump mode"
+        "name": "Pump mode",
+        "state": {
+          "auto": "Auto",
+          "manual": "Manual",
+          "off": "Off"
+        }
       }
     },
     "switch": {
       "group": {
-        "name": "Group"
+        "name": "{group_name}"
       }
     },
     "number": {
@@ -147,7 +164,7 @@
         "name": "Max daily feed"
       },
       "group_duration": {
-        "name": "duration"
+        "name": "{group_name} duration"
       }
     },
     "sensor": {
@@ -341,18 +358,6 @@
       },
       "num_device_offline": {
         "name": "Device offline events"
-      }
-    },
-    "select": {
-      "mode": {
-        "name": "Mode",
-        "state": {
-          "off": "Off",
-          "heat_pool": "Heat Pool",
-          "heat_spa": "Heat Spa",
-          "cool_pool": "Cool Pool",
-          "auto_pool": "Auto Pool"
-        }
       }
     }
   }
