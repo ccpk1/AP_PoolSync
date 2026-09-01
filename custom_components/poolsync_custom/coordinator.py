@@ -675,9 +675,13 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ``via_device_id`` requires the parent device to already exist, so the
         parent is created on demand before a child references it. When the
         config entry is not yet registered (e.g. during unit tests), no via
-        link is created.
+        link is created. On HA versions before 2026.8 the new API is not
+        available, so no via link is created here (the legacy ``via_device``
+        tuple is used instead).
         """
         device_registry = dr.async_get(self.hass)
+        if not hasattr(device_registry, "async_get_device_by_identifier"):
+            return None
         existing = device_registry.async_get_device_by_identifier(
             identifier, self.config_entry_id
         )
@@ -701,6 +705,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hw_version: str | None = None,
         configuration_url: str | None = None,
         via_device_id: str | None = None,
+        via_device: tuple[str, str] | None = None,
     ) -> DeviceInfo:
         """Build DeviceInfo, only setting name when the device doesn't exist yet.
 
@@ -709,9 +714,12 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entries to preserve user customizations.
         """
         device_registry = dr.async_get(self.hass)
-        existing = device_registry.async_get_device_by_identifier(
-            identifier, self.config_entry_id
-        )
+        if hasattr(device_registry, "async_get_device_by_identifier"):
+            existing = device_registry.async_get_device_by_identifier(
+                identifier, self.config_entry_id
+            )
+        else:
+            existing = device_registry.async_get_device(identifiers={identifier})
 
         info: dict[str, Any] = {
             "identifiers": {identifier},
@@ -727,8 +735,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             info["hw_version"] = hw_version
         if configuration_url is not None:
             info["configuration_url"] = configuration_url
-        if via_device_id is not None:
-            info["via_device_id"] = via_device_id
+        if hasattr(device_registry, "async_get_device_by_identifier"):
+            if via_device_id is not None:
+                info["via_device_id"] = via_device_id
+        elif via_device is not None:
+            info["via_device"] = via_device
 
         return DeviceInfo(**info)
 
@@ -890,6 +901,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             via_device_id=self._get_or_create_device_id(
                 self._get_controller_identifier()
             ),
+            via_device=self._get_controller_identifier(),
         )
 
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
@@ -900,6 +912,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             via_device_id=self._get_or_create_device_id(
                 (DOMAIN, f"{self.mac_address}_heat_pump")
             ),
+            via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
         )
 
     @staticmethod
