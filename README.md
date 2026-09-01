@@ -136,6 +136,21 @@ The exact entity set depends on the device data exposed by your PoolSync install
 - Pool and spa setpoint sensors when reported by the device
 - Binary sensors for heat-pump flow, fan, compressor, online state, and fault state
 
+### Pump and group control
+
+When the PoolSync device reports a variable-speed circulation pump and/or groups (scenes such as POOL, WATERFALL, FILTRATION, AMBIANCE, CLEANER), the integration creates:
+
+- **Pump mode select** (`select.pump_mode`) — Auto / Manual / Off. In Manual mode the pump runs at the RPM you set; in Auto it follows the active group(s); Off stops it.
+- **Pump RPM control** (`number.pump_rpm_control`) — sets the manual RPM. When the pump is running, this reflects the actual current speed.
+- **Group switches** (`switch.group_*`) — one per group. Turning a group on uses the group's stored default duration (e.g. Waterfall defaults to 6 hours); turning it off stops it immediately.
+- **Group duration** (`number.group_*_duration`) — adjusts the duration of a group **while it is running**. Changing the duration of a group that is off has no effect until it is turned on.
+- **Group info sensor** (`sensor.group_info`) — shows which groups are active, with per-group duration and end-time attributes.
+
+**Services** for more customized control:
+
+- `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.
+- `poolsync_custom.set_pump_mode(mode, rpm?)` — set the pump to `auto`, `manual`, or `off`. `rpm` is required for `manual`.
+
 Some diagnostic entities are disabled by default to keep the default dashboard cleaner.
 
 ## Options
