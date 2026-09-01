@@ -669,6 +669,28 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return (domain, f"{self.mac_address}_{role_key}_{node_addr}")
         return (domain, f"{self.mac_address}_{role_key}_{index}")
 
+    def _get_or_create_device_id(self, identifier: tuple[str, str]) -> str | None:
+        """Resolve a parent identifier to a device ID, creating it if needed.
+
+        ``via_device_id`` requires the parent device to already exist, so the
+        parent is created on demand before a child references it. When the
+        config entry is not yet registered (e.g. during unit tests), no via
+        link is created.
+        """
+        device_registry = dr.async_get(self.hass)
+        existing = device_registry.async_get_device_by_identifier(
+            identifier, self.config_entry_id
+        )
+        if existing is not None:
+            return existing.id
+        if self.hass.config_entries.async_get_entry(self.config_entry_id) is None:
+            return None
+        return device_registry.async_get_or_create(
+            config_entry_id=self.config_entry_id,
+            identifiers={identifier},
+            manufacturer=MANUFACTURER,
+        ).id
+
     def _build_device_info(
         self,
         *,
@@ -678,7 +700,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sw_version: str | None = None,
         hw_version: str | None = None,
         configuration_url: str | None = None,
-        via_device: tuple[str, str] | None = None,
+        via_device_id: str | None = None,
     ) -> DeviceInfo:
         """Build DeviceInfo, only setting name when the device doesn't exist yet.
 
@@ -687,7 +709,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entries to preserve user customizations.
         """
         device_registry = dr.async_get(self.hass)
-        existing = device_registry.async_get_device(identifiers={identifier})
+        existing = device_registry.async_get_device_by_identifier(
+            identifier, self.config_entry_id
+        )
 
         info: dict[str, Any] = {
             "identifiers": {identifier},
@@ -703,8 +727,8 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             info["hw_version"] = hw_version
         if configuration_url is not None:
             info["configuration_url"] = configuration_url
-        if via_device is not None:
-            info["via_device"] = via_device
+        if via_device_id is not None:
+            info["via_device_id"] = via_device_id
 
         return DeviceInfo(**info)
 
@@ -863,7 +887,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             model=str(model_name) if model_name else default_model,
             sw_version=str(sw_version) if sw_version is not None else None,
             hw_version=str(hw_version) if hw_version is not None else None,
-            via_device=self._get_controller_identifier(),
+            via_device_id=self._get_or_create_device_id(
+                self._get_controller_identifier()
+            ),
         )
 
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
@@ -871,7 +897,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._build_device_info(
             identifier=(DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}"),
             name=self._normalize_equipment_name(equip.name),
-            via_device=(DOMAIN, f"{self.mac_address}_heat_pump"),
+            via_device_id=self._get_or_create_device_id(
+                (DOMAIN, f"{self.mac_address}_heat_pump")
+            ),
         )
 
     @staticmethod

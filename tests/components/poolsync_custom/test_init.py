@@ -255,11 +255,11 @@ async def test_async_setup_entry_migrates_existing_entities_to_role_devices(
     ):
         assert await async_setup_entry(hass, poolsync_config_entry)
 
-    heat_pump_device = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{TEST_MAC_ADDRESS}_heat_pump")}
+    heat_pump_device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{TEST_MAC_ADDRESS}_heat_pump"), poolsync_config_entry.entry_id
     )
-    chlorinator_device = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{TEST_MAC_ADDRESS}_chlorinator")}
+    chlorinator_device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{TEST_MAC_ADDRESS}_chlorinator"), poolsync_config_entry.entry_id
     )
 
     assert heat_pump_device is not None

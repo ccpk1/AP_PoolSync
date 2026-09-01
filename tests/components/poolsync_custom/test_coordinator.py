@@ -414,13 +414,15 @@ async def test_device_info_uses_parsed_role_metadata(hass) -> None:
     assert chlorinator_info["model"] == "ChlorSync Elite"
     assert chlorinator_info["sw_version"] == "8.7.6"
     assert chlorinator_info["hw_version"] == "2.1"
-    assert chlorinator_info["via_device"] == ("poolsync_custom", TEST_MAC_ADDRESS)
+    # No via link without a registered config entry (unit-test context).
+    assert "via_device_id" not in chlorinator_info
 
     assert heat_pump_info["name"] == "T75 Heat Pump"
     assert heat_pump_info["model"] == "075AHDSBLH"
     assert heat_pump_info["sw_version"] == "270"
     assert heat_pump_info["hw_version"] == "F"
-    assert heat_pump_info["via_device"] == ("poolsync_custom", TEST_MAC_ADDRESS)
+    # No via link without a registered config entry (unit-test context).
+    assert "via_device_id" not in heat_pump_info
 
 
 async def test_device_info_normalizes_default_chlorinator_name_and_versions(
