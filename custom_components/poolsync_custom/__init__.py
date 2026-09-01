@@ -261,6 +261,7 @@ async def _async_register_services(
         hass,
         DOMAIN,
         "set_group_state",
+        _async_set_group_state,
         vol.Schema(
             {
                 vol.Required("group"): str,
@@ -268,19 +269,18 @@ async def _async_register_services(
                 vol.Optional("duration"): vol.Any(str, int, float),
             }
         ),
-        _async_set_group_state,
     )
     async_register_admin_service(
         hass,
         DOMAIN,
         "set_pump_mode",
+        _async_set_pump_mode,
         vol.Schema(
             {
                 vol.Required("mode"): vol.In(["auto", "manual", "off"]),
                 vol.Optional("rpm"): vol.Any(int, float),
             }
         ),
-        _async_set_pump_mode,
     )
 
 
