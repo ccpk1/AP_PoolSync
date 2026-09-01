@@ -24,6 +24,7 @@ from .runtime import (
     get_heat_pump_mode_options,
     get_pump_mode,
     get_pump_rpm,
+    get_pump_rpm_min,
     get_select_value,
 )
 
@@ -272,10 +273,12 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
 
         rpm = None
         if option == PUMP_MODE_MANUAL:
-            rpm = get_pump_rpm(
-                get_equipment_runtime(ensure_parsed_data(self.coordinator))
+            equip_runtime = get_equipment_runtime(
+                ensure_parsed_data(self.coordinator)
             )
+            rpm = get_pump_rpm(equip_runtime)
             if not rpm:
-                rpm = 1800  # Fallback to a sensible default when unknown
+                # Start at the pump's minimum speed when it is not running
+                rpm = get_pump_rpm_min(equip_runtime) or 600
 
         await self.coordinator.async_set_pump_mode(option, rpm=rpm)
