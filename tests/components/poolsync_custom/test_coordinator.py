@@ -1042,3 +1042,37 @@ async def test_async_set_group_duration_rejects_off_group(hass) -> None:
         await coordinator.async_set_group_duration("2", 58)
 
     api_client.async_set_device_config_value.assert_not_awaited()
+
+
+async def test_async_set_group_schedule_mode_on(hass) -> None:
+    """Enabling a group schedule sends schedMode:1."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_group_schedule_mode("1", True)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_schedule_mode",
+        value=1,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"schedMode": 1}}},
+    )
+
+
+async def test_async_set_group_schedule_mode_off(hass) -> None:
+    """Disabling a group schedule sends schedMode:0."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    await coordinator.async_set_group_schedule_mode("1", False)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_schedule_mode",
+        value=0,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"schedMode": 0}}},
+    )

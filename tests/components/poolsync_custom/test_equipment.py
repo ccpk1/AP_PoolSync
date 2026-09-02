@@ -18,6 +18,8 @@ from custom_components.poolsync_custom.runtime import (
     get_equipment_runtime,
     get_group_duration,
     get_group_ends_at,
+    get_group_schedule_mode,
+    get_group_schedule_slots,
     get_group_time_left,
     get_hp_in_group,
     get_valve_position_name,
@@ -608,3 +610,55 @@ class TestFormatDurationDdHhMm:
     def test_zero(self) -> None:
         """Zero formats as 0d 00:00."""
         assert format_duration_dd_hh_mm(0) == "0d 00:00"
+
+
+# ===================================================================
+# Group schedules
+# ===================================================================
+
+
+class TestGroupSchedules:
+    """Tests for group schedule mode and slot decoding."""
+
+    def test_schedule_mode_enabled(self, parsed_090_pool) -> None:
+        """POOL group has schedMode=1 (schedule enabled)."""
+        er = get_equipment_runtime(parsed_090_pool)
+        assert get_group_schedule_mode(er, "0") is True
+
+    def test_schedule_mode_disabled(self, parsed_090_pool) -> None:
+        """CLEANER group has schedMode=1 in this sample too."""
+        er = get_equipment_runtime(parsed_090_pool)
+        assert get_group_schedule_mode(er, "5") is True
+
+    def test_schedule_slots_decoded(self, parsed_090_pool) -> None:
+        """POOL schedule slots decode to human-readable days and times."""
+        er = get_equipment_runtime(parsed_090_pool)
+        slots = get_group_schedule_slots(er, "0")
+        assert len(slots) == 4
+        # [62, 0, 11] → Mon-Fri 00:00-11:00
+        assert slots[0].day_label == "Mon-Fri"
+        assert slots[0].start_label == "00:00"
+        assert slots[0].end_label == "11:00"
+        # [62, 17, 0] → Mon-Fri 17:00-00:00
+        assert slots[1].day_label == "Mon-Fri"
+        assert slots[1].start_label == "17:00"
+        assert slots[1].end_label == "00:00"
+        # [65, 0, 0] → Sat-Sun 00:00-00:00
+        assert slots[2].day_label == "Sat-Sun"
+        # [0, 11527, 8] → disabled (11527 decodes to 7:45am)
+        assert slots[3].is_enabled is False
+        assert slots[3].day_label == "disabled"
+        assert slots[3].start_label == "07:45"
+        assert slots[3].end_label == "08:00"
+
+    def test_schedule_slots_cleaner(self, parsed_090_pool) -> None:
+        """CLEANER schedule slots decode from the sample data."""
+        er = get_equipment_runtime(parsed_090_pool)
+        slots = get_group_schedule_slots(er, "5")
+        assert len(slots) == 4
+
+    def test_no_schedules_returns_empty(self, parsed_t75_heat_pool) -> None:
+        """T75 has no schedules; returns empty list."""
+        er = get_equipment_runtime(parsed_t75_heat_pool)
+        assert er is None
+        assert get_group_schedule_slots(er, "0") == []

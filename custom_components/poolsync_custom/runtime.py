@@ -22,6 +22,7 @@ from .const import (
     EQUIP_TYPE_CIRCULATION_PUMP,
     EQUIP_TYPE_HEAT_PUMP,
     EQUIP_TYPE_VALVE,
+    GROUP_IDX_SCHEDULE_MODE,
     GROUP_IDX_TIME_LEFT,
     GROUP_IDX_TIME_SET,
     VALVE_IDX_CURRENT_POSITION,
@@ -338,6 +339,7 @@ class PoolSyncEquipmentRuntime:
 
     equipment: dict[str, PoolSyncEquipmentData]
     raw_groups: dict[str, Any] | None
+    raw_schedules: dict[str, Any] | None
 
     @property
     def has_equipment(self) -> bool:
@@ -386,6 +388,107 @@ class PoolSyncEquipmentRuntime:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class PoolSyncScheduleSlot:
+    """A single decoded schedule slot for a group.
+
+    ``day_mask`` is a 7-bit bitmask (bit 0 = Sunday). ``start_time`` and
+    ``end_time`` are minutes since midnight, decoded from the device's
+    ``minute * 256 + hour`` packing.
+    """
+
+    day_mask: int
+    start_time: int
+    end_time: int
+
+    @property
+    def is_enabled(self) -> bool:
+        """Return whether this slot is active (day mask non-zero)."""
+        return self.day_mask != 0
+
+    @property
+    def start_label(self) -> str:
+        """Return the start time as a human-readable HH:MM label."""
+        return _format_schedule_time(self.start_time)
+
+    @property
+    def end_label(self) -> str:
+        """Return the end time as a human-readable HH:MM label."""
+        return _format_schedule_time(self.end_time)
+
+    @property
+    def day_label(self) -> str:
+        """Return the day mask as a human-readable day-of-week label."""
+        return _format_day_mask(self.day_mask)
+
+
+def _format_schedule_time(minutes: int) -> str:
+    """Format minutes-since-midnight as a 24-hour HH:MM label."""
+    minutes = max(0, minutes)
+    hour, minute = divmod(minutes, 60)
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _format_day_mask(day_mask: int) -> str:
+    """Format a 7-bit day mask (bit 0 = Sunday) as a day-of-week label."""
+    if day_mask == 0:
+        return "disabled"
+    if day_mask == 0b1111111:
+        return "every day"
+    if day_mask == 0b0111110:
+        return "Mon-Fri"
+    if day_mask == 0b1000001:
+        return "Sat-Sun"
+    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    return ",".join(day for i, day in enumerate(days) if day_mask & (1 << i))
+
+
+def _decode_schedule_time(value: int) -> int:
+    """Decode a device schedule time value into minutes since midnight.
+
+    The device packs time as ``minute * 256 + hour`` (confirmed by packet
+    capture, 2026-09-02). Values <= 23 are plain hours.
+    """
+    if value <= 23:
+        return value * 60
+    hour = value % 256
+    minute = value // 256
+    return hour * 60 + minute
+
+
+def _parse_schedule_slots(
+    raw_schedules: dict[str, Any] | None,
+) -> list[PoolSyncScheduleSlot]:
+    """Parse a group's raw schedule slots into decoded slot objects."""
+    if not isinstance(raw_schedules, dict):
+        return []
+    slots: list[PoolSyncScheduleSlot] = []
+    for slot_key in ("0", "1", "2", "3"):
+        raw_slot = raw_schedules.get(slot_key)
+        if not isinstance(raw_slot, list) or len(raw_slot) < 3:
+            continue
+        day_mask = raw_slot[0]
+        start_raw = raw_slot[1]
+        end_raw = raw_slot[2]
+        if (
+            isinstance(day_mask, bool)
+            or not isinstance(day_mask, int)
+            or isinstance(start_raw, bool)
+            or not isinstance(start_raw, int)
+            or isinstance(end_raw, bool)
+            or not isinstance(end_raw, int)
+        ):
+            continue
+        slots.append(
+            PoolSyncScheduleSlot(
+                day_mask=day_mask,
+                start_time=_decode_schedule_time(start_raw),
+                end_time=_decode_schedule_time(end_raw),
+            )
+        )
+    return slots
+
+
 def _parse_raw_equipment(
     raw_equip: dict[str, Any] | None,
 ) -> dict[str, PoolSyncEquipmentData]:
@@ -427,10 +530,12 @@ def get_equipment_runtime(
         return None
 
     raw_groups = hp_data.get("groups") if hp_data else None
+    raw_schedules = hp_data.get("schedules") if hp_data else None
 
     return PoolSyncEquipmentRuntime(
         equipment=equipment,
         raw_groups=raw_groups if isinstance(raw_groups, dict) else None,
+        raw_schedules=raw_schedules if isinstance(raw_schedules, dict) else None,
     )
 
 
@@ -555,6 +660,38 @@ def get_group_ends_at(
     if not time_left:
         return None
     return now + timedelta(seconds=time_left)
+
+
+def get_group_schedule_mode(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+) -> bool | None:
+    """Return whether a group's schedule is enabled (config[7] schedMode)."""
+    if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
+        return None
+    group_data = equip_runtime.raw_groups.get(group_key)
+    if not isinstance(group_data, dict):
+        return None
+    config = group_data.get("config")
+    if not isinstance(config, list) or len(config) <= GROUP_IDX_SCHEDULE_MODE:
+        return None
+    value = config[GROUP_IDX_SCHEDULE_MODE]
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value != 0
+
+
+def get_group_schedule_slots(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+) -> list[PoolSyncScheduleSlot]:
+    """Return the decoded schedule slots for a group."""
+    if equip_runtime is None or not isinstance(equip_runtime.raw_schedules, dict):
+        return []
+    raw_group_schedules = equip_runtime.raw_schedules.get(group_key)
+    if not isinstance(raw_group_schedules, dict):
+        return []
+    return _parse_schedule_slots(raw_group_schedules)
 
 
 def get_valve_position_name(

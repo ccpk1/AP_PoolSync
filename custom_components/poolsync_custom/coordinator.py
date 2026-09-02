@@ -1094,3 +1094,29 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_set_group_state(
             group_id, True, index=index, duration=duration_seconds
         )
+
+    async def async_set_group_schedule_mode(
+        self, group_id: str, enabled: bool, index: int = 0
+    ) -> None:
+        """Enable or disable a group's schedule (config[7] schedMode).
+
+        Confirmed write format (2026-09-02): ``groups.{key}.schedMode = 0|1``.
+        """
+        role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
+
+        if role_data is None or role_data.device_id is None:
+            raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=role_data.device_id,
+                key_id="group_schedule_mode",
+                value=1 if enabled else 0,
+                password=self.password,
+                json_data_override={
+                    "groups": {group_id: {"schedMode": 1 if enabled else 0}}
+                },
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error(f"group {group_id} schedule mode", err)
