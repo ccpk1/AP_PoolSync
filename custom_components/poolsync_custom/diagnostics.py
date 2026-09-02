@@ -22,6 +22,8 @@ from .runtime import (
     get_circulation_pump_rpm_min,
     get_equipment_runtime,
     get_group_duration,
+    get_group_schedule_mode,
+    get_group_schedule_slots,
     get_heat_pump_runtime,
     get_number_value,
     get_sensor_value,
@@ -128,6 +130,26 @@ async def async_get_config_entry_diagnostics(
                 }
                 for sk, e in equip_runtime.equipment.items()
             }
+            # Per-group schedule mode and decoded slots
+            if isinstance(equip_runtime.raw_groups, dict):
+                equip_debug["group_schedules"] = {
+                    group_key: {
+                        "schedule_mode": get_group_schedule_mode(
+                            equip_runtime, group_key
+                        ),
+                        "slots": [
+                            {
+                                "days": slot.day_label,
+                                "start": slot.start_label,
+                                "end": slot.end_label,
+                            }
+                            for slot in get_group_schedule_slots(
+                                equip_runtime, group_key
+                            )
+                        ],
+                    }
+                    for group_key in equip_runtime.raw_groups
+                }
             result["equipment_debug"] = equip_debug
 
         # --- All mapped sensor values ---
@@ -342,6 +364,13 @@ async def async_get_config_entry_diagnostics(
             pump_mode = get_circulation_pump_mode(equip_runtime)
             if pump_mode is not None:
                 select_values["pump_mode"] = pump_mode
+            if isinstance(equip_runtime.raw_groups, dict):
+                for group_key in equip_runtime.raw_groups:
+                    schedule_mode = get_group_schedule_mode(equip_runtime, group_key)
+                    if schedule_mode is not None:
+                        select_values[f"group_{group_key}_schedule_mode"] = (
+                            schedule_mode
+                        )
 
         result["mapped_select_values"] = select_values
 
