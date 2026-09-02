@@ -27,6 +27,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import CIRCULATION_PUMP_RPM_MAX, CIRCULATION_PUMP_RPM_MIN
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     build_unique_id,
@@ -114,8 +115,8 @@ NUMBER_DESCRIPTIONS_EQUIPMENT: tuple[NumberDescription, ...] = (
             translation_key="pump_rpm_control",
             entity_category=EntityCategory.CONFIG,
             native_unit_of_measurement="RPM",
-            native_min_value=0,
-            native_max_value=3450,
+            native_min_value=CIRCULATION_PUMP_RPM_MIN,
+            native_max_value=CIRCULATION_PUMP_RPM_MAX,
             native_step=50,
             mode=NumberMode.BOX,
         ),

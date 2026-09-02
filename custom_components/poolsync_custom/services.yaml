@@ -1,0 +1,60 @@
+set_group_state:
+  name: Set group state
+  description: >-
+    Turn a PoolSync group on or off, optionally with a custom duration. When a
+    duration is omitted, the group's stored default is used.
+  fields:
+    group:
+      name: Group
+      description: >-
+        The group to control. Accepts the group name (e.g. "POOL", "WATERFALL",
+        "CLEANER") or its numeric key.
+      required: true
+      example: "WATERFALL"
+      selector:
+        text:
+    state:
+      name: State
+      description: Whether to turn the group on or off.
+      required: true
+      selector:
+        boolean:
+    duration:
+      name: Duration
+      description: >-
+        How long the group should run when turning it on. Accepts minutes
+        (e.g. 90) or a human-readable value (e.g. "1d 10h 22m"). Only used when
+        turning the group on.
+      required: false
+      example: "1h 30m"
+      selector:
+        text:
+
+set_pump_mode:
+  name: Set pump mode
+  description: >-
+    Set the circulation pump operating mode to auto, manual, or off. In manual
+    mode the pump runs at the specified RPM.
+  fields:
+    mode:
+      name: Mode
+      description: The pump operating mode to set.
+      required: true
+      selector:
+        select:
+          options:
+            - "auto"
+            - "manual"
+            - "off"
+    rpm:
+      name: RPM
+      description: >-
+        The pump speed in RPM. Required when mode is "manual".
+      required: false
+      example: 2000
+      selector:
+        number:
+          min: 600
+          max: 3450
+          step: 50
+          unit_of_measurement: "RPM"

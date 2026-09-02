@@ -147,10 +147,27 @@ When the PoolSync device reports a variable-speed circulation pump and/or groups
 - **Group duration** (`number.group_*_duration`) — adjusts the duration of a group **while it is running**. Changing the duration of a group that is off has no effect until it is turned on.
 - **Group info sensor** (`sensor.group_info`) — shows which groups are active, with per-group duration and end-time attributes.
 
-**Services** for more customized control:
+**Services** for more customized control (available in Developer Tools → Services):
 
-- `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.
+- `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `state` accepts `on`/`off`, `true`/`false`, or `1`/`0`. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.
 - `poolsync_custom.set_pump_mode(mode, rpm?)` — set the pump to `auto`, `manual`, or `off`. `rpm` is required for `manual`.
+
+Example — turn the Waterfall group on for 90 minutes:
+```yaml
+service: poolsync_custom.set_group_state
+data:
+  group: "WATERFALL"
+  state: "on"
+  duration: "1h 30m"
+```
+
+Example — set the pump to manual at 2000 RPM:
+```yaml
+service: poolsync_custom.set_pump_mode
+data:
+  mode: "manual"
+  rpm: 2000
+```
 
 Some diagnostic entities are disabled by default to keep the default dashboard cleaner.
 

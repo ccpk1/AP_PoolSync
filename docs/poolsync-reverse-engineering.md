@@ -1023,6 +1023,20 @@ This retroactively explains the diagnostic values that previously looked like ga
 
 The earlier decompiled-app analysis (`updateDevice` → `{devices: {...}}` → `config[3]`) was a reasonable hypothesis but the **confirmed capture shows the real payload is flat** (`groups.{key}.state`), not wrapped in `devices.{id}`.
 
+#### F10b. Integration Services (UI mode)
+
+The integration exposes two admin services that wrap the confirmed write paths above. Both are defined in `services.yaml` and translated in `translations/en.json`, so they appear in the Home Assistant Services UI picker.
+
+| Service | Fields | Write path |
+|---------|--------|------------|
+| `set_group_state` | `group` (name or key), `state` (on/off/true/false/1/0), `duration?` (minutes or human-readable) | `groups.{key}.state = [on/off, duration]` |
+| `set_pump_mode` | `mode` (auto/manual/off), `rpm?` (required for manual) | `equip.{slot} = [rpm/50, flag]` |
+
+Notes:
+- `state` is validated with `cv.boolean`, so it accepts `on`/`off`, `true`/`false`, or `1`/`0`.
+- `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`); when omitted, the group's stored default (`config[4]`) is used.
+- `set_pump_mode` with `mode: manual` requires `rpm`; the RPM is divided by the ×50 factor before writing.
+
 ### 🟢 LOWER CONFIDENCE — Needs more data
 
 #### F11. Schedule Time Encoding (RESOLVED by packet capture, 2026-09-02)

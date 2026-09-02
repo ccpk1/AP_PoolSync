@@ -214,7 +214,10 @@ async def _async_register_services(
     """Register PoolSync control services."""
 
     async def _async_set_group_state(call: ServiceCall) -> None:
-        """Turn a group on or off, optionally with a duration."""
+        """Turn a group on or off, optionally with a duration.
+
+        ``state`` accepts on/off, true/false, or 1/0 (via cv.boolean).
+        """
         group = call.data["group"]
         state = call.data["state"]
         duration_raw = call.data.get("duration")
@@ -265,6 +268,7 @@ async def _async_register_services(
         vol.Schema(
             {
                 vol.Required("group"): str,
+                # cv.boolean accepts on/off, true/false, and 1/0
                 vol.Required("state"): cv.boolean,
                 vol.Optional("duration"): vol.Any(str, int, float),
             }

@@ -69,6 +69,10 @@ EQUIP_TYPE_HEAT_PUMP = 3
 # Circulation pump RPM multiplier (internal units × 50 = real RPM)
 CIRCULATION_PUMP_RPM_FACTOR = 50
 
+# Circulation pump RPM control range (industry-standard VS pump bounds)
+CIRCULATION_PUMP_RPM_MIN = 600
+CIRCULATION_PUMP_RPM_MAX = 3450
+
 # Circulation pump mode write flag (confirmed from user packet capture, 2026-09-01)
 # 4294967295 (0xFFFFFFFF, int32 −1) = manual override/on; 0 = auto
 CIRCULATION_PUMP_MANUAL_FLAG = 4294967295

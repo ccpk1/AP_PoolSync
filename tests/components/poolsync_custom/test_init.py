@@ -78,6 +78,96 @@ async def test_async_setup_entry_sets_runtime_data(
     mock_forward_entry_setups.assert_awaited_once_with(poolsync_config_entry, PLATFORMS)
 
 
+async def test_async_setup_entry_registers_services(
+    hass, poolsync_config_entry: MockConfigEntry
+) -> None:
+    """Test setup registers the control services."""
+    poolsync_config_entry.add_to_hass(hass)
+
+    with (
+        patch.object(
+            PoolSyncDataUpdateCoordinator,
+            "async_config_entry_first_refresh",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        assert await async_setup_entry(hass, poolsync_config_entry)
+
+    assert hass.services.has_service(DOMAIN, "set_group_state")
+    assert hass.services.has_service(DOMAIN, "set_pump_mode")
+
+
+async def test_set_group_state_service_accepts_on_off(
+    hass, poolsync_config_entry: MockConfigEntry
+) -> None:
+    """Test set_group_state accepts on/off and resolves the group by name."""
+    poolsync_config_entry.add_to_hass(hass)
+
+    with (
+        patch.object(
+            PoolSyncDataUpdateCoordinator,
+            "async_config_entry_first_refresh",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        assert await async_setup_entry(hass, poolsync_config_entry)
+
+    coordinator = poolsync_config_entry.runtime_data
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {
+                    "0": [3, "HEAT PUMP"],
+                    "1": [0, "CIRCULATION PUMP"],
+                    "3": [1, "RETURN VALVE"],
+                },
+                "groups": {
+                    "1": {
+                        "config": ["WATERFALL", 22, 24, 1, 21600, 21586, 1, 1],
+                        "equip": {"1": [60, 0], "3": [3, 0]},
+                    },
+                },
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_set_group_state = AsyncMock()
+
+    # "on" resolves to True
+    await hass.services.async_call(
+        DOMAIN,
+        "set_group_state",
+        {"group": "WATERFALL", "state": "on", "duration": "1h 30m"},
+        blocking=True,
+    )
+    coordinator.async_set_group_state.assert_awaited_once_with("1", True, duration=5400)
+
+    coordinator.async_set_group_state.reset_mock()
+
+    # "off" resolves to False
+    await hass.services.async_call(
+        DOMAIN,
+        "set_group_state",
+        {"group": "WATERFALL", "state": "off"},
+        blocking=True,
+    )
+    coordinator.async_set_group_state.assert_awaited_once_with(
+        "1", False, duration=None
+    )
+
+
 async def test_async_setup_entry_uses_dedicated_poolsync_session(
     hass, poolsync_config_entry: MockConfigEntry
 ) -> None:
