@@ -126,3 +126,17 @@ async def test_group_switch_unique_id_is_stable_and_name_independent(hass) -> No
     assert entity.device_info["identifiers"] == {
         ("poolsync_custom", "AABBCCDDEEFF_controller")
     }
+
+
+async def test_group_switch_duration_attribute_formatted(hass) -> None:
+    """Test the duration attribute uses the consistent Dd HH:MM format."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_0", translation_key="group"),
+        group_key="0",
+        group_name="POOL",
+    )
+
+    # 172800 seconds → 2d 00:00
+    assert entity.extra_state_attributes["duration"] == "2d 00:00"

@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.poolsync_custom.runtime import (
     _parse_raw_equipment,
+    format_duration_dd_hh_mm,
     get_circulation_pump_mode,
     get_circulation_pump_priming,
     get_circulation_pump_rpm,
@@ -583,3 +584,27 @@ class TestParseDurationToMinutes:
     def test_accepts_spaced_tokens(self) -> None:
         """Whitespace-separated tokens parse correctly."""
         assert parse_duration_to_minutes("1d 10h 22m 30s") == 2062.5
+
+
+class TestFormatDurationDdHhMm:
+    """Tests for the consistent Dd HH:MM duration formatter."""
+
+    def test_minutes_only(self) -> None:
+        """Sub-hour durations format as 0d HH:MM."""
+        assert format_duration_dd_hh_mm(3480) == "0d 00:58"
+
+    def test_hours(self) -> None:
+        """Hour-scale durations format as 0d HH:MM."""
+        assert format_duration_dd_hh_mm(28800) == "0d 08:00"
+
+    def test_days(self) -> None:
+        """Multi-day durations format as Dd HH:MM."""
+        assert format_duration_dd_hh_mm(172800) == "2d 00:00"
+
+    def test_days_and_hours(self) -> None:
+        """Durations spanning days and hours format consistently."""
+        assert format_duration_dd_hh_mm(172800 + 3600 + 1800) == "2d 01:30"
+
+    def test_zero(self) -> None:
+        """Zero formats as 0d 00:00."""
+        assert format_duration_dd_hh_mm(0) == "0d 00:00"

@@ -1647,6 +1647,18 @@ def parse_duration_to_minutes(value: str | int | float) -> float | None:
     return total_minutes
 
 
+def format_duration_dd_hh_mm(seconds: int) -> str:
+    """Format a duration in seconds as a consistent ``Dd HH:MM`` string.
+
+    Uses a single fixed shape that scales from minutes to days, e.g.
+    172800 -> ``2d 00:00``, 3480 -> ``0d 00:58``, 28800 -> ``0d 08:00``.
+    """
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    return f"{days}d {hours:02d}:{minutes:02d}"
+
+
 def get_select_value(
     parsed_data: PoolSyncParsedData,
     key: str,

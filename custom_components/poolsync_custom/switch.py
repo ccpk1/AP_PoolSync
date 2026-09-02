@@ -17,6 +17,7 @@ from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     build_unique_id,
     ensure_parsed_data,
+    format_duration_dd_hh_mm,
     get_equipment_runtime,
     get_group_duration,
     get_group_ends_at,
@@ -129,7 +130,9 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         ends_at = get_group_ends_at(equip_runtime, self._group_key, dt_util.utcnow())
         self._attr_extra_state_attributes = {}
         if duration is not None:
-            self._attr_extra_state_attributes["duration"] = duration
+            self._attr_extra_state_attributes["duration"] = format_duration_dd_hh_mm(
+                duration
+            )
         if ends_at is not None:
             self._attr_extra_state_attributes["ends_at"] = ends_at.isoformat()
 
