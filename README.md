@@ -143,6 +143,7 @@ When the PoolSync device reports a variable-speed circulation pump and/or groups
 - **Pump mode select** (`select.pump_mode`) — Auto / Manual / Off. In Manual mode the pump runs at the RPM you set; in Auto it follows the active group(s); Off stops it.
 - **Pump RPM control** (`number.pump_rpm_control`) — sets the manual RPM. When the pump is running, this reflects the actual current speed.
 - **Group switches** (`switch.group_*`) — one per group. Turning a group on uses the group's stored default duration (e.g. Waterfall defaults to 6 hours); turning it off stops it immediately.
+- **Group schedule switches** (`switch.group_*_schedule`) — one per group. Toggles whether the group's schedule is enabled (its `schedMode`). Turning this on enables the schedule; it does **not** turn the group itself on. Each switch exposes the group's up to 4 schedule slots as a `schedules` attribute (decoded days and times).
 - **Group duration** (`number.group_*_duration`) — adjusts the duration of a group **while it is running**. Changing the duration of a group that is off has no effect until it is turned on.
 - **Group info sensor** (`sensor.group_info`) — shows which groups are active, with per-group duration and end-time attributes.
 

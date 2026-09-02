@@ -142,6 +142,9 @@
     "switch": {
       "group": {
         "name": "{group_name}"
+      },
+      "group_schedule": {
+        "name": "{group_name} schedule"
       }
     },
     "number": {

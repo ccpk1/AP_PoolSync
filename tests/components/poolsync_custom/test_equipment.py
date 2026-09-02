@@ -9,16 +9,19 @@ import pytest
 
 from custom_components.poolsync_custom.runtime import (
     _parse_raw_equipment,
+    format_duration_dd_hh_mm,
+    get_circulation_pump_mode,
+    get_circulation_pump_priming,
+    get_circulation_pump_rpm,
+    get_circulation_pump_rpm_max,
+    get_circulation_pump_rpm_min,
     get_equipment_runtime,
     get_group_duration,
     get_group_ends_at,
+    get_group_schedule_mode,
+    get_group_schedule_slots,
     get_group_time_left,
     get_hp_in_group,
-    get_pump_mode,
-    get_pump_priming,
-    get_pump_rpm,
-    get_pump_rpm_max,
-    get_pump_rpm_min,
     get_valve_position_name,
     get_valve_position_options,
     parse_duration_to_minutes,
@@ -161,7 +164,7 @@ class TestRawEquipmentParsing:
         hp = equipment["0"]
         assert hp.equip_type == 3
         assert hp.name == "HEAT PUMP"
-        assert hp.is_pump is False
+        assert hp.is_circulation_pump is False
         assert hp.is_valve is False
 
     def test_equipment_slot_1_is_vs_pump(self, parsed_090_filtration) -> None:
@@ -171,7 +174,7 @@ class TestRawEquipmentParsing:
         pump = equipment["1"]
         assert pump.equip_type == 0
         assert pump.name == "CIRCULATION PUMP"
-        assert pump.is_pump is True
+        assert pump.is_circulation_pump is True
         assert pump.is_valve is False
 
     def test_equipment_slot_3_is_valve(self, parsed_090_filtration) -> None:
@@ -181,7 +184,7 @@ class TestRawEquipmentParsing:
         valve = equipment["3"]
         assert valve.equip_type == 1
         assert valve.name == "RETURN VALVE"
-        assert valve.is_pump is False
+        assert valve.is_circulation_pump is False
         assert valve.is_valve is True
 
     def test_t75_has_no_equipment(self, parsed_t75_heat_pool) -> None:
@@ -227,51 +230,51 @@ class TestPumpRPM:
     def test_filtration_1750_rpm(self, parsed_090_filtration) -> None:
         """Filtration group: pump at 1750 RPM."""
         er = get_equipment_runtime(parsed_090_filtration)
-        assert get_pump_rpm(er) == 1750
+        assert get_circulation_pump_rpm(er) == 1750
 
     def test_priming_3450_rpm(self, parsed_090_priming) -> None:
         """Priming: pump at 3450 RPM."""
         er = get_equipment_runtime(parsed_090_priming)
-        assert get_pump_rpm(er) == 3450
+        assert get_circulation_pump_rpm(er) == 3450
 
     def test_pool_2900_rpm(self, parsed_090_pool) -> None:
         """Pool group: pump at 2900 RPM."""
         er = get_equipment_runtime(parsed_090_pool)
-        assert get_pump_rpm(er) == 2900
+        assert get_circulation_pump_rpm(er) == 2900
 
     def test_all_off_no_rpm(self, parsed_090_all_off) -> None:
         """All groups off: pump idle, no RPM."""
         er = get_equipment_runtime(parsed_090_all_off)
-        assert get_pump_rpm(er) is None
+        assert get_circulation_pump_rpm(er) is None
 
     def test_pool_waterfall_3000_rpm(self, parsed_090_pool_waterfall) -> None:
         """POOL + WATERFALL active: pump at fastest group speed (3000 RPM)."""
         er = get_equipment_runtime(parsed_090_pool_waterfall)
-        assert get_pump_rpm(er) == 3000
+        assert get_circulation_pump_rpm(er) == 3000
 
     def test_manual_2000_rpm(self, parsed_090_manual_2000rpm) -> None:
         """Manual override: pump at 2000 RPM despite POOL group default."""
         er = get_equipment_runtime(parsed_090_manual_2000rpm)
-        assert get_pump_rpm(er) == 2000
+        assert get_circulation_pump_rpm(er) == 2000
 
     def test_t75_returns_none(self, parsed_t75_heat_pool) -> None:
         """T75 (no equipment) returns None."""
         er = get_equipment_runtime(parsed_t75_heat_pool)
-        assert get_pump_rpm(er) is None
+        assert get_circulation_pump_rpm(er) is None
 
     def test_none_runtime_returns_none(self) -> None:
         """None runtime returns None."""
-        assert get_pump_rpm(None) is None
+        assert get_circulation_pump_rpm(None) is None
 
     def test_pump_rpm_min(self, parsed_090_filtration) -> None:
         """Min RPM should be 600."""
         er = get_equipment_runtime(parsed_090_filtration)
-        assert get_pump_rpm_min(er) == 600
+        assert get_circulation_pump_rpm_min(er) == 600
 
     def test_pump_rpm_max(self, parsed_090_filtration) -> None:
         """Max RPM should be 3450."""
         er = get_equipment_runtime(parsed_090_filtration)
-        assert get_pump_rpm_max(er) == 3450
+        assert get_circulation_pump_rpm_max(er) == 3450
 
 
 # ===================================================================
@@ -285,21 +288,21 @@ class TestPumpPriming:
     def test_priming_active(self, parsed_090_priming) -> None:
         """Priming flag should be True during priming."""
         er = get_equipment_runtime(parsed_090_priming)
-        assert get_pump_priming(er) is True
+        assert get_circulation_pump_priming(er) is True
 
     def test_priming_inactive_filtration(self, parsed_090_filtration) -> None:
         """Priming flag should be False during normal filtration."""
         er = get_equipment_runtime(parsed_090_filtration)
-        assert get_pump_priming(er) is False
+        assert get_circulation_pump_priming(er) is False
 
     def test_priming_inactive_pool(self, parsed_090_pool) -> None:
         """Priming flag should be False during pool group."""
         er = get_equipment_runtime(parsed_090_pool)
-        assert get_pump_priming(er) is False
+        assert get_circulation_pump_priming(er) is False
 
     def test_none_runtime_returns_none(self) -> None:
         """None runtime returns None for priming."""
-        assert get_pump_priming(None) is None
+        assert get_circulation_pump_priming(None) is None
 
 
 # ===================================================================
@@ -465,27 +468,27 @@ class TestPumpMode:
     def test_auto_mode(self, parsed_090_filtration) -> None:
         """Group-driven pump reports auto."""
         er = get_equipment_runtime(parsed_090_filtration)
-        assert get_pump_mode(er) == "auto"
+        assert get_circulation_pump_mode(er) == "auto"
 
     def test_auto_mode_pool(self, parsed_090_pool) -> None:
         """Pool-group pump reports auto."""
         er = get_equipment_runtime(parsed_090_pool)
-        assert get_pump_mode(er) == "auto"
+        assert get_circulation_pump_mode(er) == "auto"
 
     def test_manual_mode(self, parsed_090_manual_2000rpm) -> None:
         """Manual override reports manual."""
         er = get_equipment_runtime(parsed_090_manual_2000rpm)
-        assert get_pump_mode(er) == "manual"
+        assert get_circulation_pump_mode(er) == "manual"
 
     def test_off_mode(self, parsed_090_all_off) -> None:
         """Idle pump reports off."""
         er = get_equipment_runtime(parsed_090_all_off)
-        assert get_pump_mode(er) == "off"
+        assert get_circulation_pump_mode(er) == "off"
 
     def test_no_equipment_returns_none(self, parsed_t75_heat_pool) -> None:
         """T75 (no equipment) returns None."""
         er = get_equipment_runtime(parsed_t75_heat_pool)
-        assert get_pump_mode(er) is None
+        assert get_circulation_pump_mode(er) is None
 
 
 # ===================================================================
@@ -583,3 +586,79 @@ class TestParseDurationToMinutes:
     def test_accepts_spaced_tokens(self) -> None:
         """Whitespace-separated tokens parse correctly."""
         assert parse_duration_to_minutes("1d 10h 22m 30s") == 2062.5
+
+
+class TestFormatDurationDdHhMm:
+    """Tests for the consistent Dd HH:MM duration formatter."""
+
+    def test_minutes_only(self) -> None:
+        """Sub-hour durations format as 0d HH:MM."""
+        assert format_duration_dd_hh_mm(3480) == "0d 00:58"
+
+    def test_hours(self) -> None:
+        """Hour-scale durations format as 0d HH:MM."""
+        assert format_duration_dd_hh_mm(28800) == "0d 08:00"
+
+    def test_days(self) -> None:
+        """Multi-day durations format as Dd HH:MM."""
+        assert format_duration_dd_hh_mm(172800) == "2d 00:00"
+
+    def test_days_and_hours(self) -> None:
+        """Durations spanning days and hours format consistently."""
+        assert format_duration_dd_hh_mm(172800 + 3600 + 1800) == "2d 01:30"
+
+    def test_zero(self) -> None:
+        """Zero formats as 0d 00:00."""
+        assert format_duration_dd_hh_mm(0) == "0d 00:00"
+
+
+# ===================================================================
+# Group schedules
+# ===================================================================
+
+
+class TestGroupSchedules:
+    """Tests for group schedule mode and slot decoding."""
+
+    def test_schedule_mode_enabled(self, parsed_090_pool) -> None:
+        """POOL group has schedMode=1 (schedule enabled)."""
+        er = get_equipment_runtime(parsed_090_pool)
+        assert get_group_schedule_mode(er, "0") is True
+
+    def test_schedule_mode_disabled(self, parsed_090_pool) -> None:
+        """CLEANER group has schedMode=1 in this sample too."""
+        er = get_equipment_runtime(parsed_090_pool)
+        assert get_group_schedule_mode(er, "5") is True
+
+    def test_schedule_slots_decoded(self, parsed_090_pool) -> None:
+        """POOL schedule slots decode to human-readable days and times."""
+        er = get_equipment_runtime(parsed_090_pool)
+        slots = get_group_schedule_slots(er, "0")
+        assert len(slots) == 4
+        # [62, 0, 11] → Mon-Fri 00:00-11:00
+        assert slots[0].day_label == "Mon-Fri"
+        assert slots[0].start_label == "00:00"
+        assert slots[0].end_label == "11:00"
+        # [62, 17, 0] → Mon-Fri 17:00-00:00
+        assert slots[1].day_label == "Mon-Fri"
+        assert slots[1].start_label == "17:00"
+        assert slots[1].end_label == "00:00"
+        # [65, 0, 0] → Sat-Sun 00:00-00:00
+        assert slots[2].day_label == "Sat-Sun"
+        # [0, 11527, 8] → disabled (11527 decodes to 7:45am)
+        assert slots[3].is_enabled is False
+        assert slots[3].day_label == "disabled"
+        assert slots[3].start_label == "07:45"
+        assert slots[3].end_label == "08:00"
+
+    def test_schedule_slots_cleaner(self, parsed_090_pool) -> None:
+        """CLEANER schedule slots decode from the sample data."""
+        er = get_equipment_runtime(parsed_090_pool)
+        slots = get_group_schedule_slots(er, "5")
+        assert len(slots) == 4
+
+    def test_no_schedules_returns_empty(self, parsed_t75_heat_pool) -> None:
+        """T75 has no schedules; returns empty list."""
+        er = get_equipment_runtime(parsed_t75_heat_pool)
+        assert er is None
+        assert get_group_schedule_slots(er, "0") == []

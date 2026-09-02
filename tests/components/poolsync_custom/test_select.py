@@ -289,3 +289,80 @@ async def test_select_handle_coordinator_update_refreshes_state() -> None:
 
     assert entity.current_option == "heat_spa"
     assert entity.available is True
+
+
+async def test_circulation_pump_mode_select_creates_with_options(hass) -> None:
+    """Test the circulation pump mode select is created with options set.
+
+    Regression test for the crash where _attr_options was never set, causing
+    the entity to fail during __init__ and never be created.
+    """
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_equipment_device_info = Mock(
+        return_value={
+            "identifiers": {("poolsync_custom", f"{TEST_MAC_ADDRESS}_equip_1")}
+        }
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {
+                    "0": [3, "HEAT PUMP"],
+                    "1": [
+                        0,
+                        "CIRCULATION PUMP",
+                        2,
+                        1,
+                        0,
+                        0,
+                        0,
+                        35,
+                        12,
+                        69,
+                        69,
+                        5,
+                        58,
+                        0,
+                        0,
+                    ],
+                    "3": [
+                        1,
+                        "RETURN VALVE",
+                        1,
+                        0,
+                        1,
+                        300,
+                        0,
+                        0,
+                        "FOUNTAIN",
+                        3,
+                        "POOL",
+                        0,
+                    ],
+                },
+                "groups": {},
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    added_entities: list = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    pump_mode_select = next(
+        entity
+        for entity in added_entities
+        if entity.entity_description.key == "pump_mode"
+    )
+    assert pump_mode_select.options == ["auto", "manual", "off"]
+    assert pump_mode_select.current_option == "auto"
+    assert pump_mode_select.available is True

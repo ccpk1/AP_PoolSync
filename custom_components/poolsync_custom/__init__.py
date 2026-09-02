@@ -251,11 +251,11 @@ async def _async_register_services(
             group_key, state, duration=duration_seconds
         )
 
-    async def _async_set_pump_mode(call: ServiceCall) -> None:
-        """Set the pump mode: auto, manual, or off."""
+    async def _async_set_circulation_pump_mode(call: ServiceCall) -> None:
+        """Set the circulation pump mode: auto, manual, or off."""
         mode = call.data["mode"]
         rpm = call.data.get("rpm")
-        await coordinator.async_set_pump_mode(mode, rpm=rpm)
+        await coordinator.async_set_circulation_pump_mode(mode, rpm=rpm)
 
     async_register_admin_service(
         hass,
@@ -274,7 +274,7 @@ async def _async_register_services(
         hass,
         DOMAIN,
         "set_pump_mode",
-        _async_set_pump_mode,
+        _async_set_circulation_pump_mode,
         vol.Schema(
             {
                 vol.Required("mode"): vol.In(["auto", "manual", "off"]),

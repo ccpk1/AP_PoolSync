@@ -12,7 +12,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import PUMP_MODE_AUTO, PUMP_MODE_MANUAL, PUMP_MODE_OFF
+from .const import (
+    CIRCULATION_PUMP_MODE_AUTO,
+    CIRCULATION_PUMP_MODE_MANUAL,
+    CIRCULATION_PUMP_MODE_OFF,
+)
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     PoolSyncEquipmentData,
@@ -20,11 +24,11 @@ from .runtime import (
     build_unique_id,
     ensure_parsed_data,
     get_chem_sync_mode_options,
+    get_circulation_pump_mode,
+    get_circulation_pump_rpm,
+    get_circulation_pump_rpm_min,
     get_equipment_runtime,
     get_heat_pump_mode_options,
-    get_pump_mode,
-    get_pump_rpm,
-    get_pump_rpm_min,
     get_select_value,
 )
 
@@ -63,17 +67,21 @@ async def async_setup_entry(
             )
         )
 
-    # Pump mode select (attached to the pump's equipment device)
+    # Circulation pump mode select (attached to the pump's equipment device)
     if equip_runtime := get_equipment_runtime(parsed_data):
         for equip in equip_runtime.equipment.values():
-            if not equip.is_pump:
+            if not equip.is_circulation_pump:
                 continue
             entities.append(
-                PoolSyncPumpModeSelect(
+                PoolSyncCirculationPumpModeSelect(
                     coordinator,
                     SelectEntityDescription(
                         key="pump_mode",
-                        options=[PUMP_MODE_AUTO, PUMP_MODE_MANUAL, PUMP_MODE_OFF],
+                        options=[
+                            CIRCULATION_PUMP_MODE_AUTO,
+                            CIRCULATION_PUMP_MODE_MANUAL,
+                            CIRCULATION_PUMP_MODE_OFF,
+                        ],
                         translation_key="pump_mode",
                         entity_category=EntityCategory.CONFIG,
                     ),
@@ -213,7 +221,7 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
             )
 
 
-class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
+class PoolSyncCirculationPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator], SelectEntity
 ):
     """Representation of the circulation pump mode select."""
@@ -227,7 +235,7 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
         *,
         equip: PoolSyncEquipmentData,
     ) -> None:
-        """Initialize the pump mode select."""
+        """Initialize the circulation pump mode select."""
         super().__init__(coordinator)
         self.entity_description = description
         self._equip = equip
@@ -241,7 +249,14 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
-        self._attr_current_option = get_pump_mode(get_equipment_runtime(parsed_data))
+        self._attr_options = [
+            CIRCULATION_PUMP_MODE_AUTO,
+            CIRCULATION_PUMP_MODE_MANUAL,
+            CIRCULATION_PUMP_MODE_OFF,
+        ]
+        self._attr_current_option = get_circulation_pump_mode(
+            get_equipment_runtime(parsed_data)
+        )
         self._attr_available = (
             super().available
             and self._attr_current_option is not None
@@ -263,7 +278,7 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
         self.hass.add_job(self.async_select_option, option)
 
     async def async_select_option(self, option: str) -> None:
-        """Select a new pump mode."""
+        """Select a new circulation pump mode."""
         if option not in self.options:
             raise HomeAssistantError(f"Unsupported option: {option}")
 
@@ -272,11 +287,11 @@ class PoolSyncPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
             self.async_write_ha_state()
 
         rpm = None
-        if option == PUMP_MODE_MANUAL:
+        if option == CIRCULATION_PUMP_MODE_MANUAL:
             equip_runtime = get_equipment_runtime(ensure_parsed_data(self.coordinator))
-            rpm = get_pump_rpm(equip_runtime)
+            rpm = get_circulation_pump_rpm(equip_runtime)
             if not rpm:
                 # Start at the pump's minimum speed when it is not running
-                rpm = get_pump_rpm_min(equip_runtime) or 600
+                rpm = get_circulation_pump_rpm_min(equip_runtime) or 600
 
-        await self.coordinator.async_set_pump_mode(option, rpm=rpm)
+        await self.coordinator.async_set_circulation_pump_mode(option, rpm=rpm)

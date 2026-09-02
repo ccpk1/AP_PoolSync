@@ -12,18 +12,19 @@ from typing import Any, Literal, cast
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    CIRCULATION_PUMP_IDX_CURRENT_SPEED,
+    CIRCULATION_PUMP_IDX_PRIMING_FLAG,
+    CIRCULATION_PUMP_MODE_AUTO,
+    CIRCULATION_PUMP_MODE_MANUAL,
+    CIRCULATION_PUMP_MODE_MANUAL_SENTINEL,
+    CIRCULATION_PUMP_MODE_OFF,
+    CIRCULATION_PUMP_RPM_FACTOR,
+    EQUIP_TYPE_CIRCULATION_PUMP,
     EQUIP_TYPE_HEAT_PUMP,
     EQUIP_TYPE_VALVE,
-    EQUIP_TYPE_VS_PUMP,
+    GROUP_IDX_SCHEDULE_MODE,
     GROUP_IDX_TIME_LEFT,
     GROUP_IDX_TIME_SET,
-    PUMP_IDX_CURRENT_SPEED,
-    PUMP_IDX_PRIMING_FLAG,
-    PUMP_MODE_AUTO,
-    PUMP_MODE_MANUAL,
-    PUMP_MODE_MANUAL_SENTINEL,
-    PUMP_MODE_OFF,
-    PUMP_RPM_FACTOR,
     VALVE_IDX_CURRENT_POSITION,
     VALVE_IDX_POSITIONS_START,
     WIFI_RSSI_FAIR_MIN,
@@ -288,9 +289,9 @@ class PoolSyncEquipmentData:
     raw: list[Any]
 
     @property
-    def is_pump(self) -> bool:
-        """Return whether this is a variable-speed pump."""
-        return self.equip_type == EQUIP_TYPE_VS_PUMP
+    def is_circulation_pump(self) -> bool:
+        """Return whether this is a variable-speed circulation pump."""
+        return self.equip_type == EQUIP_TYPE_CIRCULATION_PUMP
 
     @property
     def is_valve(self) -> bool:
@@ -338,6 +339,7 @@ class PoolSyncEquipmentRuntime:
 
     equipment: dict[str, PoolSyncEquipmentData]
     raw_groups: dict[str, Any] | None
+    raw_schedules: dict[str, Any] | None
 
     @property
     def has_equipment(self) -> bool:
@@ -386,6 +388,107 @@ class PoolSyncEquipmentRuntime:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class PoolSyncScheduleSlot:
+    """A single decoded schedule slot for a group.
+
+    ``day_mask`` is a 7-bit bitmask (bit 0 = Sunday). ``start_time`` and
+    ``end_time`` are minutes since midnight, decoded from the device's
+    ``minute * 256 + hour`` packing.
+    """
+
+    day_mask: int
+    start_time: int
+    end_time: int
+
+    @property
+    def is_enabled(self) -> bool:
+        """Return whether this slot is active (day mask non-zero)."""
+        return self.day_mask != 0
+
+    @property
+    def start_label(self) -> str:
+        """Return the start time as a human-readable HH:MM label."""
+        return _format_schedule_time(self.start_time)
+
+    @property
+    def end_label(self) -> str:
+        """Return the end time as a human-readable HH:MM label."""
+        return _format_schedule_time(self.end_time)
+
+    @property
+    def day_label(self) -> str:
+        """Return the day mask as a human-readable day-of-week label."""
+        return _format_day_mask(self.day_mask)
+
+
+def _format_schedule_time(minutes: int) -> str:
+    """Format minutes-since-midnight as a 24-hour HH:MM label."""
+    minutes = max(0, minutes)
+    hour, minute = divmod(minutes, 60)
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _format_day_mask(day_mask: int) -> str:
+    """Format a 7-bit day mask (bit 0 = Sunday) as a day-of-week label."""
+    if day_mask == 0:
+        return "disabled"
+    if day_mask == 0b1111111:
+        return "every day"
+    if day_mask == 0b0111110:
+        return "Mon-Fri"
+    if day_mask == 0b1000001:
+        return "Sat-Sun"
+    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    return ",".join(day for i, day in enumerate(days) if day_mask & (1 << i))
+
+
+def _decode_schedule_time(value: int) -> int:
+    """Decode a device schedule time value into minutes since midnight.
+
+    The device packs time as ``minute * 256 + hour`` (confirmed by packet
+    capture, 2026-09-02). Values <= 23 are plain hours.
+    """
+    if value <= 23:
+        return value * 60
+    hour = value % 256
+    minute = value // 256
+    return hour * 60 + minute
+
+
+def _parse_schedule_slots(
+    raw_schedules: dict[str, Any] | None,
+) -> list[PoolSyncScheduleSlot]:
+    """Parse a group's raw schedule slots into decoded slot objects."""
+    if not isinstance(raw_schedules, dict):
+        return []
+    slots: list[PoolSyncScheduleSlot] = []
+    for slot_key in ("0", "1", "2", "3"):
+        raw_slot = raw_schedules.get(slot_key)
+        if not isinstance(raw_slot, list) or len(raw_slot) < 3:
+            continue
+        day_mask = raw_slot[0]
+        start_raw = raw_slot[1]
+        end_raw = raw_slot[2]
+        if (
+            isinstance(day_mask, bool)
+            or not isinstance(day_mask, int)
+            or isinstance(start_raw, bool)
+            or not isinstance(start_raw, int)
+            or isinstance(end_raw, bool)
+            or not isinstance(end_raw, int)
+        ):
+            continue
+        slots.append(
+            PoolSyncScheduleSlot(
+                day_mask=day_mask,
+                start_time=_decode_schedule_time(start_raw),
+                end_time=_decode_schedule_time(end_raw),
+            )
+        )
+    return slots
+
+
 def _parse_raw_equipment(
     raw_equip: dict[str, Any] | None,
 ) -> dict[str, PoolSyncEquipmentData]:
@@ -427,59 +530,71 @@ def get_equipment_runtime(
         return None
 
     raw_groups = hp_data.get("groups") if hp_data else None
+    raw_schedules = hp_data.get("schedules") if hp_data else None
 
     return PoolSyncEquipmentRuntime(
         equipment=equipment,
         raw_groups=raw_groups if isinstance(raw_groups, dict) else None,
+        raw_schedules=raw_schedules if isinstance(raw_schedules, dict) else None,
     )
 
 
-def get_pump_rpm(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
-    """Return the current pump RPM from the first VS pump found in equipment."""
+def get_circulation_pump_rpm(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> int | None:
+    """Return the current circulation pump RPM from the first VS pump found."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            speed = equip.get_int(PUMP_IDX_CURRENT_SPEED)
+        if equip.is_circulation_pump:
+            speed = equip.get_int(CIRCULATION_PUMP_IDX_CURRENT_SPEED)
             if speed > 0:
-                return speed * PUMP_RPM_FACTOR
+                return speed * CIRCULATION_PUMP_RPM_FACTOR
     return None
 
 
-def get_pump_priming(equip_runtime: PoolSyncEquipmentRuntime | None) -> bool | None:
-    """Return whether the first VS pump is in priming mode."""
+def get_circulation_pump_priming(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> bool | None:
+    """Return whether the first circulation pump is in priming mode."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            return equip.get_int(PUMP_IDX_PRIMING_FLAG) != 0
+        if equip.is_circulation_pump:
+            return equip.get_int(CIRCULATION_PUMP_IDX_PRIMING_FLAG) != 0
     return None
 
 
-def get_pump_rpm_min(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
-    """Return min RPM for the first VS pump."""
+def get_circulation_pump_rpm_min(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> int | None:
+    """Return min RPM for the first circulation pump."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
+        if equip.is_circulation_pump:
             val = equip.get_int(8)
-            return val * PUMP_RPM_FACTOR if val > 0 else None
+            return val * CIRCULATION_PUMP_RPM_FACTOR if val > 0 else None
     return None
 
 
-def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
-    """Return max RPM for the first VS pump."""
+def get_circulation_pump_rpm_max(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> int | None:
+    """Return max RPM for the first circulation pump."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
+        if equip.is_circulation_pump:
             val = equip.get_int(9)
-            return val * PUMP_RPM_FACTOR if val > 0 else None
+            return val * CIRCULATION_PUMP_RPM_FACTOR if val > 0 else None
     return None
 
 
-def get_pump_mode(equip_runtime: PoolSyncEquipmentRuntime | None) -> str | None:
-    """Return the pump operating mode: auto, manual, or off.
+def get_circulation_pump_mode(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> str | None:
+    """Return the circulation pump operating mode: auto, manual, or off.
 
     The manual-override sentinel (0x7FFFFFF8) in equip[1][5] is unique to
     manual mode. Otherwise the pump is auto when running, off when idle.
@@ -487,13 +602,13 @@ def get_pump_mode(equip_runtime: PoolSyncEquipmentRuntime | None) -> str | None:
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if not equip.is_pump:
+        if not equip.is_circulation_pump:
             continue
-        if equip.get_int(5) == PUMP_MODE_MANUAL_SENTINEL:
-            return PUMP_MODE_MANUAL
-        if equip.get_int(PUMP_IDX_CURRENT_SPEED) > 0:
-            return PUMP_MODE_AUTO
-        return PUMP_MODE_OFF
+        if equip.get_int(5) == CIRCULATION_PUMP_MODE_MANUAL_SENTINEL:
+            return CIRCULATION_PUMP_MODE_MANUAL
+        if equip.get_int(CIRCULATION_PUMP_IDX_CURRENT_SPEED) > 0:
+            return CIRCULATION_PUMP_MODE_AUTO
+        return CIRCULATION_PUMP_MODE_OFF
     return None
 
 
@@ -545,6 +660,38 @@ def get_group_ends_at(
     if not time_left:
         return None
     return now + timedelta(seconds=time_left)
+
+
+def get_group_schedule_mode(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+) -> bool | None:
+    """Return whether a group's schedule is enabled (config[7] schedMode)."""
+    if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
+        return None
+    group_data = equip_runtime.raw_groups.get(group_key)
+    if not isinstance(group_data, dict):
+        return None
+    config = group_data.get("config")
+    if not isinstance(config, list) or len(config) <= GROUP_IDX_SCHEDULE_MODE:
+        return None
+    value = config[GROUP_IDX_SCHEDULE_MODE]
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value != 0
+
+
+def get_group_schedule_slots(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+    group_key: str,
+) -> list[PoolSyncScheduleSlot]:
+    """Return the decoded schedule slots for a group."""
+    if equip_runtime is None or not isinstance(equip_runtime.raw_schedules, dict):
+        return []
+    raw_group_schedules = equip_runtime.raw_schedules.get(group_key)
+    if not isinstance(raw_group_schedules, dict):
+        return []
+    return _parse_schedule_slots(raw_group_schedules)
 
 
 def get_valve_position_name(
@@ -1285,7 +1432,7 @@ _NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
-    "pump_rpm_control": lambda parsed_data, **kwargs: get_pump_rpm(
+    "pump_rpm_control": lambda parsed_data, **kwargs: get_circulation_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
 }
@@ -1327,7 +1474,7 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "heatpump_in_group": lambda parsed_data, **kwargs: get_hp_in_group(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_priming": lambda parsed_data, **kwargs: get_pump_priming(
+    "pump_priming": lambda parsed_data, **kwargs: get_circulation_pump_priming(
         get_equipment_runtime(parsed_data)
     ),
 }
@@ -1460,13 +1607,13 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         )
         else None
     ),
-    "pump_rpm": lambda parsed_data, **kwargs: get_pump_rpm(
+    "pump_rpm": lambda parsed_data, **kwargs: get_circulation_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_rpm_min": lambda parsed_data, **kwargs: get_pump_rpm_min(
+    "pump_rpm_min": lambda parsed_data, **kwargs: get_circulation_pump_rpm_min(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_rpm_max": lambda parsed_data, **kwargs: get_pump_rpm_max(
+    "pump_rpm_max": lambda parsed_data, **kwargs: get_circulation_pump_rpm_max(
         get_equipment_runtime(parsed_data)
     ),
     "valve_position": lambda parsed_data, **kwargs: get_valve_position_name(
@@ -1635,6 +1782,18 @@ def parse_duration_to_minutes(value: str | int | float) -> float | None:
             total_minutes += part_value / 60
 
     return total_minutes
+
+
+def format_duration_dd_hh_mm(seconds: int) -> str:
+    """Format a duration in seconds as a consistent ``Dd HH:MM`` string.
+
+    Uses a single fixed shape that scales from minutes to days, e.g.
+    172800 -> ``2d 00:00``, 3480 -> ``0d 00:58``, 28800 -> ``0d 08:00``.
+    """
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    return f"{days}d {hours:02d}:{minutes:02d}"
 
 
 def get_select_value(

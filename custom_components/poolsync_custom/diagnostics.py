@@ -15,15 +15,17 @@ from .fault_codes import decode_faults
 from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
+    get_circulation_pump_mode,
+    get_circulation_pump_priming,
+    get_circulation_pump_rpm,
+    get_circulation_pump_rpm_max,
+    get_circulation_pump_rpm_min,
     get_equipment_runtime,
     get_group_duration,
+    get_group_schedule_mode,
+    get_group_schedule_slots,
     get_heat_pump_runtime,
     get_number_value,
-    get_pump_mode,
-    get_pump_priming,
-    get_pump_rpm,
-    get_pump_rpm_max,
-    get_pump_rpm_min,
     get_sensor_value,
     get_valve_position_name,
     get_valve_position_options,
@@ -109,10 +111,10 @@ async def async_get_config_entry_diagnostics(
             equip_debug: dict[str, Any] = {
                 "active_group_names": equip_runtime.active_group_names,
                 "active_group_attributes": equip_runtime.active_group_attributes,
-                "pump_rpm": get_pump_rpm(equip_runtime),
-                "pump_rpm_min": get_pump_rpm_min(equip_runtime),
-                "pump_rpm_max": get_pump_rpm_max(equip_runtime),
-                "pump_priming": get_pump_priming(equip_runtime),
+                "pump_rpm": get_circulation_pump_rpm(equip_runtime),
+                "pump_rpm_min": get_circulation_pump_rpm_min(equip_runtime),
+                "pump_rpm_max": get_circulation_pump_rpm_max(equip_runtime),
+                "pump_priming": get_circulation_pump_priming(equip_runtime),
                 "valve_position": get_valve_position_name(equip_runtime),
                 "valve_position_options": get_valve_position_options(equip_runtime),
             }
@@ -121,13 +123,33 @@ async def async_get_config_entry_diagnostics(
                 sk: {
                     "type": e.equip_type,
                     "name": e.name,
-                    "is_pump": e.is_pump,
+                    "is_circulation_pump": e.is_circulation_pump,
                     "is_valve": e.is_valve,
                     "is_heat_pump": e.is_heat_pump,
                     "raw": e.raw,
                 }
                 for sk, e in equip_runtime.equipment.items()
             }
+            # Per-group schedule mode and decoded slots
+            if isinstance(equip_runtime.raw_groups, dict):
+                equip_debug["group_schedules"] = {
+                    group_key: {
+                        "schedule_mode": get_group_schedule_mode(
+                            equip_runtime, group_key
+                        ),
+                        "slots": [
+                            {
+                                "days": slot.day_label,
+                                "start": slot.start_label,
+                                "end": slot.end_label,
+                            }
+                            for slot in get_group_schedule_slots(
+                                equip_runtime, group_key
+                            )
+                        ],
+                    }
+                    for group_key in equip_runtime.raw_groups
+                }
             result["equipment_debug"] = equip_debug
 
         # --- All mapped sensor values ---
@@ -339,9 +361,16 @@ async def async_get_config_entry_diagnostics(
         # --- All mapped select values ---
         select_values: dict[str, Any] = {}
         if equip_runtime := get_equipment_runtime(parsed_data):
-            pump_mode = get_pump_mode(equip_runtime)
+            pump_mode = get_circulation_pump_mode(equip_runtime)
             if pump_mode is not None:
                 select_values["pump_mode"] = pump_mode
+            if isinstance(equip_runtime.raw_groups, dict):
+                for group_key in equip_runtime.raw_groups:
+                    schedule_mode = get_group_schedule_mode(equip_runtime, group_key)
+                    if schedule_mode is not None:
+                        select_values[f"group_{group_key}_schedule_mode"] = (
+                            schedule_mode
+                        )
 
         result["mapped_select_values"] = select_values
 

@@ -891,6 +891,8 @@ Group equip sub-object maps equipment IDs to settings for that group:
 | 1 | Active | FILTRATION group in files 1 and 2 |
 | 2 | Active (different priority/source) | POOL group in file 3 (mode=1, compressor on) |
 
+**⚠️ Update (2026-09-02):** The state value does **not** encode schedule-vs-manual. Both a scheduled run (FILTRATION, state=1, pump in auto) and a manual run (POOL, state=2, pump in manual) have `schedMode=1`. The reliable indicator of manual operation is the **pump's manual-override sentinel** (`equip[1][5] = 0x7FFFFFF8`, see F1) — when the pump is in manual mode, the active group was started manually, not by the schedule. The distinct state values 1 vs 2 remain unexplained (possibly priority or activation sub-state).
+
 #### F7. Group Schedules Exist Per-Group
 
 **Source:** `devices[0].schedules["0".."5"]`
@@ -907,7 +909,71 @@ Each group has up to 4 schedule slots: `[dayMask, startTime, endTime]`
 
 **Day mask:** 7-bit, bit 0 = Sunday. 62 = 0b0111110 = Mon–Fri. 65 = 0b1000001 = Sat+Sun. 0 = disabled.
 
-**Time encoding:** Values ≤ 23 look like hours (0=midnight, 8=8am, 17=5pm). Values like 3848, 7688, 11527, 11528 use an unknown encoding — possibly minutes-past-epoch, seconds, or a special marker.
+**Time encoding (RESOLVED by packet capture, 2026-09-02):** Each time value packs the minute and hour into a single integer:
+
+```
+value = minute * 256 + hour
+```
+
+Verified against the user's captured schedule edits (see F7a):
+- `22` = 0·256 + 22 → **10:00pm**
+- `3862` = 15·256 + 22 → **10:15pm**
+- `21` = 0·256 + 21 → **9:00pm**
+- `3861` = 15·256 + 21 → **9:15pm**
+- `7698` = 30·256 + 18 → **6:30pm**
+- `7699` = 30·256 + 19 → **7:30pm**
+
+This retroactively explains the diagnostic values that previously looked like garbage:
+- `3848` = 15·256 + 8 → **8:15am** (FILTRATION)
+- `7688` = 30·256 + 8 → **8:30am**
+- `11528` = 45·256 + 8 → **8:45am**
+- `11527` = 45·256 + 7 → **7:45am** (POOL)
+
+#### F7a. Schedule Write Path (CONFIRMED from user packet capture, 2026-09-02)
+
+**✅ CONFIRMED:** The user captured the exact PATCH payloads the app sends to `?cmd=devices&device=0` for schedule control. The CLEANER group (key `"5"`) runs 4 daily schedules at 4–4:15am, 10–10:15am, 4–4:15pm, and 10–10:15pm.
+
+**Schedule on/off (per group):** toggles the group's `schedMode` (`config[7]`):
+
+```json
+// Turn OFF CLEANER group schedule
+{"groups": {"5": {"schedMode": 0}}}
+
+// Turn ON CLEANER group schedule
+{"groups": {"5": {"schedMode": 1}}}
+```
+
+**Schedule slot edit (per group, per slot):** replaces a slot's `[dayMask, startTime, endTime]` array:
+
+```json
+// Remove Monday from 4th schedule block of CLEANER
+{"schedules": {"5": {"3": [125, 22, 3862]}}}
+
+// Remove Monday from 3rd schedule block of CLEANER
+{"schedules": {"5": {"2": [125, 16, 3856]}}}
+
+// Add Monday back to 3rd schedule block of CLEANER
+{"schedules": {"5": {"2": [127, 16, 3856]}}}
+
+// Add Monday back to 4th schedule block of CLEANER
+{"schedules": {"5": {"3": [127, 22, 3862]}}}
+
+// Clear 4th schedule block line of CLEANER (dayMask=0 disables it)
+{"schedules": {"5": {"3": [0, 22, 3862]}}}
+
+// Change 4th schedule block to all days, 9:00 to 9:15pm
+{"schedules": {"5": {"3": [127, 21, 3861]}}}
+
+// Change 4th schedule block to all days, 6:30 to 7:30pm
+{"schedules": {"5": {"3": [127, 7698, 7699]}}}
+```
+
+**Key findings (all confirmed):**
+- The schedule write uses a **`schedules` key** with the shape `schedules.{groupKey}.{slotIndex} = [dayMask, startTime, endTime]`
+- The schedule on/off uses a **`groups` key** with `groups.{groupKey}.schedMode = 0|1` — this is the group's `config[7]` schedule-mode field
+- Day masks confirmed: `62`=Mon–Fri, `65`=Sat+Sun, `125`=all-but-Mon, `127`=all days, `0`=disabled
+- The endpoint is `?cmd=devices&device=0` (the heat pump device), same as group state (F10a)
+- This **resolves** the earlier open question about the schedule write format (F11)
 
 ---
 
@@ -959,12 +1025,9 @@ The earlier decompiled-app analysis (`updateDevice` → `{devices: {...}}` → `
 
 ### 🟢 LOWER CONFIDENCE — Needs more data
 
-#### F11. Schedule Time Encoding (Non-Hour Values)
+#### F11. Schedule Time Encoding (RESOLVED by packet capture, 2026-09-02)
 
-Values like 7688, 11527, 11528 appear with dayMask=0 (disabled). May be:
-- Historical last-run timestamps
-- A different time unit (seconds since midnight? epoch offsets?)
-- Special "until manual stop" markers
+**✅ RESOLVED:** The schedule time encoding is `value = minute * 256 + hour` (see F7). The values `7688`, `11527`, `11528` that previously appeared to be "unknown encoding" are now decoded as 8:30am, 7:45am, and 8:45am respectively. This section is retained for historical reference only.
 
 #### F12. What Lives in Unused Equipment Slots
 

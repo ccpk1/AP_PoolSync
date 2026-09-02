@@ -140,3 +140,4 @@ async def test_group_duration_number_uses_translation_placeholders(hass) -> None
     assert not hasattr(group_duration, "_attr_name")
     assert group_duration.has_entity_name is True
     assert group_duration.native_value == 360.0  # 21600 seconds → 360 minutes
+    assert group_duration.extra_state_attributes == {"duration": "0d 06:00"}

@@ -14,6 +14,7 @@ from homeassistant.components.switch import SwitchEntityDescription
 
 from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 from custom_components.poolsync_custom.switch import (
+    PoolSyncGroupScheduleSwitch,
     PoolSyncGroupSwitch,
     async_setup_entry,
 )
@@ -53,6 +54,20 @@ def _build_coordinator() -> Mock:
                         "equip": {"1": [60, 0], "3": [3, 0]},
                     },
                 },
+                "schedules": {
+                    "0": {
+                        "0": [62, 8, 11],
+                        "1": [62, 17, 0],
+                        "2": [65, 0, 0],
+                        "3": [0, 11527, 8],
+                    },
+                    "1": {
+                        "0": [0, 8, 14],
+                        "1": [0, 8, 14],
+                        "2": [0, 8, 14],
+                        "3": [0, 8, 14],
+                    },
+                },
             }
         },
         "deviceType": {"7": "heatPump"},
@@ -62,19 +77,21 @@ def _build_coordinator() -> Mock:
 
 
 async def test_async_setup_entry_creates_one_switch_per_group(hass) -> None:
-    """Test setup creates a group switch for each group."""
+    """Test setup creates a group switch and schedule switch for each group."""
     coordinator = _build_coordinator()
-    added_entities: list[PoolSyncGroupSwitch] = []
+    added_entities: list[PoolSyncGroupSwitch | PoolSyncGroupScheduleSwitch] = []
 
     def _async_add_entities(entities):
         added_entities.extend(entities)
 
     await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
 
-    assert len(added_entities) == 2
+    assert len(added_entities) == 4
     assert {e.entity_description.key for e in added_entities} == {
         "group_0",
         "group_1",
+        "group_0_schedule",
+        "group_1_schedule",
     }
 
 
@@ -123,6 +140,95 @@ async def test_group_switch_unique_id_is_stable_and_name_independent(hass) -> No
     )
 
     assert entity.unique_id == "AABBCCDDEEFF_group_1"
+    assert entity.device_info["identifiers"] == {
+        ("poolsync_custom", "AABBCCDDEEFF_controller")
+    }
+
+
+async def test_group_switch_duration_attribute_formatted(hass) -> None:
+    """Test the duration attribute uses the consistent Dd HH:MM format."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_0", translation_key="group"),
+        group_key="0",
+        group_name="POOL",
+    )
+
+    # 172800 seconds → 2d 00:00
+    assert entity.extra_state_attributes["duration"] == "2d 00:00"
+
+
+async def test_group_schedule_switch_uses_translation_placeholders(hass) -> None:
+    """Test schedule switch names come from translation placeholders."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupScheduleSwitch(
+        coordinator,
+        SwitchEntityDescription(
+            key="group_1_schedule", translation_key="group_schedule"
+        ),
+        group_key="1",
+        group_name="WATERFALL",
+    )
+
+    assert entity.translation_key == "group_schedule"
+    assert entity.translation_placeholders == {"group_name": "WATERFALL"}
+    assert not hasattr(entity, "_attr_name")
+    assert entity.has_entity_name is True
+
+
+async def test_group_schedule_switch_reflects_sched_mode(hass) -> None:
+    """Test the schedule switch reflects the group's schedMode (config[7])."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupScheduleSwitch(
+        coordinator,
+        SwitchEntityDescription(
+            key="group_1_schedule", translation_key="group_schedule"
+        ),
+        group_key="1",
+        group_name="WATERFALL",
+    )
+
+    # WATERFALL config[7] = 1 → schedule enabled
+    assert entity.is_on is True
+
+
+async def test_group_schedule_switch_exposes_decoded_slots(hass) -> None:
+    """Test the schedule switch exposes decoded schedule slots as attributes."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupScheduleSwitch(
+        coordinator,
+        SwitchEntityDescription(
+            key="group_0_schedule", translation_key="group_schedule"
+        ),
+        group_key="0",
+        group_name="POOL",
+    )
+
+    schedules = entity.extra_state_attributes["schedules"]
+    # POOL slots: [62,8,11] Mon-Fri 08:00-11:00, [62,17,0] Mon-Fri 17:00-00:00,
+    # [65,0,0] Sat-Sun 00:00-00:00, [0,11527,8] disabled (11527 = 7:45am)
+    assert schedules == [
+        {"days": "Mon-Fri", "start": "08:00", "end": "11:00"},
+        {"days": "Mon-Fri", "start": "17:00", "end": "00:00"},
+        {"days": "Sat-Sun", "start": "00:00", "end": "00:00"},
+        {"days": "disabled", "start": "07:45", "end": "08:00"},
+    ]
+
+
+async def test_group_schedule_switch_unique_id_is_stable(hass) -> None:
+    """Test schedule switch unique IDs are anchored to the group key."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupScheduleSwitch(
+        coordinator,
+        SwitchEntityDescription(
+            key="group_1_schedule", translation_key="group_schedule"
+        ),
+        group_key="1",
+        group_name="WATERFALL",
+    )
+
+    assert entity.unique_id == "AABBCCDDEEFF_group_1_schedule"
     assert entity.device_info["identifiers"] == {
         ("poolsync_custom", "AABBCCDDEEFF_controller")
     }

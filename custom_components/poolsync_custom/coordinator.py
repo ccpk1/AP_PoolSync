@@ -21,16 +21,16 @@ from .api import (
     PoolSyncApiError,
 )
 from .const import (
+    CIRCULATION_PUMP_MANUAL_FLAG,
+    CIRCULATION_PUMP_MODE_AUTO,
+    CIRCULATION_PUMP_MODE_MANUAL,
+    CIRCULATION_PUMP_MODE_OFF,
+    CIRCULATION_PUMP_RPM_FACTOR,
     DEFAULT_NAME,
     DOMAIN,
     GROUP_IDX_STATE,
     MANUFACTURER,
     MODEL,
-    PUMP_MANUAL_FLAG,
-    PUMP_MODE_AUTO,
-    PUMP_MODE_MANUAL,
-    PUMP_MODE_OFF,
-    PUMP_RPM_FACTOR,
 )
 from .runtime import (
     HEAT_PUMP_CONFIG_MODE_AUTO,
@@ -929,7 +929,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the stable device registry identifier for equipment."""
         return (DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}")
 
-    async def async_set_pump_rpm(self, value: int) -> None:
+    async def async_set_circulation_pump_rpm(self, value: int) -> None:
         """Set the circulation pump RPM via manual override.
 
         Confirmed write format (2026-09-01): ``equip.{slot} = [rpm/50, flag]``.
@@ -943,36 +943,42 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Pump write target is not available")
 
         pump_slot = next(
-            (slot for slot, equip in equip_runtime.equipment.items() if equip.is_pump),
+            (
+                slot
+                for slot, equip in equip_runtime.equipment.items()
+                if equip.is_circulation_pump
+            ),
             None,
         )
         if pump_slot is None:
             raise HomeAssistantError("Pump write target is not available")
 
-        internal_value = value // PUMP_RPM_FACTOR
+        internal_value = value // CIRCULATION_PUMP_RPM_FACTOR
         try:
             await self.api_client.async_set_device_config_value(
-                device_id=self._get_pump_device_id(parsed_data),
+                device_id=self._get_circulation_pump_device_id(parsed_data),
                 key_id="pump_rpm",
                 value=internal_value,
                 password=self.password,
                 json_data_override={
-                    "equip": {pump_slot: [internal_value, PUMP_MANUAL_FLAG]}
+                    "equip": {pump_slot: [internal_value, CIRCULATION_PUMP_MANUAL_FLAG]}
                 },
             )
             await self.async_request_refresh()
         except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             self._raise_write_error("pump RPM", err)
 
-    def _get_pump_device_id(self, parsed_data: PoolSyncParsedData) -> str:
-        """Return the device ID that hosts the pump equipment."""
+    def _get_circulation_pump_device_id(self, parsed_data: PoolSyncParsedData) -> str:
+        """Return the device ID that hosts the circulation pump equipment."""
         hp_devices = parsed_data.devices.get("heat_pump", [])
         if not hp_devices or hp_devices[0].device_id is None:
             raise HomeAssistantError("Pump write target is not available")
         return hp_devices[0].device_id
 
-    async def async_set_pump_mode(self, mode: str, rpm: int | None = None) -> None:
-        """Set the pump operating mode: auto, manual, or off.
+    async def async_set_circulation_pump_mode(
+        self, mode: str, rpm: int | None = None
+    ) -> None:
+        """Set the circulation pump operating mode: auto, manual, or off.
 
         Confirmed write formats (2026-09-01):
           auto   → ``equip.{slot} = [0, 0]``
@@ -988,27 +994,31 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Pump write target is not available")
 
         pump_slot = next(
-            (slot for slot, equip in equip_runtime.equipment.items() if equip.is_pump),
+            (
+                slot
+                for slot, equip in equip_runtime.equipment.items()
+                if equip.is_circulation_pump
+            ),
             None,
         )
         if pump_slot is None:
             raise HomeAssistantError("Pump write target is not available")
 
-        if mode == PUMP_MODE_MANUAL:
+        if mode == CIRCULATION_PUMP_MODE_MANUAL:
             if rpm is None:
                 raise HomeAssistantError("RPM is required when mode is manual")
-            internal_value = max(0, rpm // PUMP_RPM_FACTOR)
-            payload = [internal_value, PUMP_MANUAL_FLAG]
-        elif mode == PUMP_MODE_AUTO:
+            internal_value = max(0, rpm // CIRCULATION_PUMP_RPM_FACTOR)
+            payload = [internal_value, CIRCULATION_PUMP_MANUAL_FLAG]
+        elif mode == CIRCULATION_PUMP_MODE_AUTO:
             payload = [0, 0]
-        elif mode == PUMP_MODE_OFF:
-            payload = [0, PUMP_MANUAL_FLAG]
+        elif mode == CIRCULATION_PUMP_MODE_OFF:
+            payload = [0, CIRCULATION_PUMP_MANUAL_FLAG]
         else:
             raise HomeAssistantError(f"Unsupported pump mode: {mode}")
 
         try:
             await self.api_client.async_set_device_config_value(
-                device_id=self._get_pump_device_id(parsed_data),
+                device_id=self._get_circulation_pump_device_id(parsed_data),
                 key_id="pump_mode",
                 value=0,
                 password=self.password,
@@ -1084,3 +1094,29 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_set_group_state(
             group_id, True, index=index, duration=duration_seconds
         )
+
+    async def async_set_group_schedule_mode(
+        self, group_id: str, enabled: bool, index: int = 0
+    ) -> None:
+        """Enable or disable a group's schedule (config[7] schedMode).
+
+        Confirmed write format (2026-09-02): ``groups.{key}.schedMode = 0|1``.
+        """
+        role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
+
+        if role_data is None or role_data.device_id is None:
+            raise HomeAssistantError("PoolSync heat pump target is not available")
+
+        try:
+            await self.api_client.async_set_device_config_value(
+                device_id=role_data.device_id,
+                key_id="group_schedule_mode",
+                value=1 if enabled else 0,
+                password=self.password,
+                json_data_override={
+                    "groups": {group_id: {"schedMode": 1 if enabled else 0}}
+                },
+            )
+            await self.async_request_refresh()
+        except Exception as err:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            self._raise_write_error(f"group {group_id} schedule mode", err)

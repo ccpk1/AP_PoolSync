@@ -31,6 +31,7 @@ from .coordinator import PoolSyncDataUpdateCoordinator
 from .runtime import (
     build_unique_id,
     ensure_parsed_data,
+    format_duration_dd_hh_mm,
     get_equipment_runtime,
     get_group_duration,
     get_number_value,
@@ -43,7 +44,7 @@ PARALLEL_UPDATES = 0  # Coordinator-based updates
 _WRITE_METHODS: dict[str, str] = {
     "chlor_output_control": "async_set_chlorinator_output",
     "temperature_output_control": "async_set_heat_pump_active_target",
-    "pump_rpm_control": "async_set_pump_rpm",
+    "pump_rpm_control": "async_set_circulation_pump_rpm",
     "chem_ph_setpoint": "async_set_chem_config",
     "chem_orp_setpoint": "async_set_chem_config",
     "chem_max_daily_feed": "async_set_chem_config",
@@ -266,10 +267,10 @@ async def async_setup_entry(
                         entity._attr_native_max_value = float(ph_max)  # pylint: disable=protected-access
             number_entities.extend(entities)
 
-    # Equipment number entities (pump RPM control)
+    # Equipment number entities (circulation pump RPM control)
     if equip_runtime := get_equipment_runtime(parsed_data):
         for equip in equip_runtime.equipment.values():
-            if not equip.is_pump:
+            if not equip.is_circulation_pump:
                 continue
             device_info = coordinator.get_equipment_device_info(equip)
             prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
@@ -410,12 +411,12 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
         parsed_data = ensure_parsed_data(self.coordinator)
+        duration_seconds: int | None = None
         if self._group_key is not None:
-            value = get_group_duration(
+            duration_seconds = get_group_duration(
                 get_equipment_runtime(parsed_data), self._group_key
             )
-            if value is not None:
-                value = value / 60  # seconds → minutes
+            value = duration_seconds / 60 if duration_seconds is not None else None
         elif self._device_index > 0:
             value = get_number_value(
                 parsed_data,
@@ -442,6 +443,13 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             self._attr_native_value = None
             self._attr_available = False
             return
+
+        if duration_seconds is not None:
+            self._attr_extra_state_attributes = {
+                "duration": format_duration_dd_hh_mm(duration_seconds)
+            }
+        else:
+            self._attr_extra_state_attributes = None
 
         self._attr_available = super().available
 
