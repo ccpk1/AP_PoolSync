@@ -15,15 +15,15 @@ from .fault_codes import decode_faults
 from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
+    get_circulation_pump_mode,
+    get_circulation_pump_priming,
+    get_circulation_pump_rpm,
+    get_circulation_pump_rpm_max,
+    get_circulation_pump_rpm_min,
     get_equipment_runtime,
     get_group_duration,
     get_heat_pump_runtime,
     get_number_value,
-    get_pump_mode,
-    get_pump_priming,
-    get_pump_rpm,
-    get_pump_rpm_max,
-    get_pump_rpm_min,
     get_sensor_value,
     get_valve_position_name,
     get_valve_position_options,
@@ -109,10 +109,10 @@ async def async_get_config_entry_diagnostics(
             equip_debug: dict[str, Any] = {
                 "active_group_names": equip_runtime.active_group_names,
                 "active_group_attributes": equip_runtime.active_group_attributes,
-                "pump_rpm": get_pump_rpm(equip_runtime),
-                "pump_rpm_min": get_pump_rpm_min(equip_runtime),
-                "pump_rpm_max": get_pump_rpm_max(equip_runtime),
-                "pump_priming": get_pump_priming(equip_runtime),
+                "pump_rpm": get_circulation_pump_rpm(equip_runtime),
+                "pump_rpm_min": get_circulation_pump_rpm_min(equip_runtime),
+                "pump_rpm_max": get_circulation_pump_rpm_max(equip_runtime),
+                "pump_priming": get_circulation_pump_priming(equip_runtime),
                 "valve_position": get_valve_position_name(equip_runtime),
                 "valve_position_options": get_valve_position_options(equip_runtime),
             }
@@ -121,7 +121,7 @@ async def async_get_config_entry_diagnostics(
                 sk: {
                     "type": e.equip_type,
                     "name": e.name,
-                    "is_pump": e.is_pump,
+                    "is_circulation_pump": e.is_circulation_pump,
                     "is_valve": e.is_valve,
                     "is_heat_pump": e.is_heat_pump,
                     "raw": e.raw,
@@ -339,7 +339,7 @@ async def async_get_config_entry_diagnostics(
         # --- All mapped select values ---
         select_values: dict[str, Any] = {}
         if equip_runtime := get_equipment_runtime(parsed_data):
-            pump_mode = get_pump_mode(equip_runtime)
+            pump_mode = get_circulation_pump_mode(equip_runtime)
             if pump_mode is not None:
                 select_values["pump_mode"] = pump_mode
 

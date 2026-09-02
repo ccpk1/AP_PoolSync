@@ -880,13 +880,15 @@ def _build_pump_coordinator(hass, api_client: Mock) -> PoolSyncDataUpdateCoordin
     return coordinator
 
 
-async def test_async_set_pump_rpm_sends_confirmed_equip_payload(hass) -> None:
+async def test_async_set_circulation_pump_rpm_sends_confirmed_equip_payload(
+    hass,
+) -> None:
     """Pump RPM write uses equip.{slot} = [rpm/50, manual flag]."""
     api_client = Mock()
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
-    await coordinator.async_set_pump_rpm(1800)
+    await coordinator.async_set_circulation_pump_rpm(1800)
 
     api_client.async_set_device_config_value.assert_awaited_once_with(
         device_id="0",
@@ -898,13 +900,13 @@ async def test_async_set_pump_rpm_sends_confirmed_equip_payload(hass) -> None:
     coordinator.async_request_refresh.assert_awaited_once()
 
 
-async def test_async_set_pump_mode_manual_sends_rpm_and_flag(hass) -> None:
+async def test_async_set_circulation_pump_mode_manual_sends_rpm_and_flag(hass) -> None:
     """Manual pump mode sends rpm/50 with manual flag."""
     api_client = Mock()
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
-    await coordinator.async_set_pump_mode("manual", rpm=2000)
+    await coordinator.async_set_circulation_pump_mode("manual", rpm=2000)
 
     api_client.async_set_device_config_value.assert_awaited_once_with(
         device_id="0",
@@ -916,13 +918,13 @@ async def test_async_set_pump_mode_manual_sends_rpm_and_flag(hass) -> None:
     coordinator.async_request_refresh.assert_awaited_once()
 
 
-async def test_async_set_pump_mode_auto_sends_zero_payload(hass) -> None:
+async def test_async_set_circulation_pump_mode_auto_sends_zero_payload(hass) -> None:
     """Auto pump mode sends equip.{slot} = [0, 0]."""
     api_client = Mock()
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
-    await coordinator.async_set_pump_mode("auto")
+    await coordinator.async_set_circulation_pump_mode("auto")
 
     api_client.async_set_device_config_value.assert_awaited_once_with(
         device_id="0",
@@ -933,13 +935,13 @@ async def test_async_set_pump_mode_auto_sends_zero_payload(hass) -> None:
     )
 
 
-async def test_async_set_pump_mode_off_sends_off_flag(hass) -> None:
+async def test_async_set_circulation_pump_mode_off_sends_off_flag(hass) -> None:
     """Off pump mode sends equip.{slot} = [0, manual flag]."""
     api_client = Mock()
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
-    await coordinator.async_set_pump_mode("off")
+    await coordinator.async_set_circulation_pump_mode("off")
 
     api_client.async_set_device_config_value.assert_awaited_once_with(
         device_id="0",
@@ -950,14 +952,14 @@ async def test_async_set_pump_mode_off_sends_off_flag(hass) -> None:
     )
 
 
-async def test_async_set_pump_mode_manual_requires_rpm(hass) -> None:
+async def test_async_set_circulation_pump_mode_manual_requires_rpm(hass) -> None:
     """Manual pump mode requires an rpm value."""
     api_client = Mock()
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
     with pytest.raises(HomeAssistantError, match="RPM is required"):
-        await coordinator.async_set_pump_mode("manual")
+        await coordinator.async_set_circulation_pump_mode("manual")
 
 
 async def test_async_set_group_state_on_uses_default_duration(hass) -> None:

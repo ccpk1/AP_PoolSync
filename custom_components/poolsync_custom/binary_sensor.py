@@ -323,7 +323,7 @@ async def async_setup_entry(
             device_info = coordinator.get_equipment_device_info(equip)
             prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
             for desc, vfn in BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT:
-                if desc.key == "pump_priming" and not equip.is_pump:
+                if desc.key == "pump_priming" and not equip.is_circulation_pump:
                     continue
                 if desc.key == "heatpump_in_group" and not equip.is_heat_pump:
                     continue

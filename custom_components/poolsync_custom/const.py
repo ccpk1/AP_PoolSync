@@ -62,27 +62,27 @@ PLATFORMS = [
 OPTION_SCAN_INTERVAL = "scan_interval"
 
 # Equipment type constants (from equip[N][0])
-EQUIP_TYPE_VS_PUMP = 0
+EQUIP_TYPE_CIRCULATION_PUMP = 0
 EQUIP_TYPE_VALVE = 1
 EQUIP_TYPE_HEAT_PUMP = 3
 
-# Pump RPM multiplier (internal units × 50 = real RPM)
-PUMP_RPM_FACTOR = 50
+# Circulation pump RPM multiplier (internal units × 50 = real RPM)
+CIRCULATION_PUMP_RPM_FACTOR = 50
 
-# Pump mode write flag (confirmed from user packet capture, 2026-09-01)
+# Circulation pump mode write flag (confirmed from user packet capture, 2026-09-01)
 # 4294967295 (0xFFFFFFFF, int32 −1) = manual override/on; 0 = auto
-PUMP_MANUAL_FLAG = 4294967295
+CIRCULATION_PUMP_MANUAL_FLAG = 4294967295
 # Read-side manual-override sentinel seen in equip[1][5] when manual (0x7FFFFFF8)
-PUMP_MODE_MANUAL_SENTINEL = 2147483640
+CIRCULATION_PUMP_MODE_MANUAL_SENTINEL = 2147483640
 
-# Pump mode select options
-PUMP_MODE_AUTO = "auto"
-PUMP_MODE_MANUAL = "manual"
-PUMP_MODE_OFF = "off"
+# Circulation pump mode select options
+CIRCULATION_PUMP_MODE_AUTO = "auto"
+CIRCULATION_PUMP_MODE_MANUAL = "manual"
+CIRCULATION_PUMP_MODE_OFF = "off"
 
 # Equipment slot indices (confirmed changing values)
-PUMP_IDX_CURRENT_SPEED = 7
-PUMP_IDX_PRIMING_FLAG = 14
+CIRCULATION_PUMP_IDX_CURRENT_SPEED = 7
+CIRCULATION_PUMP_IDX_PRIMING_FLAG = 14
 VALVE_IDX_MOVE_TIME = 5
 VALVE_IDX_CURRENT_POSITION = 7  # 1-based index into named positions; 0 = default (last)
 VALVE_IDX_POSITIONS_START = 8  # Pairs of (name, value) from here onward

@@ -12,18 +12,18 @@ from typing import Any, Literal, cast
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    CIRCULATION_PUMP_IDX_CURRENT_SPEED,
+    CIRCULATION_PUMP_IDX_PRIMING_FLAG,
+    CIRCULATION_PUMP_MODE_AUTO,
+    CIRCULATION_PUMP_MODE_MANUAL,
+    CIRCULATION_PUMP_MODE_MANUAL_SENTINEL,
+    CIRCULATION_PUMP_MODE_OFF,
+    CIRCULATION_PUMP_RPM_FACTOR,
+    EQUIP_TYPE_CIRCULATION_PUMP,
     EQUIP_TYPE_HEAT_PUMP,
     EQUIP_TYPE_VALVE,
-    EQUIP_TYPE_VS_PUMP,
     GROUP_IDX_TIME_LEFT,
     GROUP_IDX_TIME_SET,
-    PUMP_IDX_CURRENT_SPEED,
-    PUMP_IDX_PRIMING_FLAG,
-    PUMP_MODE_AUTO,
-    PUMP_MODE_MANUAL,
-    PUMP_MODE_MANUAL_SENTINEL,
-    PUMP_MODE_OFF,
-    PUMP_RPM_FACTOR,
     VALVE_IDX_CURRENT_POSITION,
     VALVE_IDX_POSITIONS_START,
     WIFI_RSSI_FAIR_MIN,
@@ -288,9 +288,9 @@ class PoolSyncEquipmentData:
     raw: list[Any]
 
     @property
-    def is_pump(self) -> bool:
-        """Return whether this is a variable-speed pump."""
-        return self.equip_type == EQUIP_TYPE_VS_PUMP
+    def is_circulation_pump(self) -> bool:
+        """Return whether this is a variable-speed circulation pump."""
+        return self.equip_type == EQUIP_TYPE_CIRCULATION_PUMP
 
     @property
     def is_valve(self) -> bool:
@@ -434,52 +434,62 @@ def get_equipment_runtime(
     )
 
 
-def get_pump_rpm(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
-    """Return the current pump RPM from the first VS pump found in equipment."""
+def get_circulation_pump_rpm(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> int | None:
+    """Return the current circulation pump RPM from the first VS pump found."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            speed = equip.get_int(PUMP_IDX_CURRENT_SPEED)
+        if equip.is_circulation_pump:
+            speed = equip.get_int(CIRCULATION_PUMP_IDX_CURRENT_SPEED)
             if speed > 0:
-                return speed * PUMP_RPM_FACTOR
+                return speed * CIRCULATION_PUMP_RPM_FACTOR
     return None
 
 
-def get_pump_priming(equip_runtime: PoolSyncEquipmentRuntime | None) -> bool | None:
-    """Return whether the first VS pump is in priming mode."""
+def get_circulation_pump_priming(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> bool | None:
+    """Return whether the first circulation pump is in priming mode."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
-            return equip.get_int(PUMP_IDX_PRIMING_FLAG) != 0
+        if equip.is_circulation_pump:
+            return equip.get_int(CIRCULATION_PUMP_IDX_PRIMING_FLAG) != 0
     return None
 
 
-def get_pump_rpm_min(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
-    """Return min RPM for the first VS pump."""
+def get_circulation_pump_rpm_min(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> int | None:
+    """Return min RPM for the first circulation pump."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
+        if equip.is_circulation_pump:
             val = equip.get_int(8)
-            return val * PUMP_RPM_FACTOR if val > 0 else None
+            return val * CIRCULATION_PUMP_RPM_FACTOR if val > 0 else None
     return None
 
 
-def get_pump_rpm_max(equip_runtime: PoolSyncEquipmentRuntime | None) -> int | None:
-    """Return max RPM for the first VS pump."""
+def get_circulation_pump_rpm_max(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> int | None:
+    """Return max RPM for the first circulation pump."""
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if equip.is_pump:
+        if equip.is_circulation_pump:
             val = equip.get_int(9)
-            return val * PUMP_RPM_FACTOR if val > 0 else None
+            return val * CIRCULATION_PUMP_RPM_FACTOR if val > 0 else None
     return None
 
 
-def get_pump_mode(equip_runtime: PoolSyncEquipmentRuntime | None) -> str | None:
-    """Return the pump operating mode: auto, manual, or off.
+def get_circulation_pump_mode(
+    equip_runtime: PoolSyncEquipmentRuntime | None,
+) -> str | None:
+    """Return the circulation pump operating mode: auto, manual, or off.
 
     The manual-override sentinel (0x7FFFFFF8) in equip[1][5] is unique to
     manual mode. Otherwise the pump is auto when running, off when idle.
@@ -487,13 +497,13 @@ def get_pump_mode(equip_runtime: PoolSyncEquipmentRuntime | None) -> str | None:
     if equip_runtime is None:
         return None
     for equip in equip_runtime.equipment.values():
-        if not equip.is_pump:
+        if not equip.is_circulation_pump:
             continue
-        if equip.get_int(5) == PUMP_MODE_MANUAL_SENTINEL:
-            return PUMP_MODE_MANUAL
-        if equip.get_int(PUMP_IDX_CURRENT_SPEED) > 0:
-            return PUMP_MODE_AUTO
-        return PUMP_MODE_OFF
+        if equip.get_int(5) == CIRCULATION_PUMP_MODE_MANUAL_SENTINEL:
+            return CIRCULATION_PUMP_MODE_MANUAL
+        if equip.get_int(CIRCULATION_PUMP_IDX_CURRENT_SPEED) > 0:
+            return CIRCULATION_PUMP_MODE_AUTO
+        return CIRCULATION_PUMP_MODE_OFF
     return None
 
 
@@ -1285,7 +1295,7 @@ _NUMBER_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
-    "pump_rpm_control": lambda parsed_data, **kwargs: get_pump_rpm(
+    "pump_rpm_control": lambda parsed_data, **kwargs: get_circulation_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
 }
@@ -1327,7 +1337,7 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "heatpump_in_group": lambda parsed_data, **kwargs: get_hp_in_group(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_priming": lambda parsed_data, **kwargs: get_pump_priming(
+    "pump_priming": lambda parsed_data, **kwargs: get_circulation_pump_priming(
         get_equipment_runtime(parsed_data)
     ),
 }
@@ -1460,13 +1470,13 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         )
         else None
     ),
-    "pump_rpm": lambda parsed_data, **kwargs: get_pump_rpm(
+    "pump_rpm": lambda parsed_data, **kwargs: get_circulation_pump_rpm(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_rpm_min": lambda parsed_data, **kwargs: get_pump_rpm_min(
+    "pump_rpm_min": lambda parsed_data, **kwargs: get_circulation_pump_rpm_min(
         get_equipment_runtime(parsed_data)
     ),
-    "pump_rpm_max": lambda parsed_data, **kwargs: get_pump_rpm_max(
+    "pump_rpm_max": lambda parsed_data, **kwargs: get_circulation_pump_rpm_max(
         get_equipment_runtime(parsed_data)
     ),
     "valve_position": lambda parsed_data, **kwargs: get_valve_position_name(

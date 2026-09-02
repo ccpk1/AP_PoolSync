@@ -848,7 +848,7 @@ async def async_setup_entry(
         for equip in equip_runtime.equipment.values():
             device_info = coordinator.get_equipment_device_info(equip)
             prefix = f"{coordinator.mac_address}_equip_{equip.slot_key}_"
-            if equip.is_pump:
+            if equip.is_circulation_pump:
                 for desc, vfn in [
                     (d, v)
                     for d, v in SENSOR_DESCRIPTIONS_EQUIPMENT
