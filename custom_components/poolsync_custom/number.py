@@ -27,7 +27,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import CIRCULATION_PUMP_RPM_MAX, CIRCULATION_PUMP_RPM_MIN
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .optimistic import PoolSyncOptimisticMixin
 from .runtime import (
     build_unique_id,
     ensure_parsed_data,
@@ -114,8 +116,8 @@ NUMBER_DESCRIPTIONS_EQUIPMENT: tuple[NumberDescription, ...] = (
             translation_key="pump_rpm_control",
             entity_category=EntityCategory.CONFIG,
             native_unit_of_measurement="RPM",
-            native_min_value=0,
-            native_max_value=3450,
+            native_min_value=CIRCULATION_PUMP_RPM_MIN,
+            native_max_value=CIRCULATION_PUMP_RPM_MAX,
             native_step=50,
             mode=NumberMode.BOX,
         ),
@@ -350,7 +352,9 @@ async def async_setup_entry(
 
 
 class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
-    CoordinatorEntity[PoolSyncDataUpdateCoordinator], NumberEntity
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator],
+    PoolSyncOptimisticMixin,
+    NumberEntity,
 ):
     """Representation of a PoolSync Chlorinator Output Number entity."""
 
@@ -388,6 +392,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._attr_device_info = _device_info or coordinator.get_device_info(
             role, index=_device_index
         )
+        self._init_optimistic()
         self._update_translation_placeholders()
         self._update_attrs()
 
@@ -409,8 +414,19 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
     @callback
     def _update_attrs(self) -> None:
-        """Update cached entity attributes from coordinator data."""
+        """Update cached entity attributes from coordinator data.
+
+        While an optimistic write is pending (a refresh that started after the
+        write has not yet completed), the displayed value is kept as the user
+        requested rather than overwritten by pre-write read-back.
+        """
         parsed_data = ensure_parsed_data(self.coordinator)
+        self._clear_optimistic_if_stale()
+
+        if self._optimistic_pending:
+            self._attr_available = super().available
+            return
+
         duration_seconds: int | None = None
         if self._group_key is not None:
             duration_seconds = get_group_duration(
@@ -504,6 +520,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             )
             raise HomeAssistantError("API password not available to set value.")
 
+        seq_before = self._begin_optimistic_write()
         try:
             if (method_name := _WRITE_METHODS.get(self.entity_description.key)) is None:
                 raise HomeAssistantError(
@@ -538,6 +555,13 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
                 self.entity_description.key,
                 write_value,
             )
+
+            # Reflect the value immediately after the write succeeds, keeping it
+            # until a post-write refresh arrives.
+            self._attr_native_value = float(write_value)
+            self._commit_optimistic_write(seq_before)
+            if self.hass is not None:
+                self.async_write_ha_state()
 
         except HomeAssistantError:
             raise

@@ -105,6 +105,9 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ip_address = api_client.ip_address
         self._unavailable_logged = False
         self.parsed_data: PoolSyncParsedData | None = None
+        # Monotonic sequence bumped on each successful data fetch, so write
+        # entities can tell whether a coordinator update reflects post-write data.
+        self._refresh_seq = 0
         self.last_failure_class: PoolSyncFailureClass | None = None
         self.last_failure_detail: str | None = None
         self.last_failure_context: PoolSyncFailureContext | None = None
@@ -164,6 +167,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def password(self) -> str:
         """Return the stored PoolSync API password."""
         return self._password
+
+    @property
+    def refresh_seq(self) -> int:
+        """Return the monotonic sequence of completed data fetches."""
+        return self._refresh_seq
 
     def get_parsed_data(self, *, refresh: bool = False) -> PoolSyncParsedData:
         """Return parsed runtime data, deriving it from raw data if needed."""
@@ -523,6 +531,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
             self.parsed_data = parse_poolsync_runtime_data(data)
+            self._refresh_seq += 1
             self._consecutive_transport_failures = 0
             self._clear_last_failure()
             self._log_recovered_if_needed()

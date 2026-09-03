@@ -366,3 +366,57 @@ async def test_circulation_pump_mode_select_creates_with_options(hass) -> None:
     assert pump_mode_select.options == ["auto", "manual", "off"]
     assert pump_mode_select.current_option == "auto"
     assert pump_mode_select.available is True
+
+
+async def test_heat_mode_select_is_optimistic(hass) -> None:
+    """Test heat-mode select keeps requested option until post-write data arrives."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_device_info = Mock(return_value={"identifiers": set()})
+    coordinator.last_update_success = True
+    coordinator._refresh_seq = 0
+    coordinator.refresh_seq = 0
+    coordinator.async_set_heat_pump_mode_context = AsyncMock(return_value=None)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "config": {
+                    "mode": 1,
+                    "poolSpaMode": 0,
+                    "setpoint": 78,
+                    "spaSetpoint": 88,
+                },
+                "system": {"modelNum": "075AHDSBLH"},
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncHeatModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="heat_mode",
+            options=["off", "heat_pool", "heat_spa"],
+            translation_key="mode",
+        ),
+    )
+    entity.async_write_ha_state = Mock()
+    assert entity.current_option == "heat_pool"
+
+    await entity.async_select_option("heat_spa")
+    assert entity.current_option == "heat_spa"
+    assert entity._optimistic is True
+
+    # Pre-write refresh (seq unchanged) must not overwrite the optimistic option.
+    entity._update_attrs()
+    assert entity.current_option == "heat_spa"
+    assert entity._optimistic is True
+
+    # Post-write data arrives (seq bumps) → trust read-back.
+    coordinator.refresh_seq += 1
+    entity._update_attrs()
+    assert entity._optimistic is False
+    assert entity.current_option == "heat_pool"

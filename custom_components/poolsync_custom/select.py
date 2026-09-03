@@ -18,6 +18,7 @@ from .const import (
     CIRCULATION_PUMP_MODE_OFF,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .optimistic import PoolSyncOptimisticMixin
 from .runtime import (
     PoolSyncEquipmentData,
     PoolSyncHeatPumpModeContext,
@@ -124,7 +125,9 @@ async def async_setup_entry(
 
 
 class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
-    CoordinatorEntity[PoolSyncDataUpdateCoordinator], SelectEntity
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator],
+    PoolSyncOptimisticMixin,
+    SelectEntity,
 ):
     """Representation of a PoolSync heat-mode select."""
 
@@ -149,6 +152,7 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
             coordinator.mac_address, description.key
         )
         self._attr_device_info = coordinator.get_device_info(role, index=device_index)
+        self._init_optimistic()
         self._update_attrs()
 
     def _build_unique_id(self, mac_address: str, key: str) -> str:
@@ -163,8 +167,19 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
 
     @callback
     def _update_attrs(self) -> None:
-        """Update cached entity attributes from coordinator data."""
+        """Update cached entity attributes from coordinator data.
+
+        While an optimistic write is pending (a refresh that started after the
+        write has not yet completed), the displayed option is kept as the user
+        requested rather than overwritten by pre-write read-back.
+        """
         parsed_data = ensure_parsed_data(self.coordinator)
+        self._clear_optimistic_if_stale()
+
+        if self._optimistic_pending:
+            self._attr_available = super().available
+            return
+
         if self._role_key == "chem_sync":
             self._attr_options = get_chem_sync_mode_options()
             self._attr_current_option = get_select_value(
@@ -205,10 +220,7 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
         if option not in self.options:
             raise HomeAssistantError(f"Unsupported option: {option}")
 
-        self._attr_current_option = option
-        if self.hass is not None:
-            self.async_write_ha_state()
-
+        seq_before = self._begin_optimistic_write()
         if self._role_key == "chem_sync":
             await self.coordinator.async_set_chem_config(
                 self.entity_description.key,
@@ -220,9 +232,18 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
                 cast(PoolSyncHeatPumpModeContext, option), index=self._device_index
             )
 
+        # Reflect the option immediately after the write succeeds, keeping it
+        # until a post-write refresh arrives.
+        self._attr_current_option = option
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()
+
 
 class PoolSyncCirculationPumpModeSelect(  # pyright: ignore[reportIncompatibleVariableOverride]
-    CoordinatorEntity[PoolSyncDataUpdateCoordinator], SelectEntity
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator],
+    PoolSyncOptimisticMixin,
+    SelectEntity,
 ):
     """Representation of the circulation pump mode select."""
 
@@ -243,12 +264,24 @@ class PoolSyncCirculationPumpModeSelect(  # pyright: ignore[reportIncompatibleVa
             f"{coordinator.mac_address}_equip_{equip.slot_key}_{description.key}"
         )
         self._attr_device_info = coordinator.get_equipment_device_info(equip)
+        self._init_optimistic()
         self._update_attrs()
 
     @callback
     def _update_attrs(self) -> None:
-        """Update cached entity attributes from coordinator data."""
+        """Update cached entity attributes from coordinator data.
+
+        While an optimistic write is pending (a refresh that started after the
+        write has not yet completed), the displayed option is kept as the user
+        requested rather than overwritten by pre-write read-back.
+        """
         parsed_data = ensure_parsed_data(self.coordinator)
+        self._clear_optimistic_if_stale()
+
+        if self._optimistic_pending:
+            self._attr_available = super().available
+            return
+
         self._attr_options = [
             CIRCULATION_PUMP_MODE_AUTO,
             CIRCULATION_PUMP_MODE_MANUAL,
@@ -282,9 +315,7 @@ class PoolSyncCirculationPumpModeSelect(  # pyright: ignore[reportIncompatibleVa
         if option not in self.options:
             raise HomeAssistantError(f"Unsupported option: {option}")
 
-        self._attr_current_option = option
-        if self.hass is not None:
-            self.async_write_ha_state()
+        seq_before = self._begin_optimistic_write()
 
         rpm = None
         if option == CIRCULATION_PUMP_MODE_MANUAL:
@@ -295,3 +326,10 @@ class PoolSyncCirculationPumpModeSelect(  # pyright: ignore[reportIncompatibleVa
                 rpm = get_circulation_pump_rpm_min(equip_runtime) or 600
 
         await self.coordinator.async_set_circulation_pump_mode(option, rpm=rpm)
+
+        # Reflect the option immediately after the write succeeds, keeping it
+        # until a post-write refresh arrives.
+        self._attr_current_option = option
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()

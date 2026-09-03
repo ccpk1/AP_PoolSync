@@ -144,13 +144,32 @@ When the PoolSync device reports a variable-speed circulation pump and/or groups
 - **Pump RPM control** (`number.pump_rpm_control`) — sets the manual RPM. When the pump is running, this reflects the actual current speed.
 - **Group switches** (`switch.group_*`) — one per group. Turning a group on uses the group's stored default duration (e.g. Waterfall defaults to 6 hours); turning it off stops it immediately.
 - **Group schedule switches** (`switch.group_*_schedule`) — one per group. Toggles whether the group's schedule is enabled (its `schedMode`). Turning this on enables the schedule; it does **not** turn the group itself on. Each switch exposes the group's up to 4 schedule slots as a `schedules` attribute (decoded days and times).
-- **Group duration** (`number.group_*_duration`) — adjusts the duration of a group **while it is running**. Changing the duration of a group that is off has no effect until it is turned on.
+- **Group duration** (`number.group_*_duration`) — adjusts the duration of a group **while it is running**. Changing the duration of a group that is off has no effect (the group must be running to change its duration). To start a group with a custom duration, use the `set_group_state` service with a `duration`.
 - **Group info sensor** (`sensor.group_info`) — shows which groups are active, with per-group duration and end-time attributes.
 
-**Services** for more customized control:
+All write controls (group switches, schedule switches, pump mode, pump RPM, group duration, heat-pump mode/preset/temperature) update **immediately** when you change them, then confirm against the device on the next poll. This keeps the controls feeling responsive even when the device is slow to report the change back.
 
-- `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.
+**Services** for more customized control (available in Developer Tools → Services):
+
+- `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `state` accepts `on`/`off`, `true`/`false`, or `1`/`0`. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.
 - `poolsync_custom.set_pump_mode(mode, rpm?)` — set the pump to `auto`, `manual`, or `off`. `rpm` is required for `manual`.
+
+Example — turn the Waterfall group on for 90 minutes:
+```yaml
+service: poolsync_custom.set_group_state
+data:
+  group: "WATERFALL"
+  state: "on"
+  duration: "1h 30m"
+```
+
+Example — set the pump to manual at 2000 RPM:
+```yaml
+service: poolsync_custom.set_pump_mode
+data:
+  mode: "manual"
+  rpm: 2000
+```
 
 Some diagnostic entities are disabled by default to keep the default dashboard cleaner.
 

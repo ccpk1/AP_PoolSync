@@ -991,6 +991,13 @@ This retroactively explains the diagnostic values that previously looked like ga
 
 **From decompiled app (2026-08-17, unverified):** `GROUP_TIME_SET` = `config[4]` and `GROUP_TIME_LEFT` = `config[5]`. Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). `config[5]` is non-zero when the group has been running — a countdown remaining or a start timestamp. The index positions are verified by diagnostics; the semantic meanings are inferred from the app's constant names.
 
+**✅ Confirmed (2026-09-03, user packet captures + three sequential diagnostics):**
+- **`timeSet` (config[4]) is the static set duration and does NOT decrement.** It stays at 5400 (90 min) across three snapshots of the WATERFALL group: on, 5 minutes later (running), and off. The integration's duration number entity reads this value, so it is stable (no recorder churn).
+- **`timeLeft` (config[5]) is the decrementing countdown.** It dropped from 5383s to 5000s over ~6 min of runtime (≈ real-time), and reads 0 when off.
+- **`ends_at` is computed as `now + timeLeft` and is rounded down to the minute** by the integration to avoid sub-second drift between polls. It is a fixed timestamp that does not move while the group runs.
+- **Turning a group off does NOT revert `timeSet` to the group's max.** The off-write (`{state: [0, 0]}`) sets `state=0` and `timeLeft=0`, but leaves the last-set duration intact (WATERFALL stayed at 5400, not 21600).
+- **The device clamps out-of-range durations to the group's max.** If a set duration exceeds the group's configured maximum, the device reverts it to the max on the next read (e.g. a 10h request on a 6h-max group reverts to 6h). This is device enforcement, not something the integration needs to handle.
+
 #### F10a. Group Write Path (CONFIRMED from user packet capture, 2026-09-01)
 
 **✅ CONFIRMED:** The user captured the exact PATCH payloads the app sends to `?cmd=devices&device=0` for group control:
@@ -1022,6 +1029,30 @@ This retroactively explains the diagnostic values that previously looked like ga
 **Note:** The duration is only meaningful when turning a group on. Turning off uses `[0, 0]`. When turning on without a duration, the app uses the group's configured default max (e.g. 21600 for Waterfall).
 
 The earlier decompiled-app analysis (`updateDevice` → `{devices: {...}}` → `config[3]`) was a reasonable hypothesis but the **confirmed capture shows the real payload is flat** (`groups.{key}.state`), not wrapped in `devices.{id}`.
+
+#### F10b. Integration Services (UI mode)
+
+The integration exposes two admin services that wrap the confirmed write paths above. Both are defined in `services.yaml` and translated in `translations/en.json`, so they appear in the Home Assistant Services UI picker.
+
+| Service | Fields | Write path |
+|---------|--------|------------|
+| `set_group_state` | `group` (name or key), `state` (on/off/true/false/1/0), `duration?` (minutes or human-readable) | `groups.{key}.state = [on/off, duration]` |
+| `set_pump_mode` | `mode` (auto/manual/off), `rpm?` (required for manual) | `equip.{slot} = [rpm/50, flag]` |
+
+Notes:
+- `state` is validated with `cv.boolean`, so it accepts `on`/`off`, `true`/`false`, or `1`/`0`.
+- `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`); when omitted, the group's stored default (`config[4]`) is used.
+- `set_pump_mode` with `mode: manual` requires `rpm`; the RPM is divided by the ×50 factor before writing.
+
+#### F10c. Optimistic updates (write entities)
+
+**Implemented (2026-09-03):** All write entities (switches, selects, numbers, climate) reflect a control change **immediately** after a successful write, rather than waiting for the next poll. The coordinator keeps a monotonic `refresh_seq` counter, bumped on each successful fetch. Each write entity holds an optimistic flag (`PoolSyncOptimisticMixin`) that:
+
+- Is set only **after** the write succeeds, so a failed write never leaves a stale optimistic value.
+- Keeps the user-requested value in `_update_attrs()` while pending, so a pre-write read-back does not immediately revert it.
+- Is cleared once a fetch that started **after** the write completes (`refresh_seq > optimistic_seq`), after which the fresh read-back is trusted.
+
+For climate, `current_temperature` is a live sensor reading and is always updated even while an optimistic write is pending; only the control values (`hvac_mode`, `preset_mode`, `target_temperature`) are guarded.
 
 ### 🟢 LOWER CONFIDENCE — Needs more data
 

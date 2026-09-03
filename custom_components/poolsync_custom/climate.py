@@ -23,6 +23,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .optimistic import PoolSyncOptimisticMixin
 from .runtime import (
     HEAT_PUMP_PRESET_POOL,
     PoolSyncHeatPumpClimateHvacMode,
@@ -91,7 +92,10 @@ async def async_setup_entry(
 
 
 class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariableOverride]
-    CoordinatorEntity[PoolSyncDataUpdateCoordinator], ClimateEntity, RestoreEntity
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator],
+    PoolSyncOptimisticMixin,
+    ClimateEntity,
+    RestoreEntity,
 ):
     """Representation of the PoolSync heat-pump climate entity."""
 
@@ -125,6 +129,7 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
         self._attr_device_info = coordinator.get_device_info(
             "heat_pump", index=device_index
         )
+        self._init_optimistic()
         self._last_on_preset_mode: PoolSyncHeatPumpClimatePresetMode = (
             HEAT_PUMP_PRESET_POOL
         )
@@ -179,6 +184,26 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
         preset_modes = get_heat_pump_climate_preset_modes(parsed_data, index=hp_index)
         self._attr_preset_modes = list(preset_modes)
 
+        # current_temperature is a live sensor reading; always update it even
+        # while an optimistic control write is pending.
+        self._attr_current_temperature = get_heat_pump_climate_current_temperature(
+            parsed_data, index=hp_index
+        )
+
+        # A coordinator update whose fetch started after the write supersedes
+        # the optimistic control values; clear it and trust the fresh read.
+        self._clear_optimistic_if_stale()
+
+        if self._optimistic_pending:
+            # Keep the user-requested control values until post-write data arrives.
+            self._attr_available = (
+                super().available
+                and self._attr_current_temperature is not None
+                and self._attr_target_temperature is not None
+                and self._attr_hvac_mode is not None
+            )
+            return
+
         runtime_preset_mode = get_heat_pump_climate_preset_mode(
             parsed_data, index=hp_index
         )
@@ -195,9 +220,6 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
 
         self._attr_hvac_action = _HVAC_ACTION_MAP.get(
             get_heat_pump_climate_hvac_action(parsed_data, index=hp_index) or ""
-        )
-        self._attr_current_temperature = get_heat_pump_climate_current_temperature(
-            parsed_data, index=hp_index
         )
         self._attr_target_temperature = get_heat_pump_climate_target_temperature(
             parsed_data,
@@ -240,11 +262,20 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
                 self.preset_mode or self._last_on_preset_mode,
             )
         )
+        seq_before = self._begin_optimistic_write()
         await self.coordinator.async_set_heat_pump_climate_mode(
             hvac_mode=cast(PoolSyncHeatPumpClimateHvacMode, hvac_mode.value),
             preset_mode=target_preset,
             index=self._device_index,
         )
+
+        # Reflect the control values immediately after the write succeeds,
+        # keeping them until a post-write refresh arrives.
+        self._attr_hvac_mode = hvac_mode
+        self._attr_preset_mode = target_preset
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()
 
     def set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set a new HVAC mode from a synchronous context."""
@@ -305,11 +336,19 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
                 self.async_write_ha_state()
             return
 
+        seq_before = self._begin_optimistic_write()
         await self.coordinator.async_set_heat_pump_climate_mode(
             hvac_mode=cast(PoolSyncHeatPumpClimateHvacMode, hvac_mode.value),
             preset_mode=self._last_on_preset_mode,
             index=self._device_index,
         )
+
+        # Reflect the preset immediately after the write succeeds, keeping it
+        # until a post-write refresh arrives.
+        self._attr_preset_mode = preset_mode
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()
 
     def set_preset_mode(self, preset_mode: str) -> None:
         """Set the body context preset from a synchronous context."""
@@ -323,6 +362,7 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
             raise HomeAssistantError(f"Expected attribute {ATTR_TEMPERATURE}")
 
+        seq_before = self._begin_optimistic_write()
         await self.coordinator.async_set_heat_pump_active_target(
             int(temperature),
             preset_mode=cast(
@@ -331,6 +371,13 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
             ),
             index=self._device_index,
         )
+
+        # Reflect the target temperature immediately after the write succeeds,
+        # keeping it until a post-write refresh arrives.
+        self._attr_target_temperature = float(temperature)
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()
 
     def set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature from a synchronous context."""

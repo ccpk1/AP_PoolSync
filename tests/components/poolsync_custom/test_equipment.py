@@ -527,8 +527,8 @@ class TestGroupTiming:
         now = datetime(2026, 9, 1, 12, 0, 0)
         ends_at = get_group_ends_at(er, "1", now)
         assert ends_at is not None
-        # 12:00:00 + 21586s (timeLeft) = 17:59:46
-        assert ends_at == datetime(2026, 9, 1, 17, 59, 46)
+        # 12:00:00 + 21586s (timeLeft) = 17:59:46, rounded down to the minute
+        assert ends_at == datetime(2026, 9, 1, 17, 59, 0)
 
         assert get_group_ends_at(er, "0", now) is None
 

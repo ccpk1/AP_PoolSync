@@ -363,5 +363,39 @@
         "name": "Device offline events"
       }
     }
+  },
+  "services": {
+    "set_group_state": {
+      "name": "Set group state",
+      "description": "Turn a PoolSync group on or off, optionally with a custom duration.",
+      "fields": {
+        "group": {
+          "name": "Group",
+          "description": "The group to control. Accepts the group name (e.g. \"POOL\", \"WATERFALL\") or its numeric key."
+        },
+        "state": {
+          "name": "State",
+          "description": "Whether to turn the group on or off."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "How long the group should run when turning it on. Accepts minutes (e.g. 90) or a human-readable value (e.g. \"1d 10h 22m\"). Only used when turning the group on."
+        }
+      }
+    },
+    "set_pump_mode": {
+      "name": "Set pump mode",
+      "description": "Set the circulation pump operating mode to auto, manual, or off.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "The pump operating mode to set."
+        },
+        "rpm": {
+          "name": "RPM",
+          "description": "The pump speed in RPM. Required when mode is \"manual\"."
+        }
+      }
+    }
   }
 }
