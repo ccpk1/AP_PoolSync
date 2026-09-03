@@ -54,6 +54,8 @@ def _build_coordinator() -> Mock:
         "deviceType": {"7": "heatPump"},
     }
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator._refresh_seq = 0
+    coordinator.refresh_seq = 0
     coordinator.async_set_heat_pump_climate_mode = AsyncMock(return_value=None)
     coordinator.async_set_heat_pump_active_target = AsyncMock(return_value=None)
     return coordinator
@@ -247,3 +249,55 @@ async def test_climate_unsupported_sync_methods_raise_not_implemented() -> None:
         entity.set_swing_mode("on")
     with pytest.raises(NotImplementedError):
         entity.set_swing_horizontal_mode("on")
+
+
+async def test_climate_set_hvac_mode_is_optimistic() -> None:
+    """Test climate keeps requested HVAC mode until post-write data arrives."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity.async_write_ha_state = Mock()
+    assert entity.hvac_mode == HVACMode.HEAT
+
+    await entity.async_set_hvac_mode(HVACMode.OFF)
+    assert entity.hvac_mode == HVACMode.OFF
+    assert entity._optimistic is True
+
+    # Pre-write refresh (seq unchanged) must not overwrite the optimistic mode.
+    entity._update_attrs()
+    assert entity.hvac_mode == HVACMode.OFF
+    assert entity._optimistic is True
+
+    # Post-write data arrives (seq bumps) → trust read-back.
+    coordinator.refresh_seq += 1
+    entity._update_attrs()
+    assert entity._optimistic is False
+    assert entity.hvac_mode == HVACMode.HEAT
+
+
+async def test_climate_set_temperature_is_optimistic() -> None:
+    """Test climate keeps requested target temperature until post-write data."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity.async_write_ha_state = Mock()
+    assert entity.target_temperature == 84
+
+    await entity.async_set_temperature(**{ATTR_TEMPERATURE: 91})
+    assert entity.target_temperature == 91
+    assert entity._optimistic is True
+
+    # Pre-write refresh (seq unchanged) must not overwrite the optimistic value.
+    entity._update_attrs()
+    assert entity.target_temperature == 91
+    assert entity._optimistic is True
+
+    # Post-write data arrives (seq bumps) → trust read-back.
+    coordinator.refresh_seq += 1
+    entity._update_attrs()
+    assert entity._optimistic is False
+    assert entity.target_temperature == 84

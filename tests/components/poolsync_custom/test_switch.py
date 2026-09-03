@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from homeassistant.components.switch import SwitchEntityDescription
 
@@ -73,6 +73,8 @@ def _build_coordinator() -> Mock:
         "deviceType": {"7": "heatPump"},
     }
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator._refresh_seq = 0
+    coordinator.refresh_seq = 0
     return coordinator
 
 
@@ -232,3 +234,60 @@ async def test_group_schedule_switch_unique_id_is_stable(hass) -> None:
     assert entity.device_info["identifiers"] == {
         ("poolsync_custom", "AABBCCDDEEFF_controller")
     }
+
+
+async def test_group_switch_turn_on_is_optimistic(hass) -> None:
+    """Test turn_on reflects state optimistically and keeps it until post-write data."""
+    coordinator = _build_coordinator()
+    coordinator.async_set_group_state = AsyncMock()
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_1", translation_key="group"),
+        group_key="1",
+        group_name="WATERFALL",
+    )
+    assert entity.is_on is True  # WATERFALL config[3] = 1
+
+    await entity.async_turn_off()
+    assert entity.is_on is False
+    assert entity._optimistic is True
+
+    # A pre-write refresh (seq unchanged) must not overwrite the optimistic state
+    entity._update_attrs()
+    assert entity.is_on is False
+    assert entity._optimistic is True
+
+    # Post-write data arrives (seq bumps) → clear optimistic and trust read-back.
+    coordinator.refresh_seq += 1
+    entity._update_attrs()
+    assert entity._optimistic is False
+    assert entity.is_on is True
+
+
+async def test_group_schedule_switch_turn_off_is_optimistic(hass) -> None:
+    """Test schedule switch keeps requested state until post-write data arrives."""
+    coordinator = _build_coordinator()
+    coordinator.async_set_group_schedule_mode = AsyncMock()
+    entity = PoolSyncGroupScheduleSwitch(
+        coordinator,
+        SwitchEntityDescription(
+            key="group_1_schedule", translation_key="group_schedule"
+        ),
+        group_key="1",
+        group_name="WATERFALL",
+    )
+    assert entity.is_on is True  # WATERFALL config[7] = 1
+
+    await entity.async_turn_off()
+    assert entity.is_on is False
+    assert entity._optimistic is True
+
+    # Pre-write refresh must not overwrite.
+    entity._update_attrs()
+    assert entity.is_on is False
+
+    # Post-write data arrives → trust read-back.
+    coordinator.refresh_seq += 1
+    entity._update_attrs()
+    assert entity._optimistic is False
+    assert entity.is_on is True

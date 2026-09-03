@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import GROUP_IDX_STATE
 from .coordinator import PoolSyncDataUpdateCoordinator
+from .optimistic import PoolSyncOptimisticMixin
 from .runtime import (
     build_unique_id,
     ensure_parsed_data,
@@ -86,7 +87,9 @@ async def async_setup_entry(
 
 
 class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract-method
-    CoordinatorEntity[PoolSyncDataUpdateCoordinator], SwitchEntity
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator],
+    PoolSyncOptimisticMixin,
+    SwitchEntity,
 ):
     """Representation of a PoolSync group on/off switch."""
 
@@ -111,17 +114,32 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
             f"group_{group_key}",
         )
         self._attr_device_info = coordinator.get_device_info("controller")
+        self._init_optimistic()
         self._update_translation_placeholders()
         self._update_attrs()
 
     @callback
     def _update_attrs(self) -> None:
-        """Update cached entity attributes from coordinator data."""
+        """Update cached entity attributes from coordinator data.
+
+        While an optimistic write is pending (a refresh that started after the
+        write has not yet completed), the displayed on/off state is kept as
+        the user requested rather than overwritten by pre-write read-back.
+        """
         parsed_data = ensure_parsed_data(self.coordinator)
         equip_runtime = get_equipment_runtime(parsed_data)
         if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
             self._attr_is_on = None
             self._attr_available = False
+            return
+
+        # A coordinator update whose fetch started after the write supersedes
+        # the optimistic value; clear it and trust the fresh read.
+        self._clear_optimistic_if_stale()
+
+        if self._optimistic_pending:
+            # Keep the user-requested state until post-write data arrives.
+            self._attr_available = super().available
             return
 
         group_data = equip_runtime.raw_groups.get(self._group_key)
@@ -180,15 +198,26 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the group on (uses the group's default duration)."""
-        await self.coordinator.async_set_group_state(self._group_key, True)
+        await self._async_set_state(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the group off."""
-        await self.coordinator.async_set_group_state(self._group_key, False)
+        await self._async_set_state(False)
+
+    async def _async_set_state(self, state: bool) -> None:
+        """Write the group state and reflect it optimistically after success."""
+        seq_before = self._begin_optimistic_write()
+        await self.coordinator.async_set_group_state(self._group_key, state)
+        self._attr_is_on = state
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()
 
 
 class PoolSyncGroupScheduleSwitch(  # type: ignore[abstract]  # pylint: disable=abstract-method
-    CoordinatorEntity[PoolSyncDataUpdateCoordinator], SwitchEntity
+    CoordinatorEntity[PoolSyncDataUpdateCoordinator],
+    PoolSyncOptimisticMixin,
+    SwitchEntity,
 ):
     """Representation of a PoolSync group schedule on/off switch.
 
@@ -218,17 +247,32 @@ class PoolSyncGroupScheduleSwitch(  # type: ignore[abstract]  # pylint: disable=
             f"group_{group_key}_schedule",
         )
         self._attr_device_info = coordinator.get_device_info("controller")
+        self._init_optimistic()
         self._update_translation_placeholders()
         self._update_attrs()
 
     @callback
     def _update_attrs(self) -> None:
-        """Update cached entity attributes from coordinator data."""
+        """Update cached entity attributes from coordinator data.
+
+        While an optimistic write is pending (a refresh that started after the
+        write has not yet completed), the displayed schedule-mode state is kept
+        as the user requested rather than overwritten by pre-write read-back.
+        """
         parsed_data = ensure_parsed_data(self.coordinator)
         equip_runtime = get_equipment_runtime(parsed_data)
         if equip_runtime is None:
             self._attr_is_on = None
             self._attr_available = False
+            return
+
+        # A coordinator update whose fetch started after the write supersedes
+        # the optimistic value; clear it and trust the fresh read.
+        self._clear_optimistic_if_stale()
+
+        if self._optimistic_pending:
+            # Keep the user-requested state until post-write data arrives.
+            self._attr_available = super().available
             return
 
         schedule_mode = get_group_schedule_mode(equip_runtime, self._group_key)
@@ -275,8 +319,17 @@ class PoolSyncGroupScheduleSwitch(  # type: ignore[abstract]  # pylint: disable=
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable the group's schedule."""
-        await self.coordinator.async_set_group_schedule_mode(self._group_key, True)
+        await self._async_set_state(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable the group's schedule."""
-        await self.coordinator.async_set_group_schedule_mode(self._group_key, False)
+        await self._async_set_state(False)
+
+    async def _async_set_state(self, state: bool) -> None:
+        """Write the schedule mode and reflect it optimistically after success."""
+        seq_before = self._begin_optimistic_write()
+        await self.coordinator.async_set_group_schedule_mode(self._group_key, state)
+        self._attr_is_on = state
+        self._commit_optimistic_write(seq_before)
+        if self.hass is not None:
+            self.async_write_ha_state()

@@ -298,3 +298,27 @@ async def test_number_entity_becomes_unavailable_on_invalid_value(hass) -> None:
 
     assert entity.native_value is None
     assert entity.available is False
+
+
+async def test_number_entity_is_optimistic(hass) -> None:
+    """Test number keeps requested value until post-write data arrives."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    entity = _build_entity(hass, api_client)
+    entity.async_write_ha_state = Mock()
+    assert entity.native_value == 50
+
+    await entity.async_set_native_value(42)
+    assert entity.native_value == 42
+    assert entity._optimistic is True
+
+    # Pre-write refresh (seq unchanged) must not overwrite the optimistic value.
+    entity._update_attrs()
+    assert entity.native_value == 42
+    assert entity._optimistic is True
+
+    # Post-write data arrives (seq bumps) → trust read-back.
+    entity.coordinator._refresh_seq += 1
+    entity._update_attrs()
+    assert entity._optimistic is False
+    assert entity.native_value == 50
