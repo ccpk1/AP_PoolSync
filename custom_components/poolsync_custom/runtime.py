@@ -655,11 +655,15 @@ def get_group_ends_at(
 
     Only groups with a live countdown (timeLeft > 0) get an end time;
     groups running indefinitely (timeLeft == 0) return None.
+
+    The result is rounded down to the minute so consecutive polls produce a
+    stable value (avoiding recorder churn from sub-second drift in ``now``).
     """
     time_left = get_group_time_left(equip_runtime, group_key)
     if not time_left:
         return None
-    return now + timedelta(seconds=time_left)
+    ends_at = now + timedelta(seconds=time_left)
+    return ends_at.replace(second=0, microsecond=0)
 
 
 def get_group_schedule_mode(

@@ -991,6 +991,13 @@ This retroactively explains the diagnostic values that previously looked like ga
 
 **From decompiled app (2026-08-17, unverified):** `GROUP_TIME_SET` = `config[4]` and `GROUP_TIME_LEFT` = `config[5]`. Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). `config[5]` is non-zero when the group has been running — a countdown remaining or a start timestamp. The index positions are verified by diagnostics; the semantic meanings are inferred from the app's constant names.
 
+**✅ Confirmed (2026-09-03, user packet captures + three sequential diagnostics):**
+- **`timeSet` (config[4]) is the static set duration and does NOT decrement.** It stays at 5400 (90 min) across three snapshots of the WATERFALL group: on, 5 minutes later (running), and off. The integration's duration number entity reads this value, so it is stable (no recorder churn).
+- **`timeLeft` (config[5]) is the decrementing countdown.** It dropped from 5383s to 5000s over ~6 min of runtime (≈ real-time), and reads 0 when off.
+- **`ends_at` is computed as `now + timeLeft` and is rounded down to the minute** by the integration to avoid sub-second drift between polls. It is a fixed timestamp that does not move while the group runs.
+- **Turning a group off does NOT revert `timeSet` to the group's max.** The off-write (`{state: [0, 0]}`) sets `state=0` and `timeLeft=0`, but leaves the last-set duration intact (WATERFALL stayed at 5400, not 21600).
+- **The device clamps out-of-range durations to the group's max.** If a set duration exceeds the group's configured maximum, the device reverts it to the max on the next read (e.g. a 10h request on a 6h-max group reverts to 6h). This is device enforcement, not something the integration needs to handle.
+
 #### F10a. Group Write Path (CONFIRMED from user packet capture, 2026-09-01)
 
 **✅ CONFIRMED:** The user captured the exact PATCH payloads the app sends to `?cmd=devices&device=0` for group control:
