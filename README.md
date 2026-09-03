@@ -147,6 +147,8 @@ When the PoolSync device reports a variable-speed circulation pump and/or groups
 - **Group duration** (`number.group_*_duration`) — adjusts the duration of a group **while it is running**. Changing the duration of a group that is off has no effect (the group must be running to change its duration). To start a group with a custom duration, use the `set_group_state` service with a `duration`.
 - **Group info sensor** (`sensor.group_info`) — shows which groups are active, with per-group duration and end-time attributes.
 
+All write controls (group switches, schedule switches, pump mode, pump RPM, group duration, heat-pump mode/preset/temperature) update **immediately** when you change them, then confirm against the device on the next poll. This keeps the controls feeling responsive even when the device is slow to report the change back.
+
 **Services** for more customized control (available in Developer Tools → Services):
 
 - `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `state` accepts `on`/`off`, `true`/`false`, or `1`/`0`. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.

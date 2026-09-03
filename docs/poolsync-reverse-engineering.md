@@ -1044,6 +1044,16 @@ Notes:
 - `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`); when omitted, the group's stored default (`config[4]`) is used.
 - `set_pump_mode` with `mode: manual` requires `rpm`; the RPM is divided by the ×50 factor before writing.
 
+#### F10c. Optimistic updates (write entities)
+
+**Implemented (2026-09-03):** All write entities (switches, selects, numbers, climate) reflect a control change **immediately** after a successful write, rather than waiting for the next poll. The coordinator keeps a monotonic `refresh_seq` counter, bumped on each successful fetch. Each write entity holds an optimistic flag (`PoolSyncOptimisticMixin`) that:
+
+- Is set only **after** the write succeeds, so a failed write never leaves a stale optimistic value.
+- Keeps the user-requested value in `_update_attrs()` while pending, so a pre-write read-back does not immediately revert it.
+- Is cleared once a fetch that started **after** the write completes (`refresh_seq > optimistic_seq`), after which the fresh read-back is trusted.
+
+For climate, `current_temperature` is a live sensor reading and is always updated even while an optimistic write is pending; only the control values (`hvac_mode`, `preset_mode`, `target_temperature`) are guarded.
+
 ### 🟢 LOWER CONFIDENCE — Needs more data
 
 #### F11. Schedule Time Encoding (RESOLVED by packet capture, 2026-09-02)
