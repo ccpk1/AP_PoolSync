@@ -936,7 +936,15 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def get_equipment_device_info(self, equip: PoolSyncEquipmentData) -> DeviceInfo:
-        """Build device info for an equipment entry."""
+        """Build device info for an equipment entry.
+
+        The heat pump's own equipment entry (slot 0, type HEAT PUMP) is the same
+        physical device as the heat_pump role device, so it reuses that device
+        instead of creating a redundant ``{mac}_equip_0`` device.
+        """
+        if equip.is_heat_pump:
+            return self.get_device_info("heat_pump", index=0)
+
         return self._build_device_info(
             identifier=(DOMAIN, f"{self.mac_address}_equip_{equip.slot_key}"),
             name=self._normalize_equipment_name(equip.name),

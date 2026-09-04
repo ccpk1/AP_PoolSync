@@ -20,8 +20,12 @@ from custom_components.poolsync_custom.api import (
     PoolSyncApiCommunicationError,
     PoolSyncApiError,
 )
+from custom_components.poolsync_custom.const import DOMAIN
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
-from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
+from custom_components.poolsync_custom.runtime import (
+    get_equipment_runtime,
+    parse_poolsync_runtime_data,
+)
 
 TEST_IP_ADDRESS = "192.168.50.70"
 TEST_PASSWORD = "test-password"
@@ -485,6 +489,48 @@ async def test_device_info_gracefully_handles_missing_parsed_role_metadata(
     assert controller_info["model"] == "PoolSync"
     assert heat_pump_info["name"] == "Heat Pump"
     assert heat_pump_info["model"] == "Heat Pump"
+
+
+async def test_equipment_device_info_reuses_heat_pump_device(hass) -> None:
+    """Test the heat pump's own equipment entry reuses the heat_pump role device.
+
+    Regression test: the heat pump appears both as a heatPump device type and as
+    equipment slot 0 (type 3). It must not create a redundant ``{mac}_equip_0``
+    device, which previously produced a second heat pump device with a single
+    entity.
+    """
+    api_client = Mock()
+    api_client.get_all_data = AsyncMock(
+        return_value={
+            "poolSync": {},
+            "devices": {
+                "0": {
+                    "nodeAttr": {"name": "Heat Pump", "nodeAddr": 22},
+                    "equip": {
+                        "0": [3, "HEAT PUMP", 0, 0, 0, 300, 0, 1],
+                        "1": [0, "CIRCULATION PUMP", 2, 1, 0, 300, 0, 60],
+                    },
+                }
+            },
+            "deviceType": {"0": "heatPump"},
+        }
+    )
+    coordinator = _build_coordinator(hass, api_client)
+    await coordinator.async_refresh()
+
+    equip_runtime = get_equipment_runtime(coordinator.parsed_data)
+    assert equip_runtime is not None
+    hp_equip = equip_runtime.equipment["0"]
+    assert hp_equip.is_heat_pump
+
+    # The heat pump's own equipment entry resolves to the heat_pump role device.
+    hp_info = coordinator.get_equipment_device_info(hp_equip)
+    assert hp_info["identifiers"] == {(DOMAIN, f"{TEST_MAC_ADDRESS}_heat_pump")}
+
+    # Other equipment (e.g. circulation pump) still gets its own device.
+    pump_equip = equip_runtime.equipment["1"]
+    pump_info = coordinator.get_equipment_device_info(pump_equip)
+    assert pump_info["identifiers"] == {(DOMAIN, f"{TEST_MAC_ADDRESS}_equip_1")}
 
 
 @pytest.mark.parametrize("default_name", ["PoolSync®", "PoolSync™", "PoolSyncTM"])
