@@ -75,6 +75,7 @@ def _build_coordinator() -> Mock:
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
     coordinator._refresh_seq = 0
     coordinator.refresh_seq = 0
+    coordinator.get_group_duration_pref = Mock(return_value=None)
     return coordinator
 
 
@@ -148,8 +149,10 @@ async def test_group_switch_unique_id_is_stable_and_name_independent(hass) -> No
 
 
 async def test_group_switch_duration_attribute_formatted(hass) -> None:
-    """Test the duration attribute uses the consistent Dd HH:MM format."""
+    """Test the duration features use the consistent Dd HH:MM format."""
     coordinator = _build_coordinator()
+    # Set up the preference to match the device's timeSet (172800s = 2880 min)
+    coordinator.get_group_duration_pref = Mock(return_value=2880)
     entity = PoolSyncGroupSwitch(
         coordinator,
         SwitchEntityDescription(key="group_0", translation_key="group"),
@@ -157,8 +160,28 @@ async def test_group_switch_duration_attribute_formatted(hass) -> None:
         group_name="POOL",
     )
 
-    # 172800 seconds → 2d 00:00
+    # duration = user preference (from group_duration_prefs)
     assert entity.extra_state_attributes["duration"] == "2d 00:00"
+    # controller_duration = device timeSet (from the controller)
+    assert entity.extra_state_attributes["controller_duration"] == "2d 00:00"
+
+
+async def test_group_switch_duration_shows_preference_over_device(hass) -> None:
+    """Test that duration attr shows preference, controller_duration shows device."""
+    coordinator = _build_coordinator()
+    # Preference is 30 minutes (1800 seconds), but device timeSet is 172800s
+    coordinator.get_group_duration_pref = Mock(return_value=30)
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_0", translation_key="group"),
+        group_key="0",
+        group_name="POOL",
+    )
+
+    # duration = user preference: 30 min → 0d 00:30
+    assert entity.extra_state_attributes["duration"] == "0d 00:30"
+    # controller_duration = device: 172800s → 2d 00:00
+    assert entity.extra_state_attributes["controller_duration"] == "2d 00:00"
 
 
 async def test_group_schedule_switch_uses_translation_placeholders(hass) -> None:

@@ -998,6 +998,13 @@ This retroactively explains the diagnostic values that previously looked like ga
 - **Turning a group off does NOT revert `timeSet` to the group's max.** The off-write (`{state: [0, 0]}`) sets `state=0` and `timeLeft=0`, but leaves the last-set duration intact (WATERFALL stayed at 5400, not 21600).
 - **The device clamps out-of-range durations to the group's max.** If a set duration exceeds the group's configured maximum, the device reverts it to the max on the next read (e.g. a 10h request on a 6h-max group reverts to 6h). This is device enforcement, not something the integration needs to handle.
 
+**User-facing model — duration is a *preference* (2026-09-04):** The group duration number entities do not mirror `timeSet`. They hold the user's **preferred duration**, persisted across restarts:
+- A blank number is seeded once from the controller's `timeSet`; after that the device never overwrites it.
+- Changing the number while the group is **off** stores the preference only (no device write — writing `state:[1,duration]` while off would turn the group on).
+- Turning a group on (switch or `set_group_state` service) uses that preference unless the service passes an explicit `duration`.
+- Changing the number while the group is **on** applies the new duration immediately.
+- The controller's actual configured duration is exposed as a read-only `controller_duration` attribute (formatted `0d hh:mm`) on both the number and group switch entities, so the device's real value stays visible without fighting the preference.
+
 #### F10a. Group Write Path (CONFIRMED from user packet capture, 2026-09-01)
 
 **✅ CONFIRMED:** The user captured the exact PATCH payloads the app sends to `?cmd=devices&device=0` for group control:

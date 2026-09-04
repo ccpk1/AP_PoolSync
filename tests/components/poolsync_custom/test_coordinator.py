@@ -185,7 +185,12 @@ async def test_get_write_role_device_id_requires_password(hass) -> None:
         mac_address=TEST_MAC_ADDRESS,
     )
 
-    with pytest.raises(HomeAssistantError, match="API password not available"):
+    # _get_write_role_device_id no longer checks the password directly —
+    # callers are responsible for calling _require_password() first.
+    # Without data loaded, it raises a different error.
+    with pytest.raises(
+        HomeAssistantError, match="PoolSync runtime data is not available"
+    ):
         coordinator._get_write_role_device_id(
             role="chlorinator", description="chlorinator output"
         )
@@ -1031,17 +1036,78 @@ async def test_async_set_group_duration_converts_minutes_to_seconds(hass) -> Non
     )
 
 
-async def test_async_set_group_duration_rejects_off_group(hass) -> None:
-    """Group duration write rejects groups that are currently off."""
+async def test_async_set_group_duration_stores_pref_when_off(hass) -> None:
+    """Group duration write stores a preference when the group is off."""
     api_client = Mock()
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
     # Group "2" (FILTRATION) is off in the POOL+WATERFALL fixture
-    with pytest.raises(HomeAssistantError, match="can only be changed while on"):
-        await coordinator.async_set_group_duration("2", 58)
+    await coordinator.async_set_group_duration("2", 58)
+
+    # Off → no device write, preference stored for later use.
+    api_client.async_set_device_config_value.assert_not_awaited()
+    assert coordinator.get_group_duration_pref("2") == 58
+
+
+async def test_async_set_group_duration_stores_pref_without_password(hass) -> None:
+    """Group duration preference can be stored without a password when group is off."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+    coordinator._password = ""
+
+    # Group "2" (FILTRATION) is off — preference-only path should succeed
+    await coordinator.async_set_group_duration("2", 30)
 
     api_client.async_set_device_config_value.assert_not_awaited()
+    assert coordinator.get_group_duration_pref("2") == 30
+
+
+async def test_async_set_group_duration_requires_password_when_on(hass) -> None:
+    """Group duration write requires a password when the group is on."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+    coordinator._password = ""
+
+    # Group "1" (POOL) is on — should raise without password
+    with pytest.raises(HomeAssistantError, match="API password not available"):
+        await coordinator.async_set_group_duration("1", 58)
+
+    api_client.async_set_device_config_value.assert_not_awaited()
+
+
+async def test_async_set_group_state_requires_password(hass) -> None:
+    """Group state write requires a password."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+    coordinator._password = ""
+
+    with pytest.raises(HomeAssistantError, match="API password not available"):
+        await coordinator.async_set_group_state("1", True)
+
+    api_client.async_set_device_config_value.assert_not_awaited()
+
+
+async def test_async_set_group_state_uses_pref_when_on_and_no_duration(hass) -> None:
+    """Group on without explicit duration uses the stored preference."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_pump_coordinator(hass, api_client)
+
+    coordinator.set_group_duration_pref("1", 45)
+    await coordinator.async_set_group_state("1", True)
+
+    # 45 min → 2700 seconds: preference used instead of device timeSet (21600)
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="group_state",
+        value=1,
+        password=TEST_PASSWORD,
+        json_data_override={"groups": {"1": {"state": [1, 2700]}}},
+    )
 
 
 async def test_async_set_group_schedule_mode_on(hass) -> None:

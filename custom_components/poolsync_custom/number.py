@@ -18,6 +18,8 @@ from homeassistant.components.number import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     EntityCategory,
     UnitOfTemperature,
 )
@@ -25,6 +27,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CIRCULATION_PUMP_RPM_MAX, CIRCULATION_PUMP_RPM_MIN
@@ -354,6 +357,7 @@ async def async_setup_entry(
 class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
     CoordinatorEntity[PoolSyncDataUpdateCoordinator],
     PoolSyncOptimisticMixin,
+    RestoreEntity,
     NumberEntity,
 ):
     """Representation of a PoolSync Chlorinator Output Number entity."""
@@ -412,6 +416,28 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             device_node_addr=self._device_node_addr,
         )
 
+    async def async_added_to_hass(self) -> None:
+        """Restore the persisted duration preference when the entity is added."""
+        await super().async_added_to_hass()
+
+        if self._group_key is None:
+            return
+
+        if (last_state := await self.async_get_last_state()) is None:
+            return
+
+        if last_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return
+
+        try:
+            restored = float(last_state.state)
+        except (ValueError, TypeError):
+            return
+
+        if restored > 0:
+            self._attr_native_value = restored
+            self.coordinator.set_group_duration_pref(self._group_key, int(restored))
+
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data.
@@ -429,11 +455,29 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         duration_seconds: int | None = None
         if self._group_key is not None:
+            # The number box is the user's duration *preference*. The device's
+            # timeSet is a read-only reference; we never overwrite the
+            # preference with it (except seeding a blank value once).
             duration_seconds = get_group_duration(
                 get_equipment_runtime(parsed_data), self._group_key
             )
-            value = duration_seconds / 60 if duration_seconds is not None else None
-        elif self._device_index > 0:
+            if self._attr_native_value is None and duration_seconds is not None:
+                self._attr_native_value = duration_seconds / 60
+                self.coordinator.set_group_duration_pref(
+                    self._group_key, int(duration_seconds / 60)
+                )
+            # Reference attribute: controller's actual configured duration.
+            if duration_seconds is not None:
+                self._attr_extra_state_attributes = {
+                    "controller_duration": format_duration_dd_hh_mm(duration_seconds),
+                    "duration": format_duration_dd_hh_mm(duration_seconds),
+                }
+            else:
+                self._attr_extra_state_attributes = None
+            self._attr_available = super().available
+            return
+
+        if self._device_index > 0:
             value = get_number_value(
                 parsed_data,
                 self.entity_description.key,
@@ -460,13 +504,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             self._attr_available = False
             return
 
-        if duration_seconds is not None:
-            self._attr_extra_state_attributes = {
-                "duration": format_duration_dd_hh_mm(duration_seconds)
-            }
-        else:
-            self._attr_extra_state_attributes = None
-
+        self._attr_extra_state_attributes = None
         self._attr_available = super().available
 
     def _update_translation_placeholders(self) -> None:
@@ -488,7 +526,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         self._attr_translation_placeholders = {
             "group_name": group_name or f"Group {self._group_key}"
         }
-        self.__dict__.pop("name", None)
+        self.__dict__.pop("name", None)  # pyright: ignore[reportAttributeAccessIssue]
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -512,13 +550,6 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
             new_value,
             self._device_index,
         )
-
-        if not self.coordinator.password:
-            _LOGGER.error(
-                "NUMBER_ENTITY %s: Password not available on coordinator. Cannot set value.",
-                self.entity_description.key,
-            )
-            raise HomeAssistantError("API password not available to set value.")
 
         seq_before = self._begin_optimistic_write()
         try:
