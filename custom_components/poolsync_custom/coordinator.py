@@ -112,6 +112,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_failure_detail: str | None = None
         self.last_failure_context: PoolSyncFailureContext | None = None
         self._consecutive_transport_failures = 0
+        # User-stored group duration preferences (minutes), keyed by group key.
+        # This is a live in-memory cache; persistence is handled by the number
+        # entity's RestoreEntity, which repopulates this on startup.
+        self.group_duration_prefs: dict[str, int] = {}
 
         logger_name = f"{DOMAIN}({self.mac_address or self._ip_address})"
 
@@ -168,10 +172,23 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the stored PoolSync API password."""
         return self._password
 
+    def _require_password(self) -> None:
+        """Raise if the API password is not available for a device write."""
+        if not self._password:
+            raise HomeAssistantError("API password not available to set value.")
+
     @property
     def refresh_seq(self) -> int:
         """Return the monotonic sequence of completed data fetches."""
         return self._refresh_seq
+
+    def get_group_duration_pref(self, group_id: str) -> int | None:
+        """Return the stored duration preference (minutes) for a group."""
+        return self.group_duration_prefs.get(group_id)
+
+    def set_group_duration_pref(self, group_id: str, minutes: int) -> None:
+        """Store a duration preference (minutes) for a group."""
+        self.group_duration_prefs[group_id] = minutes
 
     def get_parsed_data(self, *, refresh: bool = False) -> PoolSyncParsedData:
         """Return parsed runtime data, deriving it from raw data if needed."""
@@ -192,9 +209,6 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         index: int = 0,
     ) -> str:
         """Resolve the device ID for a write target role."""
-        if not self.password:
-            raise HomeAssistantError("API password not available to set value")
-
         role_data = get_role_data(self.get_parsed_data(), role, index=index)
         if role_data is None or role_data.device_id is None or not role_data.is_present:
             raise HomeAssistantError(f"PoolSync {description} target is not available")
@@ -267,6 +281,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set_chlorinator_output(self, value: int, index: int = 0) -> None:
         """Set the chlorinator output level."""
+        self._require_password()
         await self._async_write_role_config(
             role="chlorinator",
             key_id="chlorOutput",
@@ -310,6 +325,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         index: int = 0,
     ) -> None:
         """Set the active target temperature for the current heat-pump context."""
+        self._require_password()
         runtime = get_heat_pump_runtime(self.get_parsed_data())
         if runtime is None:
             raise HomeAssistantError("PoolSync heat pump target is not available")
@@ -344,6 +360,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mode_context: PoolSyncHeatPumpModeContext, index: int = 0
     ) -> None:
         """Set the heat-pump mode using the contextual runtime model."""
+        self._require_password()
         if mode_context == HEAT_PUMP_MODE_OFF:
             updates = {"mode": 0, "poolSpaMode": 0}
         elif mode_context == HEAT_PUMP_MODE_HEAT_POOL:
@@ -375,6 +392,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         index: int = 0,
     ) -> None:
         """Set heat-pump climate state using HVAC and preset semantics."""
+        self._require_password()
         runtime = get_heat_pump_runtime(self.get_parsed_data())
         if runtime is None:
             raise HomeAssistantError("PoolSync heat pump mode is not available")
@@ -429,6 +447,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Maps entity keys to API config field names.
         """
+        self._require_password()
         _key_map: dict[str, str] = {
             "chem_ph_setpoint": "phSetpoint",
             "chem_orp_setpoint": "orpSetpoint",
@@ -447,6 +466,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_chem_prime_pump(self, index: int = 0) -> None:
         """Trigger ChemSync prime pump action."""
+        self._require_password()
         device_id = self._get_write_role_device_id(
             role="chem_sync", description="ChemSync prime pump", index=index
         )
@@ -463,6 +483,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_chem_boost(self, index: int = 0) -> None:
         """Trigger ChemSync boost action."""
+        self._require_password()
         device_id = self._get_write_role_device_id(
             role="chem_sync", description="ChemSync boost", index=index
         )
@@ -479,6 +500,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_chlor_clear_cell_life(self, index: int = 0) -> None:
         """Trigger ChlorSync clear cell life action."""
+        self._require_password()
         device_id = self._get_write_role_device_id(
             role="chlorinator",
             description="ChlorSync clear cell life",
@@ -943,8 +965,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Confirmed write format (2026-09-01): ``equip.{slot} = [rpm/50, flag]``.
         """
-        if not self.password:
-            raise HomeAssistantError("API password not available")
+        self._require_password()
 
         parsed_data = self.get_parsed_data()
         equip_runtime = get_equipment_runtime(parsed_data)
@@ -994,8 +1015,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           manual → ``equip.{slot} = [rpm/50, flag]``
           off    → ``equip.{slot} = [0, flag]``
         """
-        if not self.password:
-            raise HomeAssistantError("API password not available")
+        self._require_password()
 
         parsed_data = self.get_parsed_data()
         equip_runtime = get_equipment_runtime(parsed_data)
@@ -1044,21 +1064,27 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Confirmed write format (2026-09-01): ``groups.{key}.state = [on/off, duration]``.
 
-        When turning on without an explicit duration, the group's configured
-        ``timeSet`` default is used. Turning off always sends ``[0, 0]``.
+        When turning on without an explicit duration, the user's stored duration
+        preference (if any) is used, falling back to the group's configured
+        ``timeSet`` default. Turning off always sends ``[0, 0]``.
         """
+        self._require_password()
         role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
 
         if role_data is None or role_data.device_id is None:
             raise HomeAssistantError("PoolSync heat pump target is not available")
 
         if state and duration is None:
-            duration = (
-                get_group_duration(
-                    get_equipment_runtime(self.get_parsed_data()), group_id
+            pref_minutes = self.group_duration_prefs.get(group_id)
+            if pref_minutes:
+                duration = int(pref_minutes * 60)
+            else:
+                duration = (
+                    get_group_duration(
+                        get_equipment_runtime(self.get_parsed_data()), group_id
+                    )
+                    or 0
                 )
-                or 0
-            )
 
         try:
             await self.api_client.async_set_device_config_value(
@@ -1077,10 +1103,13 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_group_duration(
         self, group_id: str, duration_minutes: float, index: int = 0
     ) -> None:
-        """Change a group's duration while on (re-sends state:[1, duration]).
+        """Set a group's duration preference.
 
-        Only re-sends when the group is currently active; adjusting the
-        duration of an off group would otherwise turn it on unexpectedly.
+        When the group is on, the new duration is applied immediately
+        (re-sends ``state:[1, duration]``). When the group is off, the value is
+        stored as the user's preference and applied the next time the group is
+        turned on — it is not written to the device (writing while off would
+        turn the group on unexpectedly).
         """
         equip_runtime = get_equipment_runtime(self.get_parsed_data())
         if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
@@ -1094,10 +1123,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(config, list) or len(config) <= GROUP_IDX_STATE:
             raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
 
+        self.group_duration_prefs[group_id] = int(duration_minutes)
+
         if not config[GROUP_IDX_STATE]:
-            raise HomeAssistantError(
-                f"Group {group_id} is off; duration can only be changed while on"
-            )
+            # Group is off: store the preference only, no device write.
+            return
 
         duration_seconds = int(duration_minutes * 60)
         await self.async_set_group_state(
@@ -1111,6 +1141,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Confirmed write format (2026-09-02): ``groups.{key}.schedMode = 0|1``.
         """
+        self._require_password()
         role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
 
         if role_data is None or role_data.device_id is None:

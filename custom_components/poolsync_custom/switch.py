@@ -160,12 +160,19 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
 
         # Timing attributes (anti-noise: ends_at is a fixed timestamp that only
         # moves when the device extends/cancels the timer, so it rarely writes)
-        duration = get_group_duration(equip_runtime, self._group_key)
+        controller_duration = get_group_duration(equip_runtime, self._group_key)
         ends_at = get_group_ends_at(equip_runtime, self._group_key, dt_util.utcnow())
         self._attr_extra_state_attributes = {}
-        if duration is not None:
+        # duration = user's preferred duration (matches the number entity value).
+        # controller_duration = the value currently set on the physical device.
+        pref_minutes = self.coordinator.get_group_duration_pref(self._group_key)
+        if pref_minutes is not None:
             self._attr_extra_state_attributes["duration"] = format_duration_dd_hh_mm(
-                duration
+                pref_minutes * 60
+            )
+        if controller_duration is not None:
+            self._attr_extra_state_attributes["controller_duration"] = (
+                format_duration_dd_hh_mm(controller_duration)
             )
         if ends_at is not None:
             self._attr_extra_state_attributes["ends_at"] = ends_at.isoformat()
@@ -187,7 +194,7 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         self._attr_translation_placeholders = {
             "group_name": group_name or f"Group {self._group_key}"
         }
-        self.__dict__.pop("name", None)
+        self.__dict__.pop("name", None)  # pyright: ignore[reportAttributeAccessIssue]
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -197,7 +204,7 @@ class PoolSyncGroupSwitch(  # type: ignore[abstract]  # pylint: disable=abstract
         super()._handle_coordinator_update()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the group on (uses the group's default duration)."""
+        """Turn the group on (uses the stored duration preference, if any)."""
         await self._async_set_state(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -308,7 +315,7 @@ class PoolSyncGroupScheduleSwitch(  # type: ignore[abstract]  # pylint: disable=
         self._attr_translation_placeholders = {
             "group_name": group_name or f"Group {self._group_key}"
         }
-        self.__dict__.pop("name", None)
+        self.__dict__.pop("name", None)  # pyright: ignore[reportAttributeAccessIssue]
 
     @callback
     def _handle_coordinator_update(self) -> None:

@@ -139,5 +139,15 @@ async def test_group_duration_number_uses_translation_placeholders(hass) -> None
     assert group_duration.translation_placeholders == {"group_name": "WATERFALL"}
     assert not hasattr(group_duration, "_attr_name")
     assert group_duration.has_entity_name is True
-    assert group_duration.native_value == 360.0  # 21600 seconds → 360 minutes
-    assert group_duration.extra_state_attributes == {"duration": "0d 06:00"}
+    # Seeded from the device's timeSet (21600s → 360 min) the first time.
+    assert group_duration.native_value == 360.0
+    # Read-only reference attribute shows the controller's configured duration.
+    assert group_duration.extra_state_attributes["controller_duration"] == "0d 06:00"
+
+    # The preference is never overwritten by the device value: once set, a
+    # coordinator update leaves the number untouched (only the read-only
+    # reference attribute tracks the controller).
+    group_duration._attr_native_value = 45.0
+    group_duration._update_attrs()
+    assert group_duration.native_value == 45.0
+    assert group_duration.extra_state_attributes["controller_duration"] == "0d 06:00"
