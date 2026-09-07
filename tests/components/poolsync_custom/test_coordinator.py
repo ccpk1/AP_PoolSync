@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
@@ -489,6 +489,79 @@ async def test_device_info_gracefully_handles_missing_parsed_role_metadata(
     assert controller_info["model"] == "PoolSync"
     assert heat_pump_info["name"] == "Heat Pump"
     assert heat_pump_info["model"] == "Heat Pump"
+
+
+async def test_normalize_attached_name_maps_defaults(hass) -> None:
+    """Test vendor default attached-device names are normalized."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    assert (
+        coordinator._normalize_attached_name("ChlorSync®", "chlorinator") == "ChlorSync"
+    )
+    assert coordinator._normalize_attached_name("Heat Pump", "heat_pump") == "Heat Pump"
+    assert (
+        coordinator._normalize_attached_name("Custom Name", "chlorinator")
+        == "Custom Name"
+    )
+
+
+async def test_dedup_device_name_appends_suffix(hass) -> None:
+    """Test duplicate device names get a numeric suffix."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    # First instance keeps the base name.
+    assert (
+        coordinator._dedup_device_name("ChlorSync", "chlorinator", 0, ["ChlorSync"])
+        == "ChlorSync"
+    )
+    # Second duplicate gets a suffix.
+    assert (
+        coordinator._dedup_device_name(
+            "ChlorSync", "chlorinator", 1, ["ChlorSync", "ChlorSync"]
+        )
+        == "ChlorSync 2"
+    )
+    # Non-duplicate keeps the base name.
+    assert (
+        coordinator._dedup_device_name(
+            "ChlorSync", "chlorinator", 1, ["ChlorSync", "Other"]
+        )
+        == "ChlorSync"
+    )
+
+
+async def test_get_device_identifier_uses_node_addr(hass) -> None:
+    """Test device identifiers use nodeAddr for non-first instances."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    assert coordinator._get_device_identifier("chlorinator", index=0) == (
+        DOMAIN,
+        f"{TEST_MAC_ADDRESS}_chlorinator",
+    )
+    assert coordinator._get_device_identifier("chlorinator", node_addr=19, index=1) == (
+        DOMAIN,
+        f"{TEST_MAC_ADDRESS}_chlorinator_19",
+    )
+    assert coordinator._get_device_identifier("chem_sync", index=2) == (
+        DOMAIN,
+        f"{TEST_MAC_ADDRESS}_chem_sync_2",
+    )
+
+
+async def test_get_or_create_device_id_returns_none_without_registry_api(hass) -> None:
+    """Test _get_or_create_device_id returns None when the new API is unavailable."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    with patch(
+        "custom_components.poolsync_custom.coordinator.dr.async_get",
+        return_value=Mock(spec=[]),
+    ):
+        assert (
+            coordinator._get_or_create_device_id(
+                (DOMAIN, f"{TEST_MAC_ADDRESS}_heat_pump")
+            )
+            is None
+        )
 
 
 async def test_equipment_device_info_reuses_heat_pump_device(hass) -> None:
@@ -1187,4 +1260,211 @@ async def test_async_set_group_schedule_mode_off(hass) -> None:
         value=0,
         password=TEST_PASSWORD,
         json_data_override={"groups": {"1": {"schedMode": 0}}},
+    )
+
+
+# ===================================================================
+# Heat pump setpoint / mode writers
+# ===================================================================
+
+
+async def test_async_set_heat_pump_pool_setpoint_writes_setpoint(hass) -> None:
+    """Pool setpoint write sends the setpoint key."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"7": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_pool_setpoint(84)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="7",
+        key_id="setpoint",
+        value=84,
+        password=TEST_PASSWORD,
+    )
+
+
+async def test_async_set_heat_pump_spa_setpoint_writes_spa_setpoint(hass) -> None:
+    """Spa setpoint write sends the spaSetpoint key."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"7": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_spa_setpoint(99)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="7",
+        key_id="spaSetpoint",
+        value=99,
+        password=TEST_PASSWORD,
+    )
+
+
+async def test_async_set_heat_pump_mode_writes_mode(hass) -> None:
+    """Heat pump mode write sends the mode key."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"7": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_set_heat_pump_mode(1)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="7",
+        key_id="mode",
+        value=1,
+        password=TEST_PASSWORD,
+    )
+
+
+# ===================================================================
+# ChemSync config writes
+# ===================================================================
+
+
+async def test_async_set_chem_config_writes_ph_setpoint(hass) -> None:
+    """ChemSync pH setpoint write maps to phSetpoint."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"0": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"0": "chemSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_set_chem_config("chem_ph_setpoint", 7)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="phSetpoint",
+        value=7,
+        password=TEST_PASSWORD,
+    )
+
+
+async def test_async_set_chem_config_writes_max_daily_feed(hass) -> None:
+    """ChemSync max daily feed write maps to maxDailyFeed."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"0": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"0": "chemSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_set_chem_config("chem_max_daily_feed", 80)
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="maxDailyFeed",
+        value=80,
+        password=TEST_PASSWORD,
+    )
+
+
+async def test_async_set_chem_config_rejects_unknown_key(hass) -> None:
+    """ChemSync config write rejects unknown keys."""
+    coordinator = _build_coordinator(hass, Mock())
+
+    with pytest.raises(HomeAssistantError, match="Unsupported ChemSync config key"):
+        await coordinator.async_set_chem_config("unknown_key", 1)
+
+
+# ===================================================================
+# ChemSync / ChlorSync action writes
+# ===================================================================
+
+
+async def test_async_chem_prime_pump_writes_prime_pump(hass) -> None:
+    """ChemSync prime pump action sends primePump:1."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"0": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"0": "chemSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_chem_prime_pump()
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="primePump",
+        value=1,
+        password=TEST_PASSWORD,
+    )
+
+
+async def test_async_chem_boost_writes_boost(hass) -> None:
+    """ChemSync boost action sends boost:1."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"0": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"0": "chemSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_chem_boost()
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="0",
+        key_id="boost",
+        value=1,
+        password=TEST_PASSWORD,
+    )
+
+
+async def test_async_chlor_clear_cell_life_writes_clear_cell_life(hass) -> None:
+    """ChlorSync clear cell life action sends clearCellLife:1."""
+    api_client = Mock()
+    api_client.async_set_device_config_value = AsyncMock(return_value={})
+    coordinator = _build_coordinator(hass, api_client)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"5": {"config": {}, "status": {}, "system": {}}},
+        "deviceType": {"5": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    coordinator.async_request_refresh = AsyncMock(return_value=None)
+
+    await coordinator.async_chlor_clear_cell_life()
+
+    api_client.async_set_device_config_value.assert_awaited_once_with(
+        device_id="5",
+        key_id="clearCellLife",
+        value=1,
+        password=TEST_PASSWORD,
     )

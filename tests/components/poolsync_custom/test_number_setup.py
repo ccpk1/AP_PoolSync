@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, call
 
 from homeassistant.const import EntityCategory
 
@@ -151,3 +151,231 @@ async def test_group_duration_number_uses_translation_placeholders(hass) -> None
     group_duration._update_attrs()
     assert group_duration.native_value == 45.0
     assert group_duration.extra_state_attributes["controller_duration"] == "0d 06:00"
+
+
+# ===================================================================
+# Group duration number entity — restore & write path
+# ===================================================================
+
+
+def _build_group_duration_entity(coordinator) -> None:
+    """Build a group-duration number entity attached to a coordinator."""
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
+    from homeassistant.components.number import NumberEntityDescription
+
+    return PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "controller",
+        NumberEntityDescription(
+            key="group_duration",
+            name="Group Duration",
+            native_min_value=0,
+            native_max_value=1440,
+            native_step=1,
+        ),
+        _group_key="1",
+        _group_name="WATERFALL",
+    )
+
+
+async def test_group_duration_restore_skips_non_group(hass) -> None:
+    """Test restore is skipped for non-group number entities."""
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
+    from homeassistant.components.number import NumberEntityDescription
+
+    coordinator = Mock()
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(return_value={})
+    coordinator.refresh_seq = 0
+    coordinator.set_group_duration_pref = Mock()
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"1": {"config": {"chlorOutput": 50}}},
+        "deviceType": {"1": "chlorSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "chlorinator",
+        NumberEntityDescription(
+            key="chlor_output_control",
+            name="Chlorinator Output",
+            native_min_value=0,
+            native_max_value=100,
+            native_step=1,
+        ),
+    )
+    entity.async_get_last_state = AsyncMock(return_value=None)
+    await entity.async_added_to_hass()
+    coordinator.set_group_duration_pref.assert_not_called()
+
+
+async def test_group_duration_restore_restores_preference(hass) -> None:
+    """Test restore repopulates the group duration preference."""
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
+    from homeassistant.components.number import NumberEntityDescription
+
+    coordinator = Mock()
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(return_value={})
+    coordinator.refresh_seq = 0
+    coordinator.set_group_duration_pref = Mock()
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {"0": [3, "HEAT PUMP"], "1": [0, "CIRCULATION PUMP"]},
+                "groups": {
+                    "1": {"config": ["WATERFALL", 22, 24, 1, 21600, 21586, 1, 1]}
+                },
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "controller",
+        NumberEntityDescription(
+            key="group_duration",
+            name="Group Duration",
+            native_min_value=0,
+            native_max_value=1440,
+            native_step=1,
+        ),
+        _group_key="1",
+        _group_name="WATERFALL",
+    )
+    entity.async_get_last_state = AsyncMock(return_value=Mock(state="45.0"))
+    await entity.async_added_to_hass()
+    # The restore overwrites the init-seeded preference (360) with the restored value (45).
+    assert coordinator.set_group_duration_pref.call_args_list[-1] == call("1", 45)
+    assert entity.native_value == 45.0
+
+
+async def test_group_duration_restore_skips_unavailable(hass) -> None:
+    """Test restore skips unavailable/unknown last states."""
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
+    from homeassistant.components.number import NumberEntityDescription
+    from homeassistant.const import STATE_UNAVAILABLE
+
+    coordinator = Mock()
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(return_value={})
+    coordinator.refresh_seq = 0
+    coordinator.set_group_duration_pref = Mock()
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {"0": [3, "HEAT PUMP"], "1": [0, "CIRCULATION PUMP"]},
+                "groups": {
+                    "1": {"config": ["WATERFALL", 22, 24, 1, 21600, 21586, 1, 1]}
+                },
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "controller",
+        NumberEntityDescription(
+            key="group_duration",
+            name="Group Duration",
+            native_min_value=0,
+            native_max_value=1440,
+            native_step=1,
+        ),
+        _group_key="1",
+        _group_name="WATERFALL",
+    )
+    entity.async_get_last_state = AsyncMock(return_value=Mock(state=STATE_UNAVAILABLE))
+    await entity.async_added_to_hass()
+    # Only the init-seeded preference (360) is set; restore is skipped.
+    assert coordinator.set_group_duration_pref.call_args_list == [call("1", 360)]
+
+
+async def test_group_duration_restore_skips_invalid_value(hass) -> None:
+    """Test restore skips non-numeric last states."""
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
+    from homeassistant.components.number import NumberEntityDescription
+
+    coordinator = Mock()
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(return_value={})
+    coordinator.refresh_seq = 0
+    coordinator.set_group_duration_pref = Mock()
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {"0": [3, "HEAT PUMP"], "1": [0, "CIRCULATION PUMP"]},
+                "groups": {
+                    "1": {"config": ["WATERFALL", 22, 24, 1, 21600, 21586, 1, 1]}
+                },
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncChlorOutputNumberEntity(
+        coordinator,
+        "controller",
+        NumberEntityDescription(
+            key="group_duration",
+            name="Group Duration",
+            native_min_value=0,
+            native_max_value=1440,
+            native_step=1,
+        ),
+        _group_key="1",
+        _group_name="WATERFALL",
+    )
+    entity.async_get_last_state = AsyncMock(return_value=Mock(state="not-a-number"))
+    await entity.async_added_to_hass()
+    # Only the init-seeded preference (360) is set; restore is skipped.
+    assert coordinator.set_group_duration_pref.call_args_list == [call("1", 360)]
+
+
+# ===================================================================
+# Number setup early returns
+# ===================================================================
+
+
+async def test_async_setup_entry_skips_when_no_data(hass) -> None:
+    """Test number setup skips creation when the coordinator has no data."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.data = None
+
+    added_entities: list = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    assert added_entities == []
+
+
+async def test_async_setup_entry_skips_when_no_devices(hass) -> None:
+    """Test number setup skips creation when the devices key is missing."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.data = {"poolSync": {}}
+
+    added_entities: list = []
+
+    def _async_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, _build_entry(coordinator), _async_add_entities)
+
+    assert added_entities == []

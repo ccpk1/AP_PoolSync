@@ -708,3 +708,118 @@ async def test_sensor_handle_coordinator_update_refreshes_and_wifi_attrs() -> No
 
     assert any(call.kwargs == {"refresh": True} for call in mock_ensure.call_args_list)
     assert sensor.extra_state_attributes is None
+
+
+# ===================================================================
+# Equipment sensors (pump RPM, valve position, group info)
+# ===================================================================
+
+
+def _build_equipment_coordinator() -> Mock:
+    """Build a coordinator mock with 090 equipment data."""
+    from pathlib import Path
+
+    import json
+
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.get_equipment_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_equip_1")}}
+    )
+    coordinator.last_update_success = True
+    sample_path = (
+        Path(__file__).resolve().parents[2]
+        / "sample_diagnostics"
+        / "090-pool-waterfall-valve-fountain.json"
+    )
+    raw = sample_path.read_text(encoding="utf-8")
+    cleaned = raw.replace(", }", " }").replace(", ]", " ]")
+    data = json.loads(cleaned)["data"]["runtime_data"]
+    coordinator.data = data
+    coordinator.parsed_data = parse_poolsync_runtime_data(data)
+    return coordinator
+
+
+async def test_equipment_sensors_created_for_pump_and_valve() -> None:
+    """Test equipment sensors are created for pump RPM and valve position."""
+    from custom_components.poolsync_custom.sensor import SENSOR_DESCRIPTIONS_EQUIPMENT
+
+    coordinator = _build_equipment_coordinator()
+    added: list[PoolSyncSensor] = []
+
+    def _async_add_entities(entities):
+        added.extend(entities)
+
+    await async_setup_entry(None, _build_entry(coordinator), _async_add_entities)
+
+    keys = {e.entity_description.key for e in added}
+    assert "pump_rpm" in keys
+    assert "valve_position" in keys
+    assert "group_info" in keys
+
+
+async def test_equipment_pump_rpm_sensor_value() -> None:
+    """Test the pump RPM sensor reports the current RPM."""
+    from custom_components.poolsync_custom.sensor import SENSOR_DESCRIPTIONS_EQUIPMENT
+
+    coordinator = _build_equipment_coordinator()
+    desc = next(d for d, _ in SENSOR_DESCRIPTIONS_EQUIPMENT if d.key == "pump_rpm")
+    sensor = PoolSyncSensor(
+        coordinator,
+        "equipment",
+        desc,
+        _device_info=coordinator.get_equipment_device_info(Mock()),
+        _unique_id="AABBCCDDEEFF_equip_1_pump_rpm",
+    )
+    assert sensor.native_value is not None
+
+
+async def test_equipment_valve_position_sensor_value() -> None:
+    """Test the valve position sensor reports the current position."""
+    from custom_components.poolsync_custom.sensor import SENSOR_DESCRIPTIONS_EQUIPMENT
+
+    coordinator = _build_equipment_coordinator()
+    desc = next(
+        d for d, _ in SENSOR_DESCRIPTIONS_EQUIPMENT if d.key == "valve_position"
+    )
+    sensor = PoolSyncSensor(
+        coordinator,
+        "equipment",
+        desc,
+        _device_info=coordinator.get_equipment_device_info(Mock()),
+        _unique_id="AABBCCDDEEFF_equip_3_valve_position",
+    )
+    assert sensor.native_value is not None
+
+
+async def test_group_info_sensor_attributes() -> None:
+    """Test the group info sensor exposes per-group timing attributes."""
+    from custom_components.poolsync_custom.sensor import SENSOR_DESCRIPTIONS_EQUIPMENT
+
+    coordinator = _build_equipment_coordinator()
+    desc = next(d for d, _ in SENSOR_DESCRIPTIONS_EQUIPMENT if d.key == "group_info")
+    sensor = PoolSyncSensor(coordinator, "controller", desc)
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert "0" in attrs  # POOL group
+    assert "1" in attrs  # WATERFALL group
+
+
+# ===================================================================
+# _bool_to_on_off helper
+# ===================================================================
+
+
+def test_bool_to_on_off_maps_booleans() -> None:
+    """Test _bool_to_on_off maps booleans to on/off."""
+    from custom_components.poolsync_custom.sensor import _bool_to_on_off
+
+    assert _bool_to_on_off(True) == "on"
+    assert _bool_to_on_off(False) == "off"
+    assert _bool_to_on_off(1) == "on"
+    assert _bool_to_on_off(0) == "off"
+    assert _bool_to_on_off("not-a-bool") is None

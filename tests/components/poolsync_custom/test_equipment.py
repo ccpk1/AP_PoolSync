@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.poolsync_custom.const import VALVE_IDX_POSITIONS_START
 from custom_components.poolsync_custom.runtime import (
     _parse_raw_equipment,
     format_duration_dd_hh_mm,
@@ -662,3 +663,209 @@ class TestGroupSchedules:
         er = get_equipment_runtime(parsed_t75_heat_pool)
         assert er is None
         assert get_group_schedule_slots(er, "0") == []
+
+
+# ===================================================================
+# Schedule slot formatting edge cases
+# ===================================================================
+
+
+class TestScheduleSlotFormatting:
+    """Tests for schedule slot day/time label formatting edge cases."""
+
+    def test_day_mask_every_day(self) -> None:
+        """Full 7-bit mask formats as 'every day'."""
+        from custom_components.poolsync_custom.runtime import _format_day_mask
+
+        assert _format_day_mask(0b1111111) == "every day"
+
+    def test_day_mask_sat_sun(self) -> None:
+        """Weekend mask formats as 'Sat-Sun'."""
+        from custom_components.poolsync_custom.runtime import _format_day_mask
+
+        assert _format_day_mask(0b1000001) == "Sat-Sun"
+
+    def test_day_mask_custom(self) -> None:
+        """Custom day masks list individual days."""
+        from custom_components.poolsync_custom.runtime import _format_day_mask
+
+        # bit 0 = Sun, bit 3 = Wed → "Sun,Wed"
+        assert _format_day_mask(0b0001001) == "Sun,Wed"
+
+    def test_decode_schedule_time_plain_hour(self) -> None:
+        """Values <= 23 are plain hours."""
+        from custom_components.poolsync_custom.runtime import _decode_schedule_time
+
+        assert _decode_schedule_time(8) == 480  # 8:00
+
+    def test_decode_schedule_time_packed(self) -> None:
+        """Packed minute*256+hour values decode correctly."""
+        from custom_components.poolsync_custom.runtime import _decode_schedule_time
+
+        # 11527 = 45*256 + 7 → 7:45
+        assert _decode_schedule_time(11527) == 7 * 60 + 45
+
+    def test_format_schedule_time_clamps_negative(self) -> None:
+        """Negative minutes clamp to 00:00."""
+        from custom_components.poolsync_custom.runtime import _format_schedule_time
+
+        assert _format_schedule_time(-5) == "00:00"
+
+    def test_schedule_slot_properties(self) -> None:
+        """PoolSyncScheduleSlot exposes decoded labels."""
+        from custom_components.poolsync_custom.runtime import PoolSyncScheduleSlot
+
+        slot = PoolSyncScheduleSlot(day_mask=0b0111110, start_time=480, end_time=660)
+        assert slot.is_enabled is True
+        assert slot.day_label == "Mon-Fri"
+        assert slot.start_label == "08:00"
+        assert slot.end_label == "11:00"
+
+    def test_schedule_slot_disabled(self) -> None:
+        """A zero day mask marks the slot disabled."""
+        from custom_components.poolsync_custom.runtime import PoolSyncScheduleSlot
+
+        slot = PoolSyncScheduleSlot(day_mask=0, start_time=0, end_time=0)
+        assert slot.is_enabled is False
+        assert slot.day_label == "disabled"
+
+
+# ===================================================================
+# Group helper edge cases
+# ===================================================================
+
+
+class TestGroupHelperEdgeCases:
+    """Tests for group helper edge cases (bool values, short configs)."""
+
+    def _fresh_runtime(self, parsed_090_filtration):
+        """Return a fresh equipment runtime with a copy of the raw groups."""
+        import copy
+        from dataclasses import replace
+
+        er = get_equipment_runtime(parsed_090_filtration)
+        return replace(er, raw_groups=copy.deepcopy(er.raw_groups))
+
+    def test_group_duration_bool_value(self, parsed_090_filtration) -> None:
+        """Boolean config values are rejected (not ints)."""
+        er = self._fresh_runtime(parsed_090_filtration)
+        er.raw_groups["0"]["config"][4] = True
+        assert get_group_duration(er, "0") is None
+
+    def test_group_duration_short_config(self, parsed_090_filtration) -> None:
+        """Config shorter than the timeSet index returns None."""
+        er = self._fresh_runtime(parsed_090_filtration)
+        er.raw_groups["0"]["config"] = [1, 2, 3]
+        assert get_group_duration(er, "0") is None
+
+    def test_group_time_left_bool_value(self, parsed_090_filtration) -> None:
+        """Boolean time-left value is rejected."""
+        er = self._fresh_runtime(parsed_090_filtration)
+        er.raw_groups["0"]["config"][5] = True
+        assert get_group_time_left(er, "0") is None
+
+    def test_group_schedule_mode_bool_value(self, parsed_090_filtration) -> None:
+        """Boolean schedMode value is rejected."""
+        er = self._fresh_runtime(parsed_090_filtration)
+        er.raw_groups["0"]["config"][7] = True
+        assert get_group_schedule_mode(er, "0") is None
+
+    def test_group_schedule_mode_short_config(self, parsed_090_filtration) -> None:
+        """Config shorter than the schedMode index returns None."""
+        er = self._fresh_runtime(parsed_090_filtration)
+        er.raw_groups["0"]["config"] = [1, 2, 3]
+        assert get_group_schedule_mode(er, "0") is None
+
+    def test_group_helpers_none_runtime(self) -> None:
+        """None runtime returns None for all group helpers."""
+        assert get_group_duration(None, "0") is None
+        assert get_group_time_left(None, "0") is None
+        assert get_group_schedule_mode(None, "0") is None
+        assert get_group_ends_at(None, "0", None) is None
+
+    def test_group_helpers_non_dict_groups(self, parsed_090_filtration) -> None:
+        """Non-dict raw_groups returns None."""
+        from dataclasses import replace
+
+        er = get_equipment_runtime(parsed_090_filtration)
+        er = replace(er, raw_groups="not-a-dict")
+        assert get_group_duration(er, "0") is None
+        assert get_group_time_left(er, "0") is None
+        assert get_group_schedule_mode(er, "0") is None
+
+
+# ===================================================================
+# Valve position options edge cases
+# ===================================================================
+
+
+class TestValvePositionOptionsEdgeCases:
+    """Tests for valve position options edge cases."""
+
+    def _fresh_runtime(self, parsed_090_filtration):
+        """Return a fresh equipment runtime with a copy of the equipment."""
+        import copy
+        from dataclasses import replace
+
+        er = get_equipment_runtime(parsed_090_filtration)
+        return replace(er, equipment=copy.deepcopy(er.equipment))
+
+    def test_valve_position_options_none_runtime(self) -> None:
+        """None runtime returns None."""
+        assert get_valve_position_options(None) is None
+
+    def test_valve_position_options_no_valve(self, parsed_t75_heat_pool) -> None:
+        """No valve equipment returns None."""
+        er = get_equipment_runtime(parsed_t75_heat_pool)
+        assert er is None
+        assert get_valve_position_options(er) is None
+
+    def test_valve_position_options_empty(self, parsed_090_filtration) -> None:
+        """Valve with no named positions returns None."""
+        from dataclasses import replace
+
+        er = self._fresh_runtime(parsed_090_filtration)
+        valve = er.equipment["3"]
+        # Truncate raw to remove named positions
+        er.equipment["3"] = replace(valve, raw=valve.raw[:VALVE_IDX_POSITIONS_START])
+        assert get_valve_position_options(er) is None
+
+
+# ===================================================================
+# Pump RPM min/max edge cases
+# ===================================================================
+
+
+class TestPumpRpmMinMaxEdgeCases:
+    """Tests for pump RPM min/max edge cases."""
+
+    def _fresh_runtime(self, parsed_090_filtration):
+        """Return a fresh equipment runtime with a copy of the equipment."""
+        import copy
+        from dataclasses import replace
+
+        er = get_equipment_runtime(parsed_090_filtration)
+        return replace(er, equipment=copy.deepcopy(er.equipment))
+
+    def test_rpm_min_zero_value(self, parsed_090_filtration) -> None:
+        """Zero min value returns None."""
+        from dataclasses import replace
+
+        er = self._fresh_runtime(parsed_090_filtration)
+        pump = er.equipment["1"]
+        er.equipment["1"] = replace(pump, raw=pump.raw[:8] + [0] + pump.raw[9:])
+        assert get_circulation_pump_rpm_min(er) is None
+
+    def test_rpm_max_zero_value(self, parsed_090_filtration) -> None:
+        """Zero max value returns None."""
+        from dataclasses import replace
+
+        er = self._fresh_runtime(parsed_090_filtration)
+        pump = er.equipment["1"]
+        er.equipment["1"] = replace(pump, raw=pump.raw[:9] + [0] + pump.raw[10:])
+        assert get_circulation_pump_rpm_max(er) is None
+
+    def test_rpm_min_max_none_runtime(self) -> None:
+        """None runtime returns None."""
+        assert get_circulation_pump_rpm_min(None) is None
+        assert get_circulation_pump_rpm_max(None) is None

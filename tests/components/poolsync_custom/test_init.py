@@ -210,6 +210,38 @@ async def test_async_setup_entry_raises_not_ready_on_refresh_failure(
             await async_setup_entry(hass, poolsync_config_entry)
 
 
+async def test_async_setup_entry_raises_auth_failed(
+    hass, poolsync_config_entry: MockConfigEntry
+) -> None:
+    """Test setup re-raises ConfigEntryAuthFailed on auth failure."""
+    from homeassistant.exceptions import ConfigEntryAuthFailed
+
+    poolsync_config_entry.add_to_hass(hass)
+
+    with patch.object(
+        PoolSyncDataUpdateCoordinator,
+        "async_config_entry_first_refresh",
+        new=AsyncMock(side_effect=ConfigEntryAuthFailed("bad password")),
+    ):
+        with pytest.raises(ConfigEntryAuthFailed):
+            await async_setup_entry(hass, poolsync_config_entry)
+
+
+async def test_async_setup_entry_raises_not_ready_on_unexpected_error(
+    hass, poolsync_config_entry: MockConfigEntry
+) -> None:
+    """Test setup retries on unexpected errors during initial refresh."""
+    poolsync_config_entry.add_to_hass(hass)
+
+    with patch.object(
+        PoolSyncDataUpdateCoordinator,
+        "async_config_entry_first_refresh",
+        new=AsyncMock(side_effect=RuntimeError("boom")),
+    ):
+        with pytest.raises(ConfigEntryNotReady):
+            await async_setup_entry(hass, poolsync_config_entry)
+
+
 async def test_async_setup_entry_raises_config_error_without_mac(hass) -> None:
     """Test setup fails clearly when the config entry is missing identity data."""
     missing_mac_entry = MockConfigEntry(

@@ -27,6 +27,15 @@ filterwarnings = [
     "ignore:Setting custom ClientSession.close attribute is discouraged:DeprecationWarning:homeassistant.helpers.aiohttp_client",
 ]
 
+[tool.coverage.run]
+source = ["custom_components/poolsync_custom"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+sort = "miss"
+fail_under = 95
+
 [tool.ruff]
 target-version = "py313"
 

@@ -232,3 +232,48 @@ async def test_get_all_data_rejects_malformed_payload() -> None:
     ):
         with pytest.raises(PoolSyncApiError, match="Received malformed data"):
             await client.get_all_data(TEST_PASSWORD)
+
+
+async def test_request_raises_generic_client_error_as_communication_error() -> None:
+    """Test generic aiohttp ClientError subclasses surface as communication errors."""
+    from aiohttp.client_exceptions import ClientPayloadError
+
+    session = Mock()
+    session.request.side_effect = ClientPayloadError("payload error")
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    with pytest.raises(PoolSyncApiCommunicationError, match="Communication error"):
+        await client._request("GET", "/api/poolsync?cmd=test")
+
+
+async def test_set_device_config_value_requires_password() -> None:
+    """Test device config writes reject empty passwords."""
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, Mock())
+
+    with pytest.raises(PoolSyncApiAuthError, match="Password is required"):
+        await client.async_set_device_config_value(
+            device_id="0", key_id="chlorOutput", value=50, password=""
+        )
+
+
+async def test_set_device_config_value_uses_json_override() -> None:
+    """Test device config writes use the json_data_override when provided."""
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, Mock())
+
+    with patch.object(
+        client,
+        "_request",
+        new=AsyncMock(return_value={"success": True}),
+    ) as mock_request:
+        result = await client.async_set_device_config_value(
+            device_id="0",
+            key_id="group_state",
+            value=1,
+            password=TEST_PASSWORD,
+            json_data_override={"groups": {"1": {"state": [1, 21600]}}},
+        )
+
+    assert result == {"success": True}
+    _, kwargs = mock_request.call_args
+    assert kwargs["json_data"] == {"groups": {"1": {"state": [1, 21600]}}}

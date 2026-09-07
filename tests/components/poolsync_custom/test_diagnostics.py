@@ -278,3 +278,75 @@ async def test_diagnostics_include_group_schedules(hass) -> None:
     # Schedule mode also surfaced in mapped select values
     assert diagnostics["mapped_select_values"]["group_0_schedule_mode"] is True
     assert diagnostics["mapped_select_values"]["group_1_schedule_mode"] is False
+
+
+async def test_diagnostics_handle_multiple_devices_of_same_type(hass) -> None:
+    """Test diagnostics handle multiple chlorinator/chem_sync devices."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="PoolSync",
+        data={
+            CONF_IP_ADDRESS: TEST_IP_ADDRESS,
+            CONF_PASSWORD: TEST_PASSWORD,
+            API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+        },
+        unique_id=TEST_MAC_ADDRESS,
+    )
+    entry.add_to_hass(hass)
+
+    entry.runtime_data = SimpleNamespace(
+        data={
+            "poolSync": {},
+            "devices": {
+                "5": {
+                    "config": {"chlorOutput": 55},
+                    "status": {"waterTemp": 24.5},
+                    "faults": [0],
+                },
+                "6": {
+                    "config": {"chlorOutput": 60},
+                    "status": {"waterTemp": 25.0},
+                    "faults": [0],
+                },
+                "0": {
+                    "config": {"phSetpoint": 7.2, "maxDailyFeed": 80},
+                    "status": {},
+                    "faults": [0],
+                },
+            },
+            "deviceType": {"5": "chlorSync", "6": "chlorSync", "0": "chemSync"},
+        },
+        last_failure_class=None,
+        last_failure_context=None,
+        last_failure_detail=None,
+        last_exception=None,
+        last_update_success=True,
+        mac_address=TEST_MAC_ADDRESS,
+        name="runtime-owner",
+        update_interval=timedelta(seconds=120),
+    )
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    # Two chlorinators → indexed mapped values
+    assert "chlorinator_0_chlor_output_setting" in diagnostics["mapped_sensor_values"]
+    assert "chlorinator_1_chlor_output_setting" in diagnostics["mapped_sensor_values"]
+    assert (
+        diagnostics["mapped_number_values"]["chlorinator_0_chlor_output_control"] == 55
+    )
+    assert (
+        diagnostics["mapped_number_values"]["chlorinator_1_chlor_output_control"] == 60
+    )
+
+    # ChemSync mapped values
+    assert "chem_sync_0_chem_ph" in diagnostics["mapped_sensor_values"]
+    assert diagnostics["mapped_number_values"]["chem_sync_0_chem_ph_setpoint"] == 7.2
+    assert diagnostics["mapped_number_values"]["chem_sync_0_chem_max_daily_feed"] == 80
+
+    # Binary values for both chlorinators
+    assert (
+        "chlorinator_0_chlorsync_online" in diagnostics["mapped_binary_sensor_values"]
+    )
+    assert (
+        "chlorinator_1_chlorsync_online" in diagnostics["mapped_binary_sensor_values"]
+    )

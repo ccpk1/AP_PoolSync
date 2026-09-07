@@ -1,3 +1,5 @@
 .tmp/
 __pycache__/
 tests/PoolSync_*
+.coverage
+htmlcov/
