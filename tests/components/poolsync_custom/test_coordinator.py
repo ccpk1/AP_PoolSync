@@ -172,7 +172,7 @@ async def test_manual_refresh_raises_when_refresh_unsuccessful(hass) -> None:
     coordinator.async_refresh = AsyncMock(return_value=None)
     coordinator.last_update_success = False
 
-    with pytest.raises(HomeAssistantError, match="PoolSync refresh failed"):
+    with pytest.raises(HomeAssistantError, match="refresh_failed"):
         await coordinator.async_manual_refresh()
 
 
@@ -193,7 +193,7 @@ async def test_get_write_role_device_id_requires_password(hass) -> None:
     # callers are responsible for calling _require_password() first.
     # Without data loaded, it raises a different error.
     with pytest.raises(
-        HomeAssistantError, match="PoolSync runtime data is not available"
+        HomeAssistantError, match="runtime_data_not_available"
     ):
         coordinator._get_write_role_device_id(
             role="chlorinator", description="chlorinator output"
@@ -211,7 +211,7 @@ async def test_get_write_role_device_id_rejects_missing_target(hass) -> None:
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
 
     with pytest.raises(
-        HomeAssistantError, match="PoolSync chlorinator output target is not available"
+        HomeAssistantError, match="target_not_available"
     ):
         coordinator._get_write_role_device_id(
             role="chlorinator", description="chlorinator output"
@@ -221,8 +221,8 @@ async def test_get_write_role_device_id_rejects_missing_target(hass) -> None:
 @pytest.mark.parametrize(
     ("error", "message"),
     [
-        (PoolSyncApiError("boom"), "API error while setting chlorinator output: boom"),
-        (RuntimeError("boom"), "Failed to set chlorinator output: boom"),
+        (PoolSyncApiError("boom"), "api_error_setting"),
+        (RuntimeError("boom"), "failed_to_set"),
     ],
 )
 async def test_raise_write_error_translates_remaining_error_types(
@@ -704,7 +704,7 @@ async def test_heat_pump_active_target_rejects_missing_runtime(hass) -> None:
     coordinator.data = {"poolSync": {}, "devices": {}, "deviceType": {}}
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
 
-    with pytest.raises(HomeAssistantError, match="heat pump target is not available"):
+    with pytest.raises(HomeAssistantError, match="heat_pump_target_not_available"):
         await coordinator.async_set_heat_pump_active_target(91)
 
 
@@ -737,7 +737,7 @@ async def test_write_role_config_surfaces_auth_errors(hass) -> None:
 
     with pytest.raises(
         HomeAssistantError,
-        match="Authentication failed while setting chlorinator output",
+        match="auth_failed_setting",
     ):
         await coordinator.async_set_chlorinator_output(50)
 
@@ -760,7 +760,7 @@ async def test_write_role_config_surfaces_communication_errors(hass) -> None:
 
     with pytest.raises(
         HomeAssistantError,
-        match="Communication failed while setting chlorinator output: cannot connect",
+        match="communication_failed_setting",
     ):
         await coordinator.async_set_chlorinator_output(50)
 
@@ -793,7 +793,7 @@ async def test_heat_pump_mode_context_rejects_unknown_context(hass) -> None:
     """Test contextual heat-pump mode writes reject unknown values."""
     coordinator = _build_coordinator(hass, Mock())
 
-    with pytest.raises(HomeAssistantError, match="Unsupported heat pump mode"):
+    with pytest.raises(HomeAssistantError, match="unsupported_heat_pump_mode"):
         await coordinator.async_set_heat_pump_mode_context("unknown_mode")
 
 
@@ -821,7 +821,7 @@ async def test_heat_pump_climate_mode_helper_rejects_unsupported_cooling(hass) -
     coordinator = _build_coordinator(hass, api_client)
     await coordinator.async_refresh()
 
-    with pytest.raises(HomeAssistantError, match="Cooling mode is not supported"):
+    with pytest.raises(HomeAssistantError, match="cooling_not_supported"):
         await coordinator.async_set_heat_pump_climate_mode(
             hvac_mode="cool", preset_mode="pool"
         )
@@ -850,7 +850,7 @@ async def test_heat_pump_climate_mode_helper_rejects_unsupported_heating(hass) -
     coordinator = _build_coordinator(hass, api_client)
     await coordinator.async_refresh()
 
-    with pytest.raises(HomeAssistantError, match="Heating mode is not supported"):
+    with pytest.raises(HomeAssistantError, match="heating_not_supported"):
         await coordinator.async_set_heat_pump_climate_mode(
             hvac_mode="heat", preset_mode="pool"
         )
@@ -879,7 +879,7 @@ async def test_heat_pump_climate_mode_helper_rejects_unsupported_auto(hass) -> N
     coordinator = _build_coordinator(hass, api_client)
     await coordinator.async_refresh()
 
-    with pytest.raises(HomeAssistantError, match="Auto mode is not supported"):
+    with pytest.raises(HomeAssistantError, match="auto_not_supported"):
         await coordinator.async_set_heat_pump_climate_mode(
             hvac_mode="auto", preset_mode="pool"
         )
@@ -917,7 +917,7 @@ async def test_heat_pump_climate_mode_helper_handles_off_and_unknown_modes(
         "off", index=0
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported climate HVAC mode"):
+    with pytest.raises(HomeAssistantError, match="unsupported_climate_hvac_mode"):
         await coordinator.async_set_heat_pump_climate_mode(hvac_mode="dry")
 
 
@@ -927,7 +927,7 @@ async def test_heat_pump_climate_mode_helper_rejects_missing_runtime(hass) -> No
     coordinator.data = {"poolSync": {}, "devices": {}, "deviceType": {}}
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
 
-    with pytest.raises(HomeAssistantError, match="heat pump mode is not available"):
+    with pytest.raises(HomeAssistantError, match="heat_pump_mode_not_available"):
         await coordinator.async_set_heat_pump_climate_mode(hvac_mode="heat")
 
 
@@ -1082,7 +1082,7 @@ async def test_async_set_circulation_pump_mode_manual_requires_rpm(hass) -> None
     api_client.async_set_device_config_value = AsyncMock(return_value={})
     coordinator = _build_pump_coordinator(hass, api_client)
 
-    with pytest.raises(HomeAssistantError, match="RPM is required"):
+    with pytest.raises(HomeAssistantError, match="rpm_required_manual"):
         await coordinator.async_set_circulation_pump_mode("manual")
 
 
@@ -1191,7 +1191,7 @@ async def test_async_set_group_duration_requires_password_when_on(hass) -> None:
     coordinator._password = ""
 
     # Group "1" (POOL) is on — should raise without password
-    with pytest.raises(HomeAssistantError, match="API password not available"):
+    with pytest.raises(HomeAssistantError, match="password_not_available"):
         await coordinator.async_set_group_duration("1", 58)
 
     api_client.async_set_device_config_value.assert_not_awaited()
@@ -1204,7 +1204,7 @@ async def test_async_set_group_state_requires_password(hass) -> None:
     coordinator = _build_pump_coordinator(hass, api_client)
     coordinator._password = ""
 
-    with pytest.raises(HomeAssistantError, match="API password not available"):
+    with pytest.raises(HomeAssistantError, match="password_not_available"):
         await coordinator.async_set_group_state("1", True)
 
     api_client.async_set_device_config_value.assert_not_awaited()
@@ -1392,7 +1392,7 @@ async def test_async_set_chem_config_rejects_unknown_key(hass) -> None:
     """ChemSync config write rejects unknown keys."""
     coordinator = _build_coordinator(hass, Mock())
 
-    with pytest.raises(HomeAssistantError, match="Unsupported ChemSync config key"):
+    with pytest.raises(HomeAssistantError, match="unsupported_chem_config_key"):
         await coordinator.async_set_chem_config("unknown_key", 1)
 
 

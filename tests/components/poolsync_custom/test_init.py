@@ -213,8 +213,9 @@ async def test_async_setup_entry_raises_not_ready_on_refresh_failure(
 async def test_async_setup_entry_raises_auth_failed(
     hass, poolsync_config_entry: MockConfigEntry
 ) -> None:
-    """Test setup re-raises ConfigEntryAuthFailed on auth failure."""
+    """Test setup re-raises ConfigEntryAuthFailed and creates a repair issue."""
     from homeassistant.exceptions import ConfigEntryAuthFailed
+    from homeassistant.helpers import issue_registry as ir
 
     poolsync_config_entry.add_to_hass(hass)
 
@@ -225,6 +226,11 @@ async def test_async_setup_entry_raises_auth_failed(
     ):
         with pytest.raises(ConfigEntryAuthFailed):
             await async_setup_entry(hass, poolsync_config_entry)
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "authentication_failed")
+    assert issue is not None
+    assert issue.severity == "error"
+    assert issue.translation_key == "authentication_failed"
 
 
 async def test_async_setup_entry_raises_not_ready_on_unexpected_error(

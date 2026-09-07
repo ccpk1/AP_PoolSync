@@ -148,6 +148,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
+        if self.source == config_entries.SOURCE_RECONFIGURE:
+            _LOGGER.info(
+                "Completing PoolSync reconfiguration for %s with device %s",
+                self._ip_address,
+                self._mac_address,
+            )
+            self._abort_if_unique_id_mismatch(reason="wrong_device")
+            return self.async_update_reload_and_abort(
+                self._get_reconfigure_entry(),
+                unique_id=self._mac_address,
+                data_updates={
+                    CONF_IP_ADDRESS: self._ip_address,
+                    CONF_PASSWORD: self._password,
+                    API_RESPONSE_MAC_ADDRESS: self._mac_address,
+                },
+            )
+
         self._abort_if_unique_id_configured()
         _LOGGER.info(
             "Completing PoolSync onboarding for %s with device %s",
@@ -306,6 +323,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._ip_address = str(entry_data[CONF_IP_ADDRESS]).strip()
         _LOGGER.info("Starting PoolSync reauthentication for %s", self._ip_address)
         return await self.async_step_reauth_confirm()
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of the PoolSync device IP address."""
+        reconfigure_entry = self._get_reconfigure_entry()
+        self._ip_address = str(reconfigure_entry.data[CONF_IP_ADDRESS]).strip()
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            ip_address = user_input[POOLSYNC_CONF_IP_ADDRESS].strip()
+            self._ip_address = ip_address
+            if not self._validate_ip_address(ip_address):
+                _LOGGER.warning(
+                    "PoolSync reconfigure rejected invalid IP address input: %s",
+                    ip_address,
+                )
+                errors["base"] = "invalid_ip"
+            else:
+                if error := await self._async_begin_pushlink():
+                    errors["base"] = error
+                else:
+                    errors = {}
+                    return await self.async_step_link()
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={"ip_address": self._ip_address},
+        )
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None

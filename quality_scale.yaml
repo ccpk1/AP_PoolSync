@@ -81,8 +81,8 @@ rules:
     status: done
     comment: README now includes a focused troubleshooting section covering setup, connectivity, Wi-Fi quality, diagnostics, and logs.
   docs-use-cases:
-    status: todo
-    comment: Use-case documentation has not been written yet.
+    status: done
+    comment: README now includes a "Common use cases" section covering group durations, pump control, schedules, and heat-pump automation.
   dynamic-devices:
     status: done
     comment: Multiple devices of the same type (e.g., 2x ChlorSync, multiple heat pumps) are fully supported via dict-based PoolSyncParsedData.devices with sorted iteration and nodeAddr-based disambiguation. Entities are created per detected device instance.
@@ -91,15 +91,15 @@ rules:
   entity-disabled-by-default: done
   entity-translations: done
   exception-translations:
-    status: todo
-    comment: User-facing exceptions are not yet backed by translation keys.
+    status: done
+    comment: User-facing HomeAssistantError messages are backed by translation keys in translations/en.json under the exceptions section.
   icon-translations: done
   reconfiguration-flow:
-    status: todo
-    comment: Reauthentication exists, but a dedicated reconfigure flow is not implemented.
+    status: done
+    comment: A reconfigure flow lets users change the device IP address without removing and re-adding the integration.
   repair-issues:
-    status: todo
-    comment: Repair issues are not implemented yet.
+    status: done
+    comment: A repair issue is created when authentication fails, guiding users to reauthenticate the integration.
   stale-devices:
     status: todo
     comment: The integration creates role devices but does not yet remove stale ones automatically.

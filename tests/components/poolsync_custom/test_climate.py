@@ -159,7 +159,7 @@ async def test_climate_rejects_unsupported_hvac_mode() -> None:
         Mock(key="water_thermostat", translation_key="water_thermostat"),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported HVAC mode"):
+    with pytest.raises(HomeAssistantError, match="unsupported_hvac_mode"):
         await entity.async_set_hvac_mode(HVACMode.DRY)
 
 
@@ -171,7 +171,7 @@ async def test_climate_rejects_missing_temperature_attribute() -> None:
         Mock(key="water_thermostat", translation_key="water_thermostat"),
     )
 
-    with pytest.raises(HomeAssistantError, match="Expected attribute temperature"):
+    with pytest.raises(HomeAssistantError, match="expected_temperature_attribute"):
         await entity.async_set_temperature()
 
 
@@ -184,15 +184,15 @@ async def test_climate_sync_wrappers_require_hass() -> None:
     )
     entity.hass = None
 
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.set_hvac_mode(HVACMode.HEAT)
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.turn_on()
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.turn_off()
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.set_preset_mode("pool")
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.set_temperature(**{ATTR_TEMPERATURE: 82})
 
 
@@ -376,5 +376,5 @@ async def test_climate_set_preset_mode_rejects_unknown(hass) -> None:
         Mock(key="water_thermostat", translation_key="water_thermostat"),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported preset mode"):
+    with pytest.raises(HomeAssistantError, match="unsupported_preset_mode"):
         await entity.async_set_preset_mode("unknown")

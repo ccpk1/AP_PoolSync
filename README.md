@@ -171,6 +171,62 @@ data:
   rpm: 2000
 ```
 
+## Common use cases
+
+### Run a group for a specific duration
+Turn the Waterfall on for 90 minutes, then let it stop automatically:
+```yaml
+service: poolsync_custom.set_group_state
+data:
+  group: "WATERFALL"
+  state: "on"
+  duration: "1h 30m"
+```
+
+### Set a group's default run time
+Change how long a group runs by default when you turn it on. Set the group's
+duration number (`number.group_*_duration`) to your preferred minutes. The value
+is persisted across restarts and used the next time you turn the group on.
+
+### Run the pump at a fixed speed
+Set the pump to manual at a specific RPM:
+```yaml
+service: poolsync_custom.set_pump_mode
+data:
+  mode: "manual"
+  rpm: 2000
+```
+Return the pump to automatic (following the active group) with:
+```yaml
+service: poolsync_custom.set_pump_mode
+data:
+  mode: "auto"
+```
+
+### Enable a group's schedule
+Turn on the group's schedule switch (`switch.group_*_schedule`) to let the group
+follow its programmed schedule. This does **not** turn the group on immediately —
+it only enables the schedule.
+
+### Automate the heat pump
+The heat-pump climate entity supports normal Home Assistant climate automations
+(turn on/off, set target temperature, set preset mode). For example, heat the
+pool to 84°F when the outdoor temperature drops:
+```yaml
+automation:
+  - alias: "Heat pool when cool"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.outdoor_temperature
+        below: 60
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.poolsync_water_thermostat
+        data:
+          temperature: 84
+```
+
 Some diagnostic entities are disabled by default to keep the default dashboard cleaner.
 
 ## Options

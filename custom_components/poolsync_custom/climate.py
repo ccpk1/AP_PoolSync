@@ -22,6 +22,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .optimistic import PoolSyncOptimisticMixin
 from .runtime import (
@@ -252,7 +253,11 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set a new HVAC mode for the heat pump."""
         if hvac_mode not in self.hvac_modes:
-            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_hvac_mode",
+                translation_placeholders={"mode": hvac_mode},
+            )
 
         target_preset = (
             self._last_on_preset_mode
@@ -280,7 +285,10 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     def set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set a new HVAC mode from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_set_hvac_mode, hvac_mode)
 
@@ -291,7 +299,10 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     def turn_on(self) -> None:
         """Turn the heat pump on from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_turn_on)
 
@@ -302,7 +313,10 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     def turn_off(self) -> None:
         """Turn the heat pump off from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_turn_off)
 
@@ -317,13 +331,18 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the body context preset mode."""
         if preset_mode not in (self.preset_modes or []):
-            raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_preset_mode",
+                translation_placeholders={"mode": preset_mode},
+            )
 
         self._last_on_preset_mode = cast(PoolSyncHeatPumpClimatePresetMode, preset_mode)
 
         if (hvac_mode := self.hvac_mode) is None:
             raise HomeAssistantError(
-                "Cannot set preset mode while heat pump mode is unknown"
+                translation_domain=DOMAIN,
+                translation_key="preset_mode_unknown",
             )
 
         if hvac_mode == HVACMode.OFF:
@@ -353,14 +372,21 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     def set_preset_mode(self, preset_mode: str) -> None:
         """Set the body context preset from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_set_preset_mode, preset_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature for the active or selected body."""
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
-            raise HomeAssistantError(f"Expected attribute {ATTR_TEMPERATURE}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="expected_temperature_attribute",
+                translation_placeholders={"attribute": ATTR_TEMPERATURE},
+            )
 
         seq_before = self._begin_optimistic_write()
         await self.coordinator.async_set_heat_pump_active_target(
@@ -382,7 +408,10 @@ class PoolSyncHeatPumpClimateEntity(  # pyright: ignore[reportIncompatibleVariab
     def set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_set_temperature, **kwargs)
 

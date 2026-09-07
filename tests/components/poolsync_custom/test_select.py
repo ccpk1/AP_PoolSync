@@ -175,7 +175,7 @@ async def test_async_select_option_rejects_unsupported_value(hass) -> None:
         ),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported option"):
+    with pytest.raises(HomeAssistantError, match="unsupported_option"):
         await entity.async_select_option("auto_pool")
 
 
@@ -247,7 +247,7 @@ async def test_select_option_requires_hass_for_sync_calls() -> None:
     )
     entity.hass = None
 
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.select_option("off")
 
 

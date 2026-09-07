@@ -175,7 +175,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _require_password(self) -> None:
         """Raise if the API password is not available for a device write."""
         if not self._password:
-            raise HomeAssistantError("API password not available to set value.")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="password_not_available",
+            )
 
     @property
     def refresh_seq(self) -> int:
@@ -199,7 +202,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_refresh()
 
         if not self.last_update_success:
-            raise HomeAssistantError("PoolSync refresh failed")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="refresh_failed",
+            )
 
     def _get_write_role_device_id(
         self,
@@ -211,7 +217,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Resolve the device ID for a write target role."""
         role_data = get_role_data(self.get_parsed_data(), role, index=index)
         if role_data is None or role_data.device_id is None or not role_data.is_present:
-            raise HomeAssistantError(f"PoolSync {description} target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="target_not_available",
+                translation_placeholders={"description": description},
+            )
 
         return role_data.device_id
 
@@ -222,20 +232,39 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if isinstance(err, PoolSyncApiAuthError):
             raise HomeAssistantError(
-                f"Authentication failed while setting {description}"
+                translation_domain=DOMAIN,
+                translation_key="auth_failed_setting",
+                translation_placeholders={"description": description},
             ) from err
 
         if isinstance(err, PoolSyncApiCommunicationError):
             raise HomeAssistantError(
-                f"Communication failed while setting {description}: {err}"
+                translation_domain=DOMAIN,
+                translation_key="communication_failed_setting",
+                translation_placeholders={
+                    "description": description,
+                    "error": str(err),
+                },
             ) from err
 
         if isinstance(err, PoolSyncApiError):
             raise HomeAssistantError(
-                f"API error while setting {description}: {err}"
+                translation_domain=DOMAIN,
+                translation_key="api_error_setting",
+                translation_placeholders={
+                    "description": description,
+                    "error": str(err),
+                },
             ) from err
 
-        raise HomeAssistantError(f"Failed to set {description}: {err}") from err
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="failed_to_set",
+            translation_placeholders={
+                "description": description,
+                "error": str(err),
+            },
+        ) from err
 
     async def _async_write_role_config(
         self,
@@ -328,7 +357,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._require_password()
         runtime = get_heat_pump_runtime(self.get_parsed_data())
         if runtime is None:
-            raise HomeAssistantError("PoolSync heat pump target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="heat_pump_target_not_available",
+            )
 
         if (
             preset_mode == HEAT_PUMP_PRESET_SPA
@@ -375,7 +407,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "poolSpaMode": HEAT_PUMP_POOL_SPA_MODE_SPA,
             }
         else:
-            raise HomeAssistantError(f"Unsupported heat pump mode: {mode_context}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_heat_pump_mode",
+                translation_placeholders={"mode": mode_context},
+            )
 
         await self._async_write_role_configs(
             role="heat_pump",
@@ -395,7 +431,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._require_password()
         runtime = get_heat_pump_runtime(self.get_parsed_data())
         if runtime is None:
-            raise HomeAssistantError("PoolSync heat pump mode is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="heat_pump_mode_not_available",
+            )
 
         if hvac_mode == "off":
             await self.async_set_heat_pump_mode_context(HEAT_PUMP_MODE_OFF, index=index)
@@ -409,7 +448,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if hvac_mode == "heat":
             if not runtime.capabilities.supports_heating:
-                raise HomeAssistantError("Heating mode is not supported")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="heating_not_supported",
+                )
             await self.async_set_heat_pump_mode_context(
                 HEAT_PUMP_MODE_HEAT_SPA
                 if (
@@ -423,7 +465,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if hvac_mode == "cool":
             if not runtime.capabilities.supports_cooling:
-                raise HomeAssistantError("Cooling mode is not supported")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="cooling_not_supported",
+                )
             await self.async_set_heat_pump_mode_context(
                 HEAT_PUMP_MODE_COOL_POOL, index=index
             )
@@ -434,13 +479,20 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 runtime.capabilities.supports_heating
                 and runtime.capabilities.supports_cooling
             ):
-                raise HomeAssistantError("Auto mode is not supported")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="auto_not_supported",
+                )
             await self.async_set_heat_pump_mode_context(
                 HEAT_PUMP_MODE_AUTO_POOL, index=index
             )
             return
 
-        raise HomeAssistantError(f"Unsupported climate HVAC mode: {hvac_mode}")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="unsupported_climate_hvac_mode",
+            translation_placeholders={"mode": hvac_mode},
+        )
 
     async def async_set_chem_config(self, key: str, value: int, index: int = 0) -> None:
         """Set a ChemSync configuration value by entity key.
@@ -455,7 +507,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         key_id = _key_map.get(key)
         if key_id is None:
-            raise HomeAssistantError(f"Unsupported ChemSync config key: {key}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_chem_config_key",
+                translation_placeholders={"key": key},
+            )
         await self._async_write_role_config(
             role="chem_sync",
             key_id=key_id,
@@ -978,7 +1034,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         parsed_data = self.get_parsed_data()
         equip_runtime = get_equipment_runtime(parsed_data)
         if equip_runtime is None:
-            raise HomeAssistantError("Pump write target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="pump_target_not_available",
+            )
 
         pump_slot = next(
             (
@@ -989,7 +1048,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             None,
         )
         if pump_slot is None:
-            raise HomeAssistantError("Pump write target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="pump_target_not_available",
+            )
 
         internal_value = value // CIRCULATION_PUMP_RPM_FACTOR
         try:
@@ -1010,7 +1072,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the device ID that hosts the circulation pump equipment."""
         hp_devices = parsed_data.devices.get("heat_pump", [])
         if not hp_devices or hp_devices[0].device_id is None:
-            raise HomeAssistantError("Pump write target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="pump_target_not_available",
+            )
         return hp_devices[0].device_id
 
     async def async_set_circulation_pump_mode(
@@ -1028,7 +1093,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         parsed_data = self.get_parsed_data()
         equip_runtime = get_equipment_runtime(parsed_data)
         if equip_runtime is None:
-            raise HomeAssistantError("Pump write target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="pump_target_not_available",
+            )
 
         pump_slot = next(
             (
@@ -1039,11 +1107,17 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             None,
         )
         if pump_slot is None:
-            raise HomeAssistantError("Pump write target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="pump_target_not_available",
+            )
 
         if mode == CIRCULATION_PUMP_MODE_MANUAL:
             if rpm is None:
-                raise HomeAssistantError("RPM is required when mode is manual")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="rpm_required_manual",
+                )
             internal_value = max(0, rpm // CIRCULATION_PUMP_RPM_FACTOR)
             payload = [internal_value, CIRCULATION_PUMP_MANUAL_FLAG]
         elif mode == CIRCULATION_PUMP_MODE_AUTO:
@@ -1051,7 +1125,11 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif mode == CIRCULATION_PUMP_MODE_OFF:
             payload = [0, CIRCULATION_PUMP_MANUAL_FLAG]
         else:
-            raise HomeAssistantError(f"Unsupported pump mode: {mode}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_pump_mode",
+                translation_placeholders={"mode": mode},
+            )
 
         try:
             await self.api_client.async_set_device_config_value(
@@ -1080,7 +1158,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
 
         if role_data is None or role_data.device_id is None:
-            raise HomeAssistantError("PoolSync heat pump target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="heat_pump_target_not_available",
+            )
 
         if state and duration is None:
             pref_minutes = self.group_duration_prefs.get(group_id)
@@ -1121,15 +1202,26 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         equip_runtime = get_equipment_runtime(self.get_parsed_data())
         if equip_runtime is None or not isinstance(equip_runtime.raw_groups, dict):
-            raise HomeAssistantError("PoolSync group target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="group_target_not_available",
+            )
 
         group_data = equip_runtime.raw_groups.get(group_id)
         if not isinstance(group_data, dict):
-            raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_group",
+                translation_placeholders={"group": group_id},
+            )
 
         config = group_data.get("config")
         if not isinstance(config, list) or len(config) <= GROUP_IDX_STATE:
-            raise HomeAssistantError(f"Unknown PoolSync group: {group_id}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_group",
+                translation_placeholders={"group": group_id},
+            )
 
         self.group_duration_prefs[group_id] = int(duration_minutes)
 
@@ -1153,7 +1245,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         role_data = get_role_data(self.get_parsed_data(), "heat_pump", index=index)
 
         if role_data is None or role_data.device_id is None:
-            raise HomeAssistantError("PoolSync heat pump target is not available")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="heat_pump_target_not_available",
+            )
 
         try:
             await self.api_client.async_set_device_config_value(
