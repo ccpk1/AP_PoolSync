@@ -38,12 +38,7 @@ fail_under = 95
 
 [tool.ruff]
 target-version = "py314"
-exclude = [
-    ".tmp",
-    ".pytest_cache",
-    ".ruff_cache",
-    "docs",
-]
+exclude = [".tmp", ".pytest_cache", ".ruff_cache", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
