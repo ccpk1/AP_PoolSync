@@ -717,9 +717,8 @@ async def test_sensor_handle_coordinator_update_refreshes_and_wifi_attrs() -> No
 
 def _build_equipment_coordinator() -> Mock:
     """Build a coordinator mock with 090 equipment data."""
-    from pathlib import Path
-
     import json
+    from pathlib import Path
 
     coordinator = Mock()
     coordinator.name = "PoolSync"
@@ -746,7 +745,6 @@ def _build_equipment_coordinator() -> Mock:
 
 async def test_equipment_sensors_created_for_pump_and_valve() -> None:
     """Test equipment sensors are created for pump RPM and valve position."""
-    from custom_components.poolsync_custom.sensor import SENSOR_DESCRIPTIONS_EQUIPMENT
 
     coordinator = _build_equipment_coordinator()
     added: list[PoolSyncSensor] = []

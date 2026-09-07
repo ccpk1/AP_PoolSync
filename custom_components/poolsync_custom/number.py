@@ -431,7 +431,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         try:
             restored = float(last_state.state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return
 
         if restored > 0:
@@ -493,7 +493,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         try:
             self._attr_native_value = float(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.error(
                 "NUMBER_ENTITY %s: could not convert value '%s' (type: %s) to float",
                 self.entity_description.key,

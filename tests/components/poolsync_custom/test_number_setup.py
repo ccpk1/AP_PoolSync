@@ -160,8 +160,9 @@ async def test_group_duration_number_uses_translation_placeholders(hass) -> None
 
 def _build_group_duration_entity(coordinator) -> None:
     """Build a group-duration number entity attached to a coordinator."""
-    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
     from homeassistant.components.number import NumberEntityDescription
+
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
 
     return PoolSyncChlorOutputNumberEntity(
         coordinator,
@@ -180,8 +181,9 @@ def _build_group_duration_entity(coordinator) -> None:
 
 async def test_group_duration_restore_skips_non_group(hass) -> None:
     """Test restore is skipped for non-group number entities."""
-    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
     from homeassistant.components.number import NumberEntityDescription
+
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
 
     coordinator = Mock()
     coordinator.mac_address = "AABBCCDDEEFF"
@@ -213,8 +215,9 @@ async def test_group_duration_restore_skips_non_group(hass) -> None:
 
 async def test_group_duration_restore_restores_preference(hass) -> None:
     """Test restore repopulates the group duration preference."""
-    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
     from homeassistant.components.number import NumberEntityDescription
+
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
 
     coordinator = Mock()
     coordinator.mac_address = "AABBCCDDEEFF"
@@ -257,9 +260,10 @@ async def test_group_duration_restore_restores_preference(hass) -> None:
 
 async def test_group_duration_restore_skips_unavailable(hass) -> None:
     """Test restore skips unavailable/unknown last states."""
-    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
     from homeassistant.components.number import NumberEntityDescription
     from homeassistant.const import STATE_UNAVAILABLE
+
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
 
     coordinator = Mock()
     coordinator.mac_address = "AABBCCDDEEFF"
@@ -301,8 +305,9 @@ async def test_group_duration_restore_skips_unavailable(hass) -> None:
 
 async def test_group_duration_restore_skips_invalid_value(hass) -> None:
     """Test restore skips non-numeric last states."""
-    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
     from homeassistant.components.number import NumberEntityDescription
+
+    from custom_components.poolsync_custom.number import PoolSyncChlorOutputNumberEntity
 
     coordinator = Mock()
     coordinator.mac_address = "AABBCCDDEEFF"

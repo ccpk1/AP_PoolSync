@@ -478,9 +478,6 @@ async def test_chem_sys_mode_select_created_and_writes(hass) -> None:
 async def test_circulation_pump_mode_select_writes_auto(hass) -> None:
     """Test the circulation pump mode select writes auto mode."""
     from custom_components.poolsync_custom.runtime import get_equipment_runtime
-    from custom_components.poolsync_custom.select import (
-        PoolSyncCirculationPumpModeSelect,
-    )
 
     coordinator = Mock()
     coordinator.name = "PoolSync"
@@ -531,9 +528,6 @@ async def test_circulation_pump_mode_select_writes_auto(hass) -> None:
 async def test_circulation_pump_mode_select_manual_uses_rpm(hass) -> None:
     """Test manual mode uses the current pump RPM."""
     from custom_components.poolsync_custom.runtime import get_equipment_runtime
-    from custom_components.poolsync_custom.select import (
-        PoolSyncCirculationPumpModeSelect,
-    )
 
     coordinator = Mock()
     coordinator.name = "PoolSync"

@@ -395,9 +395,6 @@ def _build_equipment_coordinator() -> Mock:
 
 async def test_equipment_binary_sensors_created() -> None:
     """Test equipment binary sensors are created for pump and heat pump."""
-    from custom_components.poolsync_custom.binary_sensor import (
-        BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT,
-    )
 
     coordinator = _build_equipment_coordinator()
     added: list[PoolSyncBinarySensor] = []
@@ -417,7 +414,6 @@ async def test_equipment_pump_priming_sensor_value() -> None:
     from custom_components.poolsync_custom.binary_sensor import (
         BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT,
     )
-    from custom_components.poolsync_custom.runtime import get_equipment_runtime
 
     coordinator = _build_equipment_coordinator()
     desc = next(
