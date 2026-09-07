@@ -454,8 +454,7 @@ async def test_chem_sync_config_sensors_expose_diagnostic_values() -> None:
     sensors_by_key = {
         description.key: PoolSyncSensor(coordinator, "chem_sync", description, value_fn)
         for description, value_fn in SENSOR_DESCRIPTIONS_CHEMSYNC
-        if description.key
-        in {"chem_ph_min", "chem_ph_max", "chem_acid_tank_alert"}
+        if description.key in {"chem_ph_min", "chem_ph_max", "chem_acid_tank_alert"}
     }
 
     assert sensors_by_key["chem_ph_min"].native_value == 7.2

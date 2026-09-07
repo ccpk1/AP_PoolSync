@@ -388,7 +388,6 @@ SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
-
     (
         SensorEntityDescription(
             key="chem_fw_version",
