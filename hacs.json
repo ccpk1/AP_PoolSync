@@ -1,8 +1,6 @@
 {
   "name": "PoolSync Custom",
-  "domains": ["poolsync_custom"],
-  "render_readme": true,
-  "iot_class": "local_polling",
-  "country": ["US"],
-  "homeassistant": "2025.1.0"
+  "homeassistant": "2025.1.0",
+  "hacs": "2.0.5",
+  "hide_default_branch": true
 }
