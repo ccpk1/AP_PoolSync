@@ -72,7 +72,6 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "chem_ph_min",
             "chem_ph_max",
             "chem_acid_tank_alert",
-            "chem_feed_rate",
             "chem_sync_online",
             "chem_sync_fault",
             "chem_sync_flow",

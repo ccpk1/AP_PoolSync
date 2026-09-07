@@ -427,7 +427,7 @@ async def test_heat_pump_sensors_stay_fahrenheit_native() -> None:
 
 
 async def test_chem_sync_config_sensors_expose_diagnostic_values() -> None:
-    """Test ChemSync pH min/max, tank alert, and feed rate sensors."""
+    """Test ChemSync pH min/max and tank alert sensors."""
     coordinator = Mock()
     coordinator.name = "PoolSync"
     coordinator.mac_address = "AABBCCDDEEFF"
@@ -443,7 +443,6 @@ async def test_chem_sync_config_sensors_expose_diagnostic_values() -> None:
                     "phMin": 7.2,
                     "phMax": 7.8,
                     "acidTankAlertAmount": 640,
-                    "feedRate": 87662,
                 },
                 "status": {},
             }
@@ -456,15 +455,14 @@ async def test_chem_sync_config_sensors_expose_diagnostic_values() -> None:
         description.key: PoolSyncSensor(coordinator, "chem_sync", description, value_fn)
         for description, value_fn in SENSOR_DESCRIPTIONS_CHEMSYNC
         if description.key
-        in {"chem_ph_min", "chem_ph_max", "chem_acid_tank_alert", "chem_feed_rate"}
+        in {"chem_ph_min", "chem_ph_max", "chem_acid_tank_alert"}
     }
 
     assert sensors_by_key["chem_ph_min"].native_value == 7.2
     assert sensors_by_key["chem_ph_max"].native_value == 7.8
     assert sensors_by_key["chem_acid_tank_alert"].native_value == 640
-    assert sensors_by_key["chem_feed_rate"].native_value == 87662
 
-    for key in ("chem_ph_min", "chem_ph_max", "chem_acid_tank_alert", "chem_feed_rate"):
+    for key in ("chem_ph_min", "chem_ph_max", "chem_acid_tank_alert"):
         description = sensors_by_key[key].entity_description
         assert description.entity_category is EntityCategory.DIAGNOSTIC
         assert description.entity_registry_enabled_default is False

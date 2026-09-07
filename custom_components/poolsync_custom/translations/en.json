@@ -321,9 +321,6 @@
       "acid_tank_alert_threshold": {
         "name": "Acid tank alert threshold"
       },
-      "feed_rate": {
-        "name": "Feed rate"
-      },
       "pool_cover_control": {
         "name": "Pool cover control",
         "state": {

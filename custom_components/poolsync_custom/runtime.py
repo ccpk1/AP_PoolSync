@@ -1551,7 +1551,6 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "chem_ph_min": _dv("chem_sync", "config", "phMin"),
     "chem_ph_max": _dv("chem_sync", "config", "phMax"),
     "chem_acid_tank_alert": _dv("chem_sync", "config", "acidTankAlertAmount"),
-    "chem_feed_rate": _dv("chem_sync", "config", "feedRate"),
     "chem_fw_version": _dv("chem_sync", "system", "fwVersion"),
     "chem_hw_version": _dv("chem_sync", "system", "hwVersion"),
     "chem_model_num": _dv("chem_sync", "system", "modelNum"),

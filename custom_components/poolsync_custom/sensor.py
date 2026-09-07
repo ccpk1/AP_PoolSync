@@ -388,16 +388,7 @@ SENSOR_DESCRIPTIONS_CHEMSYNC: tuple[SensorDescription, ...] = (
         ),
         None,
     ),
-    (
-        SensorEntityDescription(
-            key="chem_feed_rate",
-            translation_key="feed_rate",
-            state_class=SensorStateClass.MEASUREMENT,
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        None,
-    ),
+
     (
         SensorEntityDescription(
             key="chem_fw_version",

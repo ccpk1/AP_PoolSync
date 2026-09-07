@@ -215,7 +215,6 @@ async def async_get_config_entry_diagnostics(
                     "chem_ph_min",
                     "chem_ph_max",
                     "chem_acid_tank_alert",
-                    "chem_feed_rate",
                     "chem_fw_version",
                     "chem_hw_version",
                     "chem_model_num",
