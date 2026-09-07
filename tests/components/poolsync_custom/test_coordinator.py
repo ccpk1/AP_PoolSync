@@ -192,9 +192,7 @@ async def test_get_write_role_device_id_requires_password(hass) -> None:
     # _get_write_role_device_id no longer checks the password directly —
     # callers are responsible for calling _require_password() first.
     # Without data loaded, it raises a different error.
-    with pytest.raises(
-        HomeAssistantError, match="runtime_data_not_available"
-    ):
+    with pytest.raises(HomeAssistantError, match="runtime_data_not_available"):
         coordinator._get_write_role_device_id(
             role="chlorinator", description="chlorinator output"
         )
@@ -210,9 +208,7 @@ async def test_get_write_role_device_id_rejects_missing_target(hass) -> None:
     }
     coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
 
-    with pytest.raises(
-        HomeAssistantError, match="target_not_available"
-    ):
+    with pytest.raises(HomeAssistantError, match="target_not_available"):
         coordinator._get_write_role_device_id(
             role="chlorinator", description="chlorinator output"
         )
