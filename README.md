@@ -21,6 +21,10 @@ Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Wheth
 - **Multi-Device Architecture:** Full native support for setups with multiple units of the same equipment type (e.g., dual ChlorSync chlorinators, multiple heat pumps, or stacked ChemSync controllers).
 - **Human-Readable Diagnostics:** Decodes raw board fault codes, firmware data, temperatures, and Wi-Fi link quality.
 
+<img width="1024" height="1004" alt="image" src="https://github.com/user-attachments/assets/455ab6f5-1a87-4cc1-b15f-db50a4b9fae1" />
+
+
+
 ---
 
 ## Compatibility & Prerequisites
@@ -194,21 +198,20 @@ Some diagnostic entities are disabled by default to keep the default dashboard c
 
 ## See It In Action
 
-> Screenshots coming soon.
+### Controller:
+<img width="300" alt="image" src="https://github.com/user-attachments/assets/3f9a3478-c32f-4470-ba26-3adfe248d2e1" />
 
-<!--
-### Controller & Devices
-![Controller overview](docs/assets/screenshot-controller.png)
+### Heat Pump:
+<img width="300" alt="image" src="https://github.com/user-attachments/assets/ab334d7e-9469-456a-9590-32f5a1bc07b4" /> <img width="300" alt="image" src="https://github.com/user-attachments/assets/d9bc554c-72c0-4366-ab19-202a62dfa9a6" /> <img width="300" alt="image" src="https://github.com/user-attachments/assets/816fecf9-7485-47b6-bc4c-cf104013f52d" />
 
-### Group Scenes & Schedules
-![Group scenes](docs/assets/screenshot-groups.png)
+### Circulation Pump:
+<img width="318" height="355" alt="image" src="https://github.com/user-attachments/assets/cecb1b0c-24e4-4b58-993a-3ab706529610" />
 
-### Heat Pump Climate
-![Heat pump climate](docs/assets/screenshot-climate.png)
+### ChlorSync
+<img width="300" alt="image" src="https://github.com/user-attachments/assets/58c212b1-8e6c-4b84-a23c-4d7f043c95ae" />
 
-### Water Chemistry (ChemSync)
-![Water chemistry](docs/assets/screenshot-chemsync.png)
--->
+### ChemSync
+<img width="300" alt="image" src="https://github.com/user-attachments/assets/a22ddd62-647e-421d-bc51-c2bca0103461" />
 
 ---
 
