@@ -548,3 +548,97 @@ async def test_reauth_retries_after_cannot_connect(hass, mocked_setup_entry) -> 
         API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
     }
     assert mocked_setup_entry.await_count == 1
+
+
+async def test_reconfigure_success(hass, mocked_setup_entry) -> None:
+    """Test successful reconfiguration flow updates the IP address."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="PoolSync",
+        data={
+            CONF_IP_ADDRESS: TEST_IP_ADDRESS,
+            CONF_PASSWORD: "old-password",
+            API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+        },
+        unique_id=TEST_MAC_ADDRESS,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": config_entry.entry_id,
+        },
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert result["description_placeholders"]["ip_address"] == TEST_IP_ADDRESS
+
+    new_ip = "192.168.50.71"
+    with (
+        patch(
+            "custom_components.poolsync_custom.config_flow.PoolSyncApiClient.start_pushlink",
+            new=AsyncMock(return_value={"timeRemaining": 120}),
+        ),
+        patch(
+            "custom_components.poolsync_custom.config_flow.PoolSyncApiClient.get_pushlink_status",
+            new=AsyncMock(
+                side_effect=_return_after_yield(
+                    {
+                        CONF_PASSWORD: TEST_PASSWORD,
+                        API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+                    }
+                )
+            ),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_IP_ADDRESS: new_ip}
+        )
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+        assert result["step_id"] == "link"
+
+        await hass.async_block_till_done()
+        result = await _finish_progress_flow(hass, result["flow_id"])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.data == {
+        CONF_IP_ADDRESS: new_ip,
+        CONF_PASSWORD: TEST_PASSWORD,
+        API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+    }
+    assert mocked_setup_entry.await_count == 1
+
+
+async def test_reconfigure_invalid_ip(hass, mocked_setup_entry) -> None:
+    """Test reconfiguration rejects an invalid IP address."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="PoolSync",
+        data={
+            CONF_IP_ADDRESS: TEST_IP_ADDRESS,
+            CONF_PASSWORD: "old-password",
+            API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+        },
+        unique_id=TEST_MAC_ADDRESS,
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": config_entry.entry_id,
+        },
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_IP_ADDRESS: "not-an-ip"}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "invalid_ip"}

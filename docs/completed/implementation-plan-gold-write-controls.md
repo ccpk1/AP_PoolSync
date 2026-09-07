@@ -1,6 +1,6 @@
 # Implementation Plan: Gold-Level Write Controls (Groups & Pump)
 
-> **Status:** Planning — awaiting approval before implementation
+> **Status:** ✅ Implemented (2026-09-01) — group and pump write controls shipped in 1.1.0-beta.2 (PR #19) and refined in 1.1.0-beta.4 (PR #21). See "Current Status" below.
 
 ## Overview
 

@@ -30,7 +30,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CIRCULATION_PUMP_RPM_MAX, CIRCULATION_PUMP_RPM_MIN
+from .const import CIRCULATION_PUMP_RPM_MAX, CIRCULATION_PUMP_RPM_MIN, DOMAIN
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .optimistic import PoolSyncOptimisticMixin
 from .runtime import (
@@ -431,7 +431,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         try:
             restored = float(last_state.state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return
 
         if restored > 0:
@@ -493,7 +493,7 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
 
         try:
             self._attr_native_value = float(value)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             _LOGGER.error(
                 "NUMBER_ENTITY %s: could not convert value '%s' (type: %s) to float",
                 self.entity_description.key,
@@ -555,7 +555,9 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
         try:
             if (method_name := _WRITE_METHODS.get(self.entity_description.key)) is None:
                 raise HomeAssistantError(
-                    f"Unsupported number command: {self.entity_description.key}"
+                    translation_domain=DOMAIN,
+                    translation_key="unsupported_number_command",
+                    translation_placeholders={"key": self.entity_description.key},
                 )
 
             # pH setpoint needs float precision; int-cast other values
@@ -604,5 +606,11 @@ class PoolSyncChlorOutputNumberEntity(  # type: ignore[abstract]
                 e,
             )
             raise HomeAssistantError(
-                f"Failed to set {self.entity_description.name} to {write_value}: {e}"
+                translation_domain=DOMAIN,
+                translation_key="failed_to_set_number",
+                translation_placeholders={
+                    "name": self.entity_description.name,
+                    "value": str(write_value),
+                    "error": str(e),
+                },
             ) from e

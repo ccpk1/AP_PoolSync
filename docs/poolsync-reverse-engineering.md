@@ -296,7 +296,7 @@ The decompiled app contains a master mapping object (`DEVICES`) that translates 
 | `CHEM_PH_OFFSET` | `config.phOffset` | Read/Write | pH probe offset |
 | `CHEM_ORP_SETPOINT` | `config.orpSetpoint` | Read/Write | ORP target (mV) |
 | `CHEM_ORP_ENABLED` | `config.orpEnabled` | Read/Write | ORP control on/off |
-| `CHEM_FEED_RATE` | `config.feedRate` | Read/Write | Feed pump rate |
+| `CHEM_FEED_RATE` | `config.feedRate` | Read/Write | Feed pump rate (unit unknown — intentionally not exposed as an entity) |
 | `CHEM_FEED_AMOUNT` | `config.feedAmount` | Read/Write | Feed amount |
 | `CHEM_FEED_RATE_UNITS` | `config.feedRateUnits` | Read/Write | Feed rate units |
 | `CHEM_MAX_DAILY_FEED` | `config.maxDailyFeed` | Read/Write | Max daily feed |

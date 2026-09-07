@@ -107,11 +107,11 @@ Using the existing diagnostics:
 - **Source:** `devices[chem_id].config.acidTankAlertAmount` (640 in main diagnostic)
 - **Plan:** Add as a diagnostic sensor (or number entity if writable).
 
-### B3. ChemSync — feed rate (easy to read, hard to unit)
+### B3. ChemSync — feed rate (removed — unit unknown)
 
-- **Gap:** `config.feedRate` (87662) + `feedRateUnits` (0) not exposed
+- **Status:** Intentionally **not exposed**. `config.feedRate` (87662) + `feedRateUnits` (0) have no explainable unit; the value is not a percentage or any known flow rate.
 - **Source:** `devices[chem_id].config.feedRate` / `feedRateUnits`
-- **Plan:** Add as a diagnostic sensor showing the raw value. **Unit is unknown** — do not assign a unit until confirmed. (This was previously removed for exactly this reason.)
+- **Decision:** Removed from the integration (was previously removed once for the same reason, then re-added as a diagnostic sensor, then removed again). Re-add only if the unit is confirmed via the app or vendor documentation.
 
 ### B4. Chlorinator — config toggles (easy)
 

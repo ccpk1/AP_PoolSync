@@ -16,6 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.poolsync_custom.coordinator import PoolSyncDataUpdateCoordinator
 from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 from custom_components.poolsync_custom.select import (
+    PoolSyncCirculationPumpModeSelect,
     PoolSyncHeatModeSelect,
     async_setup_entry,
 )
@@ -174,7 +175,7 @@ async def test_async_select_option_rejects_unsupported_value(hass) -> None:
         ),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported option"):
+    with pytest.raises(HomeAssistantError, match="unsupported_option"):
         await entity.async_select_option("auto_pool")
 
 
@@ -246,7 +247,7 @@ async def test_select_option_requires_hass_for_sync_calls() -> None:
     )
     entity.hass = None
 
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.select_option("off")
 
 
@@ -420,3 +421,156 @@ async def test_heat_mode_select_is_optimistic(hass) -> None:
     entity._update_attrs()
     assert entity._optimistic is False
     assert entity.current_option == "heat_pool"
+
+
+# ===================================================================
+# ChemSync system mode select
+# ===================================================================
+
+
+async def test_chem_sys_mode_select_created_and_writes(hass) -> None:
+    """Test the ChemSync system mode select is created and writes."""
+    from custom_components.poolsync_custom.select import PoolSyncHeatModeSelect
+
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_device_info = Mock(
+        return_value={
+            "identifiers": {("poolsync_custom", f"{TEST_MAC_ADDRESS}_chem_sync")}
+        }
+    )
+    coordinator.last_update_success = True
+    coordinator._refresh_seq = 0
+    coordinator.refresh_seq = 0
+    coordinator.async_set_chem_config = AsyncMock(return_value=None)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"0": {"config": {"sysMode": 3}, "status": {}}},
+        "deviceType": {"0": "chemSync"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncHeatModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="chem_sys_mode",
+            options=["off", "auto", "manual"],
+            translation_key="chem_sys_mode",
+        ),
+        role="chem_sync",
+        device_index=0,
+    )
+    entity.async_write_ha_state = Mock()
+
+    await entity.async_select_option("manual")
+    coordinator.async_set_chem_config.assert_awaited_once_with(
+        "chem_sys_mode", 2, index=0
+    )
+    assert entity.current_option == "manual"
+
+
+# ===================================================================
+# Circulation pump mode select write path
+# ===================================================================
+
+
+async def test_circulation_pump_mode_select_writes_auto(hass) -> None:
+    """Test the circulation pump mode select writes auto mode."""
+    from custom_components.poolsync_custom.runtime import get_equipment_runtime
+
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_equipment_device_info = Mock(
+        return_value={
+            "identifiers": {("poolsync_custom", f"{TEST_MAC_ADDRESS}_equip_1")}
+        }
+    )
+    coordinator.last_update_success = True
+    coordinator._refresh_seq = 0
+    coordinator.refresh_seq = 0
+    coordinator.async_set_circulation_pump_mode = AsyncMock(return_value=None)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {
+                    "0": [3, "HEAT PUMP"],
+                    "1": [0, "CIRCULATION PUMP", 2, 1, 0, 0, 0, 35, 12, 69],
+                },
+                "groups": {},
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    pump_equip = get_equipment_runtime(coordinator.parsed_data).equipment["1"]
+
+    entity = PoolSyncCirculationPumpModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="pump_mode",
+            options=["auto", "manual", "off"],
+            translation_key="pump_mode",
+        ),
+        equip=pump_equip,
+    )
+    entity.async_write_ha_state = Mock()
+
+    await entity.async_select_option("auto")
+    coordinator.async_set_circulation_pump_mode.assert_awaited_once_with(
+        "auto", rpm=None
+    )
+    assert entity.current_option == "auto"
+
+
+async def test_circulation_pump_mode_select_manual_uses_rpm(hass) -> None:
+    """Test manual mode uses the current pump RPM."""
+    from custom_components.poolsync_custom.runtime import get_equipment_runtime
+
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = TEST_MAC_ADDRESS
+    coordinator.get_equipment_device_info = Mock(
+        return_value={
+            "identifiers": {("poolsync_custom", f"{TEST_MAC_ADDRESS}_equip_1")}
+        }
+    )
+    coordinator.last_update_success = True
+    coordinator._refresh_seq = 0
+    coordinator.refresh_seq = 0
+    coordinator.async_set_circulation_pump_mode = AsyncMock(return_value=None)
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "7": {
+                "equip": {
+                    "0": [3, "HEAT PUMP"],
+                    "1": [0, "CIRCULATION PUMP", 2, 1, 0, 0, 0, 35, 12, 69],
+                },
+                "groups": {},
+            }
+        },
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+    pump_equip = get_equipment_runtime(coordinator.parsed_data).equipment["1"]
+
+    entity = PoolSyncCirculationPumpModeSelect(
+        coordinator,
+        SelectEntityDescription(
+            key="pump_mode",
+            options=["auto", "manual", "off"],
+            translation_key="pump_mode",
+        ),
+        equip=pump_equip,
+    )
+    entity.async_write_ha_state = Mock()
+
+    await entity.async_select_option("manual")
+    # Current RPM is 35*50 = 1750
+    coordinator.async_set_circulation_pump_mode.assert_awaited_once_with(
+        "manual", rpm=1750
+    )
+    assert entity.current_option == "manual"

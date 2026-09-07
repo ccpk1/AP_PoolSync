@@ -19,6 +19,7 @@ from .const import (
     CIRCULATION_PUMP_MODE_MANUAL_SENTINEL,
     CIRCULATION_PUMP_MODE_OFF,
     CIRCULATION_PUMP_RPM_FACTOR,
+    DOMAIN,
     EQUIP_TYPE_CIRCULATION_PUMP,
     EQUIP_TYPE_HEAT_PUMP,
     EQUIP_TYPE_VALVE,
@@ -807,7 +808,10 @@ def ensure_parsed_data(
 
     data = getattr(coordinator, "data", None)
     if not isinstance(data, dict):
-        raise HomeAssistantError("PoolSync runtime data is not available")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="runtime_data_not_available",
+        )
 
     parsed_data = parse_poolsync_runtime_data(data)
     coordinator.parsed_data = parsed_data
@@ -1551,7 +1555,6 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "chem_ph_min": _dv("chem_sync", "config", "phMin"),
     "chem_ph_max": _dv("chem_sync", "config", "phMax"),
     "chem_acid_tank_alert": _dv("chem_sync", "config", "acidTankAlertAmount"),
-    "chem_feed_rate": _dv("chem_sync", "config", "feedRate"),
     "chem_fw_version": _dv("chem_sync", "system", "fwVersion"),
     "chem_hw_version": _dv("chem_sync", "system", "hwVersion"),
     "chem_model_num": _dv("chem_sync", "system", "modelNum"),

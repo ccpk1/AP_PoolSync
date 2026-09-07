@@ -18,6 +18,9 @@ dev = [
     "ruff>=0.11.10",
 ]
 
+[tool.setuptools]
+packages = ["custom_components", "custom_components.poolsync_custom"]
+
 [tool.pytest.ini_options]
 addopts = "-ra"
 asyncio_mode = "auto"
@@ -27,8 +30,18 @@ filterwarnings = [
     "ignore:Setting custom ClientSession.close attribute is discouraged:DeprecationWarning:homeassistant.helpers.aiohttp_client",
 ]
 
+[tool.coverage.run]
+source = ["custom_components/poolsync_custom"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+sort = "miss"
+fail_under = 95
+
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
+exclude = [".tmp", ".pytest_cache", ".ruff_cache", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

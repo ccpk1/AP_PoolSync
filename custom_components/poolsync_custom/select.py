@@ -16,6 +16,7 @@ from .const import (
     CIRCULATION_PUMP_MODE_AUTO,
     CIRCULATION_PUMP_MODE_MANUAL,
     CIRCULATION_PUMP_MODE_OFF,
+    DOMAIN,
 )
 from .coordinator import PoolSyncDataUpdateCoordinator
 from .optimistic import PoolSyncOptimisticMixin
@@ -211,14 +212,21 @@ class PoolSyncHeatModeSelect(  # pyright: ignore[reportIncompatibleVariableOverr
     def select_option(self, option: str) -> None:
         """Select a new mode from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_select_option, option)
 
     async def async_select_option(self, option: str) -> None:
         """Select a new mode."""
         if option not in self.options:
-            raise HomeAssistantError(f"Unsupported option: {option}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_option",
+                translation_placeholders={"option": option},
+            )
 
         seq_before = self._begin_optimistic_write()
         if self._role_key == "chem_sync":
@@ -306,14 +314,21 @@ class PoolSyncCirculationPumpModeSelect(  # pyright: ignore[reportIncompatibleVa
     def select_option(self, option: str) -> None:
         """Select a new mode from a synchronous context."""
         if self.hass is None:
-            raise HomeAssistantError("Entity is not added to Home Assistant")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_added",
+            )
 
         self.hass.add_job(self.async_select_option, option)
 
     async def async_select_option(self, option: str) -> None:
         """Select a new circulation pump mode."""
         if option not in self.options:
-            raise HomeAssistantError(f"Unsupported option: {option}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unsupported_option",
+                translation_placeholders={"option": option},
+            )
 
         seq_before = self._begin_optimistic_write()
 

@@ -1,223 +1,263 @@
-# PoolSync Custom Integration for Home Assistant
+# AutoPilot PoolSync Custom Integration for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
-[![Quality Scale](https://img.shields.io/badge/Quality%20Scale-approaching%20silver-7CB342)](https://github.com/ccpk1/AP_PoolSync/blob/main/quality_scale.yaml)
-[![Version](https://img.shields.io/github/v/release/ccpk1/AP_PoolSync?include_prereleases&label=Version)](https://github.com/ccpk1/AP_PoolSync/releases)
-[![Stars](https://img.shields.io/github/stars/ccpk1/AP_PoolSync?label=Stars)](https://github.com/ccpk1/AP_PoolSync/stargazers)
+[![Quality Scale: Gold Ready](https://img.shields.io/badge/Quality%20Scale-Gold%20Ready-FFD700)](https://github.com/ccpk1/AP_PoolSync/blob/main/quality_scale.yaml)
+[![Quality Gates](https://img.shields.io/github/actions/workflow/status/ccpk1/AP_PoolSync/lint-validation.yaml?branch=main&label=Quality%20Gates)](https://github.com/ccpk1/AP_PoolSync/actions/workflows/lint-validation.yaml)
+[![License](https://img.shields.io/static/v1?label=License&message=GPL-3.0&color=1E88E5&labelColor=555)](https://github.com/ccpk1/AP_PoolSync/blob/main/LICENSE)
+[![HACS Custom](https://img.shields.io/static/v1?label=HACS&message=custom&color=1E88E5&labelColor=555)](https://github.com/custom-components/hacs) <br>
+[![Version](https://img.shields.io/github/v/release/ccpk1/AP_PoolSync?label=Version&color=1E88E5)](https://github.com/ccpk1/AP_PoolSync/releases)
+[![Stars](https://img.shields.io/github/stars/ccpk1/AP_PoolSync)](https://github.com/ccpk1/AP_PoolSync/stargazers)
 
-> This repository continues the original [socbrian/AP_PoolSync](https://github.com/socbrian/AP_PoolSync) integration and is now the active home for development, bug fixes, and feature work.
->
-> Since the fork, the integration has been substantially reworked and modernized toward Home Assistant Silver/Gold quality-scale standards.
->
-> Special thanks to @socbrian for the reverse-engineering work that made the original linking procedure possible.
+### Full local monitoring and control of your AutoPilot PoolSync ecosystem — zero cloud dependencies.
 
-This custom integration monitors and controls AutoPilot PoolSync equipment over your local network with no cloud dependency. It supports the PoolSync controller, ChlorSync chlorinator reporting and control, and supported heat-pump monitoring and control surfaces exposed by the device.
+Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Whether operating a standalone PoolSync controller or one integrated directly into an AquaCal heat pump, this integration local-polls and controls your full equipment stack: chlorination, water chemistry, heating, circulation pumps, motorized valves, and group scenes.
 
-## What it does
+---
 
-- Guides you through local push-button linking to obtain the device access password.
-- Polls PoolSync locally for status, configuration, and diagnostics.
-- Creates devices and entities for the controller and any detected attached equipment.
-- Supports chlorinator output control.
-- Supports heat-pump climate control, target temperature changes, and mode selection when a compatible heat pump is present.
-- Exposes optional diagnostic entities such as firmware, board temperatures, and Wi-Fi signal details.
+## Key Features
 
-<img width="759" height="359" alt="image" src="https://github.com/user-attachments/assets/24feff71-7bdd-430e-97a1-5a9a72f85b6a" />
-<img width="523" height="535" alt="image" src="https://github.com/user-attachments/assets/6b4429bf-370b-4867-97d8-95f2423b19c4" />
-<img width="286" height="545" alt="image" src="https://github.com/user-attachments/assets/5c492cf2-63cb-412c-9333-0a0b0a51b4d8" />
+- **100% Local Control:** Direct IP communication via local push-button authorization. No cloud outages, no external dependencies.
+- **Multiple PoolSync Controllers:** Add more than one PoolSync controller as separate config entries — ideal for homes with separate pool/spa installs.
+- **Comprehensive Equipment Coverage:** Controls ChlorSync, ChemSync (pH/ORP), heat pumps, variable-speed pumps, valves, and group scenes.
+- **Multi-Device Architecture:** Full native support for setups with multiple units of the same equipment type (e.g., dual ChlorSync chlorinators, multiple heat pumps, or stacked ChemSync controllers).
+- **Human-Readable Diagnostics:** Decodes raw board fault codes, firmware data, temperatures, and Wi-Fi link quality.
 
+---
 
-## Requirements
+## Compatibility & Prerequisites
 
-Before setup, make sure:
+| Requirement | Details |
+| :--- | :--- |
+| **Home Assistant** | Core `2025.1.0` or newer |
+| **Network** | Local network access to the PoolSync IP address |
+| **Hardware Support** | Standalone PoolSync Controller **OR** PoolSync integrated into Heat Pump |
+| **Ecosystem Units** | ChlorSync, ChemSync, Heat Pumps, Variable-Speed Pumps, Valves, Group Scenes |
 
-1. Your PoolSync device is powered on and connected to your local Wi-Fi network.
-2. Home Assistant can reach the device on your local network.
-3. You know the device IP address.
-4. You are running Home Assistant 2025.1.0 or newer.
-5. HACS is installed if you plan to install this as a custom repository.
+---
 
-## Compatibility at a glance
+## Installation
 
-- Home Assistant Core 2025.1.0 or newer
-- Local network access to the PoolSync device is required
-- Confirmed scope today: PoolSync controller data, ChlorSync data and output control, and supported heat-pump data and control surfaces exposed through PoolSync
-- If you validate additional equipment or firmware combinations, please share results in the community thread or GitHub Discussions so the support list can be tightened over time
-
-## Installation with HACS
-
-### One-click install
-
+### One-Click HACS Install
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ccpk1&repository=AP_PoolSync&category=integration)
 
-### Manual HACS setup
+### Manual HACS Setup
+1. Open **HACS** in Home Assistant → **Integrations**.
+2. Click the top-right menu icon → **Custom repositories**.
+3. Add `https://github.com/ccpk1/AP_PoolSync` as an **Integration**.
+4. Search for **PoolSync Custom**, click **Install**, and restart Home Assistant.
 
-1. Open HACS in Home Assistant.
-2. Go to Integrations.
-3. Open the menu in the top-right corner and select Custom repositories.
-4. Add `https://github.com/ccpk1/AP_PoolSync` as an Integration repository.
-5. Search for PoolSync Custom in HACS and install it.
-6. Restart Home Assistant.
+---
 
-Manual code edits should not be required for normal installation.
+## Initial Setup & Local Linking
 
-## Initial setup
-
-1. In Home Assistant, go to Settings > Devices & Services.
-2. Select Add Integration.
-3. Search for PoolSync Custom.
-4. Enter the local IP address of the PoolSync device.
-5. When prompted, press the Auth or Service button on the physical PoolSync device.
+1. In Home Assistant, go to **Settings** → **Devices & Services** → **Add Integration**.
+2. Search for **PoolSync Custom** and enter the local IP address of your PoolSync device.
+3. When prompted, press the physical **Auth** or **Service** button on your PoolSync controller.
 
 <table>
-     <tr>
-       <td align="center" valign="top">
-         <strong>Prompt:</strong><br />
-         <img width="460" alt="link device" src="https://github.com/user-attachments/assets/86c394cd-9d7c-4675-9bcc-9500b157da5f" />
-       </td>
-       <td align="center" valign="top">
-         <strong>Auth Button:</strong><br />
-         <img width="487" alt="press auth" src="https://github.com/user-attachments/assets/b957b170-7b41-475a-a700-7836676b4801" />
-       </td>
-     </tr>
-   </table>
+  <tr>
+    <td align="center" valign="top">
+      <strong>HA Setup Prompt</strong><br />
+      <img width="460" alt="link device" src="https://github.com/user-attachments/assets/86c394cd-9d7c-4675-9bcc-9500b157da5f" />
+    </td>
+    <td align="center" valign="top">
+      <strong>Physical Hardware Auth Button</strong><br />
+      <img width="487" alt="press auth" src="https://github.com/user-attachments/assets/b957b170-7b41-475a-a700-7836676b4801" />
+    </td>
+  </tr>
+</table>
 
-6. Wait for Home Assistant to complete local linking and create the config entry.
+4. Wait for Home Assistant to complete pairing and generate config entries for all detected hardware.
 
 If linking fails, the flow offers a retry path. If repeated attempts fail, restart the PoolSync device and try again.
 <table>
-     <tr>
-       <td align="center" valign="top">
-         <strong>Retry:</strong><br />
-         <img width="456" height="270" alt="image" src="https://github.com/user-attachments/assets/7abc8ce0-0421-45ce-8d95-deaff0efaf06" />
-       </td>
-     </tr>
-   </table>
+  <tr>
+    <td align="center" valign="top">
+      <strong>Retry</strong><br />
+      <img width="456" height="270" alt="image" src="https://github.com/user-attachments/assets/7abc8ce0-0421-45ce-8d95-deaff0efaf06" />
+    </td>
+  </tr>
+</table>
 
+---
 
+## Equipment & Entity Breakdown
 
-## Supported equipment
+The integration dynamically generates discrete devices and entities based on what your PoolSync installation reports. When multiple devices of the same type are present (e.g. two ChlorSync units or two heat pumps), each gets its own device and a full set of entities.
 
-This integration is intended for:
+### 🎮 Controller & System
+- **Sensors:** Wi-Fi RSSI & Signal Status, Board Temperature, System Date/Time, Firmware/Hardware Revisions, Display Brightness.
+- **Diagnostic Counters:** Wi-Fi disconnects, AWS disconnects, power-ups, system restarts, and offline-device counts.
+- **Group On/Off Switches:** Individual switches (`switch.group_*`) for `POOL`, `WATERFALL`, `FILTRATION`, `AMBIANCE`, and `CLEANER` — turn a group on or off directly. Each exposes `duration` (your preference), `controller_duration` (the device's configured value), and `ends_at` (when the group stops).
+- **Group Schedule Switches:** Separate schedule toggles (`switch.group_*_schedule`) that enable or disable each group's programmed schedule (its `schedMode`), exposing a decoded `schedules` attribute with up to 4 slots (days and times).
+- **Group Duration:** Custom duration sliders (`number.group_*_duration`) to set persistent run-time defaults or apply immediate extensions. Exposes `controller_duration` so you can always see the device's actual value.
+- **Group Info Sensor:** `sensor.group_info` shows which groups are active, with per-group config, equipment, and timing (duration and end time) attributes.
 
-- AutoPilot PoolSync controllers
-- ChlorSync chlorinator data and output control exposed through PoolSync
-- Supported heat-pump data and control surfaces exposed through PoolSync
+### 🧂 ChlorSync (Chlorinator)
+- **Control:** Output percentage slider (`number`).
+- **Sensors:** Water Temperature, Salt Level (PPM), Cell Flow Rate, Boost Time Remaining, Output Setting.
+- **Diagnostics:** Cell forward/reverse current, cell output & rail voltage, cell serial number, firmware/hardware versions, temperature compensation output, driver model/firmware/hardware, pool cover control, pool gallons, polarity change time, ORP input control.
+- **Fault Sensor:** The fault binary sensor exposes both the raw `fault_code` and decoded `active_faults` (human-readable names like "High Salt", "Clean Cell").
+- **Actions:** One-click button to clear cell life warnings.
 
-Support depends on what your specific firmware and attached equipment report through the local API.
+> ⚠️ **The clear-cell-life action is not yet confirmed.** It is implemented from the reverse-engineered API, but whether it actually executes depends on the target device supporting it. If you use it and it isn't working properly, please [open a GitHub issue](https://github.com/ccpk1/AP_PoolSync/issues) — and if you're willing to work with me to finalize it (including capturing the correct command syntax), that would be a huge help.
 
-## What gets created
+### 🧪 ChemSync (Chemical Controller)
+- **Control:** System Mode selector, pH Setpoint, ORP Setpoint, Max Daily Feed adjustments.
+- **Sensors:** Live pH, Live ORP, Acid Consumption, Tank Level Alert, Board Temperature.
+- **Diagnostics:** Firmware, hardware, and model details.
+- **Fault Sensor:** The fault binary sensor exposes both the raw `fault_code` and decoded `active_faults` (e.g. "pH Below Min", "Flow Sensor").
+- **Actions:** Prime Pump and Chemical Boost action buttons.
 
-The exact entity set depends on the device data exposed by your PoolSync installation, but the integration typically creates the following:
+> ⚠️ **ChemSync write controls are not yet confirmed.** The pH/ORP setpoint and max daily feed writes are implemented from the reverse-engineered API but have not been validated against a live ChemSync device. If you have a ChemSync and these controls aren't working properly, please [open a GitHub issue](https://github.com/ccpk1/AP_PoolSync/issues) — and if you're willing to work with me to finalize them (including capturing the correct command syntax), that would be a huge help.
 
-### Controller sensors
+### 🌡️ Heat Pumps & Climate
+- **Control:** Full Home Assistant `climate` entity for target water temperature, HVAC modes, and preset selection. Exposes current temperature, target temperature, HVAC action, and min/max temperature.
+- **Sensors:** Water Temperature, Air Temperature, Pool/Spa Setpoint tracking, Active Target Temperature, Fault Code.
+- **Diagnostics:** Board Temperature, Outlet Water Temperature, Defrost Sensor 1 & 2, Top Fault Code & Count.
+- **Binary Sensors:** Compressor state, Fan state, Water Flow status, Online/Fault flags, Remote Control.
+- **Fault Sensor:** The fault binary sensor exposes both the raw `fault_code` and decoded `active_faults` (e.g. "Low Pressure", "High Pressure").
 
-- Wi-Fi signal strength and Wi-Fi signal status
-- Controller board temperature
-- Controller date and time
-- Firmware and hardware version
+### 🔄 Pumps & Motorized Valves
+- **Mode Select:** `Auto` (follows active group), `Manual` (user RPM), `Off`.
+- **Speed Control:** Live RPM sensor and manual RPM adjustment slider.
+- **Valves & Status:** Live valve position reporting (e.g., POOL vs. FOUNTAIN) and pump priming binary sensor.
 
-### Chlorinator entities
+---
 
-- Water temperature
-- Salt level
-- Flow rate
-- Output setting
-- Boost time remaining
-- Optional diagnostic sensors such as cell current, voltage, serial number, and firmware details
-- A number entity to set chlorinator output percentage
+## Native Services
 
-### Heat-pump entities
+Available via **Developer Tools** → **Actions / Services**:
 
-- A climate entity for the water thermostat
-- Active target temperature control
-- Mode selection for supported operating modes
-- Water and air temperature sensors
-- Pool and spa setpoint sensors when reported by the device
-- Binary sensors for heat-pump flow, fan, compressor, online state, and fault state
-
-### Pump and group control
-
-When the PoolSync device reports a variable-speed circulation pump and/or groups (scenes such as POOL, WATERFALL, FILTRATION, AMBIANCE, CLEANER), the integration creates:
-
-- **Pump mode select** (`select.pump_mode`) — Auto / Manual / Off. In Manual mode the pump runs at the RPM you set; in Auto it follows the active group(s); Off stops it.
-- **Pump RPM control** (`number.pump_rpm_control`) — sets the manual RPM. When the pump is running, this reflects the actual current speed.
-- **Group switches** (`switch.group_*`) — one per group. Turning a group on uses the group's stored default duration (e.g. Waterfall defaults to 6 hours); turning it off stops it immediately.
-- **Group schedule switches** (`switch.group_*_schedule`) — one per group. Toggles whether the group's schedule is enabled (its `schedMode`). Turning this on enables the schedule; it does **not** turn the group itself on. Each switch exposes the group's up to 4 schedule slots as a `schedules` attribute (decoded days and times).
-- **Group duration** (`number.group_*_duration`) — holds your **preferred** run time for the group. When the group is off, changing the number stores your preference (persisted across restarts) for the next time you turn the group on; when the group is already running, changing it applies the new duration immediately. The controller's actual configured duration is shown as a read-only `controller_duration` reference attribute on the number and group switch so you can always see the device's value. To start a group with a custom one-off duration, use the `set_group_state` service with a `duration`.
-- **Group info sensor** (`sensor.group_info`) — shows which groups are active, with per-group duration and end-time attributes.
-
-All write controls (group switches, schedule switches, pump mode, pump RPM, group duration, heat-pump mode/preset/temperature) update **immediately** when you change them, then confirm against the device on the next poll. This keeps the controls feeling responsive even when the device is slow to report the change back.
-
-**Services** for more customized control (available in Developer Tools → Services):
-
-- `poolsync_custom.set_group_state(group, state, duration?)` — turn a group on or off with an optional duration. `state` accepts `on`/`off`, `true`/`false`, or `1`/`0`. `duration` accepts minutes (e.g. `90`) or a human-readable value (e.g. `1d 10h 22m`). When omitted, the group's stored default is used.
-- `poolsync_custom.set_pump_mode(mode, rpm?)` — set the pump to `auto`, `manual`, or `off`. `rpm` is required for `manual`.
-
-Example — turn the Waterfall group on for 90 minutes:
+### `poolsync_custom.set_group_state`
+Triggers a group scene with an optional custom duration string.
 ```yaml
-service: poolsync_custom.set_group_state
+action: poolsync_custom.set_group_state
 data:
   group: "WATERFALL"
   state: "on"
   duration: "1h 30m"
 ```
 
-Example — set the pump to manual at 2000 RPM:
+### `poolsync_custom.set_pump_mode`
+Directly controls variable-speed pump modes and target RPM.
 ```yaml
-service: poolsync_custom.set_pump_mode
+action: poolsync_custom.set_pump_mode
+data:
+  mode: "manual"
+  rpm: 2200
+```
+
+---
+
+## Common Use Cases
+
+### Set a group's default run time
+Change how long a group runs by default when you turn it on. Set the group's duration number (`number.group_*_duration`) to your preferred minutes. The value is persisted across restarts and used the next time you turn the group on.
+
+### Run the pump at a fixed speed
+Set the pump to manual at a specific RPM, then return it to automatic (following the active group):
+```yaml
+action: poolsync_custom.set_pump_mode
 data:
   mode: "manual"
   rpm: 2000
 ```
+```yaml
+action: poolsync_custom.set_pump_mode
+data:
+  mode: "auto"
+```
+
+### Enable a group's schedule
+Turn on the group's schedule switch (`switch.group_*_schedule`) to let the group follow its programmed schedule. This does **not** turn the group on immediately — it only enables the schedule.
+
+### Automate the heat pump
+The heat-pump climate entity supports normal Home Assistant climate automations (turn on/off, set target temperature, set preset mode). For example, heat the pool to 84°F when the outdoor temperature drops:
+```yaml
+automation:
+  - alias: "Heat pool when cool"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.outdoor_temperature
+        below: 60
+    action:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.poolsync_water_thermostat
+        data:
+          temperature: 84
+```
 
 Some diagnostic entities are disabled by default to keep the default dashboard cleaner.
+
+---
+
+## See It In Action
+
+> Screenshots coming soon.
+
+<!--
+### Controller & Devices
+![Controller overview](docs/assets/screenshot-controller.png)
+
+### Group Scenes & Schedules
+![Group scenes](docs/assets/screenshot-groups.png)
+
+### Heat Pump Climate
+![Heat pump climate](docs/assets/screenshot-climate.png)
+
+### Water Chemistry (ChemSync)
+![Water chemistry](docs/assets/screenshot-chemsync.png)
+-->
+
+---
 
 ## Options
 
 After setup, you can adjust the polling interval:
 
-1. Go to Settings > Devices & Services.
+1. Go to **Settings** → **Devices & Services**.
 2. Open the PoolSync integration card.
-3. Select Configure.
-4. Set Update interval in seconds and submit.
+3. Select **Configure**.
+4. Set **Update interval** in seconds and submit.
 
 The minimum supported interval is 10 seconds.
+
+---
 
 ## Removal
 
 To remove the integration:
 
-1. Go to Settings > Devices & Services.
+1. Go to **Settings** → **Devices & Services**.
 2. Open the PoolSync integration.
 3. Select the menu for the config entry.
-4. Choose Delete.
+4. Choose **Delete**.
 
 This removes the Home Assistant config entry and its entities. It does not change configuration on the physical PoolSync device.
 
-## Known limitations
+---
 
-- Setup is currently manual and IP-based. The integration does not support automatic network discovery.
-- Linking requires physical access to the PoolSync device to press the Auth or Service button.
-- Entity availability depends on what your controller and attached equipment actually report.
-- Dynamic device add and remove handling is still limited. A restart or reload may be needed after some equipment changes.
+## Troubleshooting & Diagnostics
 
-## Troubleshooting
+- **Linking Issues:** If pairing times out, reboot the physical PoolSync controller and retry the HA configuration flow immediately after startup.
+- **Intermittent Unavailability:** Check Wi-Fi RSSI on the controller device page. Outdoor pool equipment often suffers from marginal Wi-Fi signals; weak links cause TCP connection resets.
+- **Debugging:** Export Diagnostic JSON directly from the PoolSync Device page in HA when filing GitHub issues. I've made efforts to redact private information (such as hardware serial numbers, tokens, and passwords) in the exported diagnostic file, but you should always review it and double-check before submitting if you have any concerns. If you spot anything that should be redacted, please [open an issue](https://github.com/ccpk1/AP_PoolSync/issues) and I'll make sure it's covered in a future update.
 
-- Confirm the PoolSync device and Home Assistant are on the same local network and that the configured IP address is correct.
-- If the device does not finish linking, restart the PoolSync device and retry the setup flow.
-- If the integration becomes unavailable or reports connection reset errors, check Wi-Fi quality at the controller. Weak signal is a common cause of intermittent failures.
-- Download diagnostics from the device page in Home Assistant when reporting issues.
-- Check Home Assistant logs for `custom_components.poolsync_custom` entries if setup or updates fail.
+---
 
-## Support this project
+## ❤️ Support the Project
 
-If this integration is useful to you, the two best ways to support it are simple:
+⭐ **Star the Repo:** If this integration powers your pool, clicking the Star button on GitHub is the best free way to support development and help others discover the project.
 
-- Star the repository so other Home Assistant users can find it more easily
-- If you want to help support ongoing development and testing time, consider [GitHub Sponsors](https://github.com/sponsors/ccpk1) or [Buy Me a Coffee](https://buymeacoffee.com/ccpk1)
+☕ **Sponsor Development:** Maintaining local API reverse-engineering and complex hardware state machines takes significant time and hardware investment. If this integration saves you time and money, consider sponsoring:
 
-## Get help or report issues
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github)](https://github.com/sponsors/ccpk1)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ccpk1)
+
+---
+
+## Get Help or Report Issues
 
 - Community thread: [PoolSync Pool / Heat Pump Integration](https://community.home-assistant.io/t/poolsync-pool-heat-pump-integration/682888)
 - GitHub issues: [ccpk1/AP_PoolSync/issues](https://github.com/ccpk1/AP_PoolSync/issues)
@@ -225,12 +265,16 @@ If this integration is useful to you, the two best ways to support it are simple
 
 When reporting a problem, include diagnostics, relevant logs, the PoolSync firmware or hardware details if known, and what equipment is attached.
 
-## Contributing
+---
 
-Bug reports, testing feedback, and pull requests are welcome. When reporting problems, include the device model if known, what equipment is attached, and diagnostics or log details when possible.
+## Acknowledgments & Credits
 
-## Disclaimers
+Special thanks to [@socbrian](https://github.com/socbrian) for the initial reverse-engineering work on the PoolSync local linking protocol.
 
-🤖 AI-Assisted Development: In today’s age, leveraging AI is one of the few ways a maintainer can realistically build, thoroughly test, and actively support a truly complex, high-quality open-source project. But to be clear, this integration isn't just blindly "vibe coded." While AI acts as a significant force multiplier for the workflow, human oversight dictates the architecture. Every commit is strictly audited, backed by extensive tests, and measured against rigorous Home Assistant development standards to ensure long-term stability.
+---
 
-This integration is not affiliated with or endorsed by AutoPilot Pool Systems. Use it at your own risk.
+## Disclaimers & Development Model
+
+🤖 **AI-Assisted Engineering:** In today's landscape, leveraging AI tooling is one of the only ways a solo maintainer can build, test, and support a complex multi-device integration at this scale. However, this code is not "vibe coded." Human oversight dictates the architecture, every commit is manually audited, and code is validated against Home Assistant Gold standards with continuous integration test coverage.
+
+This integration is an independent open-source project and is not affiliated with or endorsed by AutoPilot Pool Systems or AquaCal.

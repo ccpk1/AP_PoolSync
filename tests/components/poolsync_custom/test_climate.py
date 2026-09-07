@@ -159,7 +159,7 @@ async def test_climate_rejects_unsupported_hvac_mode() -> None:
         Mock(key="water_thermostat", translation_key="water_thermostat"),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported HVAC mode"):
+    with pytest.raises(HomeAssistantError, match="unsupported_hvac_mode"):
         await entity.async_set_hvac_mode(HVACMode.DRY)
 
 
@@ -171,7 +171,7 @@ async def test_climate_rejects_missing_temperature_attribute() -> None:
         Mock(key="water_thermostat", translation_key="water_thermostat"),
     )
 
-    with pytest.raises(HomeAssistantError, match="Expected attribute temperature"):
+    with pytest.raises(HomeAssistantError, match="expected_temperature_attribute"):
         await entity.async_set_temperature()
 
 
@@ -184,15 +184,15 @@ async def test_climate_sync_wrappers_require_hass() -> None:
     )
     entity.hass = None
 
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.set_hvac_mode(HVACMode.HEAT)
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.turn_on()
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.turn_off()
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.set_preset_mode("pool")
-    with pytest.raises(HomeAssistantError, match="Entity is not added"):
+    with pytest.raises(HomeAssistantError, match="entity_not_added"):
         entity.set_temperature(**{ATTR_TEMPERATURE: 82})
 
 
@@ -301,3 +301,80 @@ async def test_climate_set_temperature_is_optimistic() -> None:
     entity._update_attrs()
     assert entity._optimistic is False
     assert entity.target_temperature == 84
+
+
+# ===================================================================
+# Climate restore & preset write paths
+# ===================================================================
+
+
+async def test_climate_restore_uses_last_preset_when_off(hass) -> None:
+    """Test restore repopulates the last preset from the persisted state."""
+    from unittest.mock import AsyncMock
+
+    coordinator = _build_coordinator()
+    coordinator.data["devices"]["7"]["config"]["mode"] = 0
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    # Simulate no current preset so the restore path runs.
+    entity._attr_preset_mode = None
+    entity.async_get_last_state = AsyncMock(
+        return_value=Mock(attributes={"preset_mode": "spa"})
+    )
+    await entity.async_added_to_hass()
+
+    assert entity._last_on_preset_mode == "spa"
+    assert entity.preset_mode == "spa"
+
+
+async def test_climate_restore_keeps_current_preset(hass) -> None:
+    """Test restore keeps the current preset when already set."""
+    from unittest.mock import AsyncMock
+
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity._attr_preset_mode = "pool"
+    entity.async_get_last_state = AsyncMock(
+        return_value=Mock(attributes={"preset_mode": "spa"})
+    )
+    await entity.async_added_to_hass()
+
+    # Current preset wins; last state is not applied.
+    assert entity._last_on_preset_mode == "pool"
+    assert entity.preset_mode == "pool"
+
+
+async def test_climate_set_preset_mode_while_on_writes(hass) -> None:
+    """Test changing preset while on writes through the coordinator."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+    entity.async_write_ha_state = Mock()
+
+    await entity.async_set_preset_mode("spa")
+
+    coordinator.async_set_heat_pump_climate_mode.assert_awaited_once_with(
+        hvac_mode="heat", preset_mode="spa", index=0
+    )
+    assert entity.preset_mode == "spa"
+
+
+async def test_climate_set_preset_mode_rejects_unknown(hass) -> None:
+    """Test setting an unsupported preset mode raises."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncHeatPumpClimateEntity(
+        coordinator,
+        Mock(key="water_thermostat", translation_key="water_thermostat"),
+    )
+
+    with pytest.raises(HomeAssistantError, match="unsupported_preset_mode"):
+        await entity.async_set_preset_mode("unknown")

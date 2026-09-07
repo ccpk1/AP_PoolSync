@@ -95,7 +95,7 @@ async def test_async_set_native_value_raises_homeassistant_error(hass) -> None:
 
     with pytest.raises(
         HomeAssistantError,
-        match="Communication failed while setting chlorinator output: cannot connect",
+        match="communication_failed_setting",
     ):
         await entity.async_set_native_value(42)
 
@@ -225,7 +225,7 @@ async def test_number_entity_rejects_sync_updates_without_password(hass) -> None
         ),
     )
 
-    with pytest.raises(HomeAssistantError, match="API password not available"):
+    with pytest.raises(HomeAssistantError, match="password_not_available"):
         await entity.async_set_native_value(42)
 
 
@@ -260,7 +260,7 @@ async def test_number_entity_rejects_unsupported_command_key(hass) -> None:
         ),
     )
 
-    with pytest.raises(HomeAssistantError, match="Unsupported number command"):
+    with pytest.raises(HomeAssistantError, match="unsupported_number_command"):
         await entity.async_set_native_value(42)
 
 

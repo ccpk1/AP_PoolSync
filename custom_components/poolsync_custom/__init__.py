@@ -17,6 +17,7 @@ from homeassistant.exceptions import (
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
@@ -72,7 +73,6 @@ _ROLE_ENTITY_KEYS: dict[str, frozenset[str]] = {
             "chem_ph_min",
             "chem_ph_max",
             "chem_acid_tank_alert",
-            "chem_feed_rate",
             "chem_sync_online",
             "chem_sync_fault",
             "chem_sync_flow",
@@ -237,16 +237,20 @@ async def _async_register_services(
                     group_key = key
                     break
         if group_key is None:
-            raise HomeAssistantError(f"Unknown PoolSync group: {group}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_group",
+                translation_placeholders={"group": group},
+            )
 
         duration_seconds = None
         if duration_raw is not None:
             minutes = parse_duration_to_minutes(duration_raw)
             if minutes is None:
                 raise HomeAssistantError(
-                    "Invalid duration: "
-                    f"{duration_raw}. Use minutes or a human-readable value "
-                    "like '1d 10h 22m'."
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_duration",
+                    translation_placeholders={"duration": str(duration_raw)},
                 )
             duration_seconds = int(minutes * 60)
 
@@ -327,6 +331,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: PoolSyncConfigEntry) -> 
     except ConfigEntryAuthFailed as err:
         _LOGGER.error(
             "Authentication failed for %s during initial refresh: %s", ip_address, err
+        )
+        async_create_issue(
+            hass,
+            DOMAIN,
+            "authentication_failed",
+            is_fixable=True,
+            is_persistent=False,
+            issue_domain=DOMAIN,
+            severity=IssueSeverity.ERROR,
+            translation_key="authentication_failed",
+            translation_placeholders={"ip_address": ip_address},
         )
         raise
     except UpdateFailed as err:

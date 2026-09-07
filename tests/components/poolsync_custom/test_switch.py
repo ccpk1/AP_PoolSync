@@ -314,3 +314,58 @@ async def test_group_schedule_switch_turn_off_is_optimistic(hass) -> None:
     entity._update_attrs()
     assert entity._optimistic is False
     assert entity.is_on is True
+
+
+# ===================================================================
+# Switch edge cases (missing group data)
+# ===================================================================
+
+
+async def test_group_switch_unavailable_when_no_equipment(hass) -> None:
+    """Test group switch is unavailable when no equipment runtime exists."""
+    coordinator = _build_coordinator()
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {"7": {"equip": {}, "groups": {}}},
+        "deviceType": {"7": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_0", translation_key="group"),
+        group_key="0",
+        group_name="POOL",
+    )
+    assert entity.is_on is None
+    assert entity._attr_available is False
+
+
+async def test_group_switch_unavailable_when_group_missing(hass) -> None:
+    """Test group switch is unavailable when the group is not in the data."""
+    coordinator = _build_coordinator()
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_99", translation_key="group"),
+        group_key="99",
+        group_name="MISSING",
+    )
+    assert entity.is_on is None
+    assert entity._attr_available is False
+
+
+async def test_group_switch_unavailable_when_config_short(hass) -> None:
+    """Test group switch is unavailable when the group config is too short."""
+    coordinator = _build_coordinator()
+    # Truncate the config for group 0 to remove the state index.
+    coordinator.data["devices"]["7"]["groups"]["0"]["config"] = ["POOL", 0, 192]
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    entity = PoolSyncGroupSwitch(
+        coordinator,
+        SwitchEntityDescription(key="group_0", translation_key="group"),
+        group_key="0",
+        group_name="POOL",
+    )
+    assert entity.is_on is None
+    assert entity._attr_available is False

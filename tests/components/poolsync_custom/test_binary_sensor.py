@@ -22,6 +22,7 @@ from custom_components.poolsync_custom.binary_sensor import (
     PoolSyncBinarySensor,
     async_setup_entry,
 )
+from custom_components.poolsync_custom.runtime import parse_poolsync_runtime_data
 
 
 def _build_entry(coordinator) -> Mock:
@@ -360,3 +361,91 @@ def test_fault_attributes_none_when_no_faults() -> None:
 
     assert sensor.extra_state_attributes is None
     assert sensor.is_on is False
+
+
+# ===================================================================
+# Equipment binary sensors (pump priming, heat pump in group)
+# ===================================================================
+
+
+def _build_equipment_coordinator() -> Mock:
+    """Build a coordinator mock with 090 equipment data."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_controller")}}
+    )
+    coordinator.get_equipment_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_equip_1")}}
+    )
+    coordinator.last_update_success = True
+    sample_path = (
+        Path(__file__).resolve().parents[2]
+        / "sample_diagnostics"
+        / "090-pool-waterfall-valve-fountain.json"
+    )
+    raw = sample_path.read_text(encoding="utf-8")
+    cleaned = raw.replace(", }", " }").replace(", ]", " ]")
+    data = json.loads(cleaned)["data"]["runtime_data"]
+    coordinator.data = data
+    coordinator.parsed_data = parse_poolsync_runtime_data(data)
+    return coordinator
+
+
+async def test_equipment_binary_sensors_created() -> None:
+    """Test equipment binary sensors are created for pump and heat pump."""
+
+    coordinator = _build_equipment_coordinator()
+    added: list[PoolSyncBinarySensor] = []
+
+    def _async_add_entities(entities):
+        added.extend(entities)
+
+    await async_setup_entry(None, _build_entry(coordinator), _async_add_entities)
+
+    keys = {e.entity_description.key for e in added}
+    assert "pump_priming" in keys
+    assert "heatpump_in_group" in keys
+
+
+async def test_equipment_pump_priming_sensor_value() -> None:
+    """Test the pump priming binary sensor reports the priming state."""
+    from custom_components.poolsync_custom.binary_sensor import (
+        BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT,
+    )
+
+    coordinator = _build_equipment_coordinator()
+    desc = next(
+        d for d, _ in BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT if d.key == "pump_priming"
+    )
+    sensor = PoolSyncBinarySensor(
+        coordinator,
+        "equipment",
+        desc,
+        _device_info=coordinator.get_equipment_device_info(Mock()),
+        _unique_id="AABBCCDDEEFF_equip_1_pump_priming",
+    )
+    assert sensor.is_on is not None
+
+
+async def test_equipment_heatpump_in_group_sensor_value() -> None:
+    """Test the heat-pump-in-group binary sensor reports the group state."""
+    from custom_components.poolsync_custom.binary_sensor import (
+        BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT,
+    )
+
+    coordinator = _build_equipment_coordinator()
+    desc = next(
+        d
+        for d, _ in BINARY_SENSOR_DESCRIPTIONS_EQUIPMENT
+        if d.key == "heatpump_in_group"
+    )
+    sensor = PoolSyncBinarySensor(
+        coordinator,
+        "equipment",
+        desc,
+        _device_info=coordinator.get_equipment_device_info(Mock()),
+        _unique_id="AABBCCDDEEFF_equip_0_heatpump_in_group",
+    )
+    assert sensor.is_on is not None

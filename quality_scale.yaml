@@ -1,8 +1,8 @@
 rules:
   # Bronze
   action-setup:
-    status: exempt
-    comment: Integration does not register custom service actions today.
+    status: done
+    comment: Registers set_group_state and set_pump_mode admin services in __init__.py.
   appropriate-polling:
     status: exempt
     comment: Integration intentionally keeps a user-configurable local polling interval as a design decision for varied pool equipment and network conditions; defaults remain conservative and local-only.
@@ -12,8 +12,8 @@ rules:
   config-flow-test-coverage: done
   dependency-transparency: done
   docs-actions:
-    status: exempt
-    comment: No custom actions are exposed.
+    status: done
+    comment: README documents the set_group_state and set_pump_mode services with examples.
   docs-high-level-description:
     status: done
     comment: Covered in README, but should be tightened when the user guide is written.
@@ -35,8 +35,8 @@ rules:
 
   # Silver
   action-exceptions:
-    status: exempt
-    comment: No custom service actions are registered yet.
+    status: done
+    comment: Services are registered via async_register_admin_service, which enforces admin-only access.
   config-entry-unloading: done
   docs-configuration-parameters:
     status: done
@@ -63,11 +63,11 @@ rules:
     status: exempt
     comment: This local integration currently relies on manual IP-based setup rather than network discovery.
   docs-data-update:
-    status: todo
-    comment: Data update behavior needs to be documented later in the README or a user guide.
+    status: done
+    comment: README documents the configurable polling interval and the optimistic-update behavior of write controls.
   docs-examples:
-    status: todo
-    comment: Practical examples need a cleanup pass and likely belong in a small user guide.
+    status: done
+    comment: README includes service examples for set_group_state and set_pump_mode.
   docs-known-limitations:
     status: done
     comment: README now includes a dedicated known limitations section for discovery, linking, reported equipment, and dynamic device handling.
@@ -81,8 +81,8 @@ rules:
     status: done
     comment: README now includes a focused troubleshooting section covering setup, connectivity, Wi-Fi quality, diagnostics, and logs.
   docs-use-cases:
-    status: todo
-    comment: Use-case documentation has not been written yet.
+    status: done
+    comment: README now includes a "Common use cases" section covering group durations, pump control, schedules, and heat-pump automation.
   dynamic-devices:
     status: done
     comment: Multiple devices of the same type (e.g., 2x ChlorSync, multiple heat pumps) are fully supported via dict-based PoolSyncParsedData.devices with sorted iteration and nodeAddr-based disambiguation. Entities are created per detected device instance.
@@ -91,15 +91,15 @@ rules:
   entity-disabled-by-default: done
   entity-translations: done
   exception-translations:
-    status: todo
-    comment: User-facing exceptions are not yet backed by translation keys.
+    status: done
+    comment: User-facing HomeAssistantError messages are backed by translation keys in translations/en.json under the exceptions section.
   icon-translations: done
   reconfiguration-flow:
-    status: todo
-    comment: Reauthentication exists, but a dedicated reconfigure flow is not implemented.
+    status: done
+    comment: A reconfigure flow lets users change the device IP address without removing and re-adding the integration.
   repair-issues:
-    status: todo
-    comment: Repair issues are not implemented yet.
+    status: done
+    comment: A repair issue is created when authentication fails, guiding users to reauthenticate the integration.
   stale-devices:
     status: todo
     comment: The integration creates role devices but does not yet remove stale ones automatically.

@@ -15,6 +15,13 @@
         "title": "PoolSync Reauthenticate Device",
         "description": "Press Submit to start local relinking for the PoolSync device at {ip_address}. Then press the Auth or Service button on the physical device to complete reauthentication."
       },
+      "reconfigure": {
+        "title": "PoolSync Reconfigure Device",
+        "description": "Enter the new local IP address of your AutoPilot PoolSync device. The current address is {ip_address}.",
+        "data": {
+          "ip_address": "IP Address"
+        }
+      },
       "link_failed": {
         "title": "PoolSync Setup: Link Device",
         "description": "The PoolSync device at {ip_address} did not finish linking. Select Submit to retry the push-link process.\n\nIf this keeps failing, restart the PoolSync device and try again."
@@ -321,9 +328,6 @@
       "acid_tank_alert_threshold": {
         "name": "Acid tank alert threshold"
       },
-      "feed_rate": {
-        "name": "Feed rate"
-      },
       "pool_cover_control": {
         "name": "Pool cover control",
         "state": {
@@ -396,6 +400,104 @@
           "description": "The pump speed in RPM. Required when mode is \"manual\"."
         }
       }
+    }
+  },
+  "exceptions": {
+    "password_not_available": {
+      "message": "API password not available to set value."
+    },
+    "refresh_failed": {
+      "message": "PoolSync refresh failed"
+    },
+    "target_not_available": {
+      "message": "PoolSync {description} target is not available"
+    },
+    "heat_pump_target_not_available": {
+      "message": "PoolSync heat pump target is not available"
+    },
+    "unsupported_heat_pump_mode": {
+      "message": "Unsupported heat pump mode: {mode}"
+    },
+    "heat_pump_mode_not_available": {
+      "message": "PoolSync heat pump mode is not available"
+    },
+    "heating_not_supported": {
+      "message": "Heating mode is not supported"
+    },
+    "cooling_not_supported": {
+      "message": "Cooling mode is not supported"
+    },
+    "auto_not_supported": {
+      "message": "Auto mode is not supported"
+    },
+    "unsupported_climate_hvac_mode": {
+      "message": "Unsupported climate HVAC mode: {mode}"
+    },
+    "unsupported_chem_config_key": {
+      "message": "Unsupported ChemSync config key: {key}"
+    },
+    "pump_target_not_available": {
+      "message": "Pump write target is not available"
+    },
+    "rpm_required_manual": {
+      "message": "RPM is required when mode is manual"
+    },
+    "unsupported_pump_mode": {
+      "message": "Unsupported pump mode: {mode}"
+    },
+    "group_target_not_available": {
+      "message": "PoolSync group target is not available"
+    },
+    "unknown_group": {
+      "message": "Unknown PoolSync group: {group}"
+    },
+    "runtime_data_not_available": {
+      "message": "PoolSync runtime data is not available"
+    },
+    "entity_not_added": {
+      "message": "Entity is not added to Home Assistant"
+    },
+    "unsupported_hvac_mode": {
+      "message": "Unsupported HVAC mode: {mode}"
+    },
+    "unsupported_preset_mode": {
+      "message": "Unsupported preset mode: {mode}"
+    },
+    "expected_temperature_attribute": {
+      "message": "Expected attribute {attribute}"
+    },
+    "preset_mode_unknown": {
+      "message": "Cannot set preset mode while heat pump mode is unknown"
+    },
+    "unsupported_option": {
+      "message": "Unsupported option: {option}"
+    },
+    "unsupported_number_command": {
+      "message": "Unsupported number command: {key}"
+    },
+    "failed_to_set_number": {
+      "message": "Failed to set {name} to {value}: {error}"
+    },
+    "failed_to_set": {
+      "message": "Failed to set {description}: {error}"
+    },
+    "auth_failed_setting": {
+      "message": "Authentication failed while setting {description}"
+    },
+    "communication_failed_setting": {
+      "message": "Communication failed while setting {description}: {error}"
+    },
+    "api_error_setting": {
+      "message": "API error while setting {description}: {error}"
+    },
+    "invalid_duration": {
+      "message": "Invalid duration: {duration}. Use minutes or a human-readable value like '1d 10h 22m'."
+    }
+  },
+  "issues": {
+    "authentication_failed": {
+      "title": "PoolSync authentication failed",
+      "description": "The PoolSync device at {ip_address} rejected the stored password. Reauthenticate the integration to restore access."
     }
   }
 }
