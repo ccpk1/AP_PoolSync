@@ -1,8 +1,8 @@
 rules:
   # Bronze
   action-setup:
-    status: exempt
-    comment: Integration does not register custom service actions today.
+    status: done
+    comment: Registers set_group_state and set_pump_mode admin services in __init__.py.
   appropriate-polling:
     status: exempt
     comment: Integration intentionally keeps a user-configurable local polling interval as a design decision for varied pool equipment and network conditions; defaults remain conservative and local-only.
@@ -12,8 +12,8 @@ rules:
   config-flow-test-coverage: done
   dependency-transparency: done
   docs-actions:
-    status: exempt
-    comment: No custom actions are exposed.
+    status: done
+    comment: README documents the set_group_state and set_pump_mode services with examples.
   docs-high-level-description:
     status: done
     comment: Covered in README, but should be tightened when the user guide is written.
@@ -35,8 +35,8 @@ rules:
 
   # Silver
   action-exceptions:
-    status: exempt
-    comment: No custom service actions are registered yet.
+    status: done
+    comment: Services are registered via async_register_admin_service, which enforces admin-only access.
   config-entry-unloading: done
   docs-configuration-parameters:
     status: done
@@ -63,11 +63,11 @@ rules:
     status: exempt
     comment: This local integration currently relies on manual IP-based setup rather than network discovery.
   docs-data-update:
-    status: todo
-    comment: Data update behavior needs to be documented later in the README or a user guide.
+    status: done
+    comment: README documents the configurable polling interval and the optimistic-update behavior of write controls.
   docs-examples:
-    status: todo
-    comment: Practical examples need a cleanup pass and likely belong in a small user guide.
+    status: done
+    comment: README includes service examples for set_group_state and set_pump_mode.
   docs-known-limitations:
     status: done
     comment: README now includes a dedicated known limitations section for discovery, linking, reported equipment, and dynamic device handling.
