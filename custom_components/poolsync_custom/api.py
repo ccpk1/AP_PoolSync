@@ -21,21 +21,10 @@ from .const import (
     HTTP_TIMEOUT,
     USER_HEADER_VALUE,
 )
+from .redact import redact_body, redact_headers
 
 _LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
-
-
-def _redact_headers(headers: Mapping[str, str]) -> dict[str, str]:
-    """Return request headers with any authorization values redacted."""
-    return {
-        key: (
-            value[:10] + "..."
-            if key == HEADER_AUTHORIZATION and value and len(value) > 10
-            else value
-        )
-        for key, value in headers.items()
-    }
 
 
 def async_create_poolsync_session(hass: HomeAssistant) -> aiohttp.ClientSession:
@@ -157,7 +146,7 @@ class PoolSyncApiClient:
             url,
             method,
             dict(params or {}),
-            _redact_headers(headers),
+            redact_headers(headers),
         )
 
         try:
@@ -175,14 +164,15 @@ class PoolSyncApiClient:
                     url,
                     response.status,
                     response.headers.get("Content-Type"),
-                    response_text[:200],
+                    redact_body(response_text[:200]),
                 )
 
                 if response.status == 200:
                     try:
                         json_response = await response.json(content_type=None)
                         _LOGGER.debug(
-                            "Successfully parsed JSON response: %s", json_response
+                            "Successfully parsed JSON response: %s",
+                            redact_body(json_response),
                         )
                         return json_response
                     except (ValueError, aiohttp.ContentTypeError) as err:
@@ -192,7 +182,7 @@ class PoolSyncApiClient:
                                 method,
                                 url,
                                 err,
-                                response_text[:200],
+                                redact_body(response_text[:200]),
                             )
                             return {}
 
@@ -200,7 +190,7 @@ class PoolSyncApiClient:
                             "Failed to decode JSON response from %s despite 200 OK. Error: %s. Body: %s",
                             url,
                             err,
-                            response_text,
+                            redact_body(response_text),
                         )
                         raise PoolSyncApiError(
                             f"Invalid JSON response: {err}",
@@ -212,7 +202,7 @@ class PoolSyncApiClient:
                         "Authentication error from %s: %s. Body: %s",
                         url,
                         response.status,
-                        response_text,
+                        redact_body(response_text),
                     )
                     raise PoolSyncApiAuthError(
                         f"Authentication failed: {response.status}",
@@ -225,7 +215,7 @@ class PoolSyncApiClient:
                     url,
                     response.status,
                     response.reason,
-                    response_text,
+                    redact_body(response_text),
                 )
                 raise PoolSyncApiError(
                     f"HTTP error {response.status}: {response.reason}",
@@ -276,7 +266,11 @@ class PoolSyncApiClient:
         """
         _LOGGER.info("Attempting to start push-link process for %s.", self._ip_address)
         response = await self._request("PUT", API_PATH_PUSHLINK_START)
-        _LOGGER.debug("Push-link start response for %s: %s", self._ip_address, response)
+        _LOGGER.debug(
+            "Push-link start response for %s: %s",
+            self._ip_address,
+            redact_body(response),
+        )
         return (
             response  # Expecting JSON response, e.g., {"timeRemaining":120} or similar
         )
@@ -316,7 +310,7 @@ class PoolSyncApiClient:
             _LOGGER.error(
                 "Main 'poolSync' key missing or not a dictionary in data response for %s: %s",
                 self._ip_address,
-                response,
+                redact_body(response),
             )
             raise PoolSyncApiError(
                 "Received malformed data from PoolSync device: 'poolSync' key missing or invalid."
