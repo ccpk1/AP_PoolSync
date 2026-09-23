@@ -32,6 +32,7 @@ from .const import (
     MANUFACTURER,
     MODEL,
 )
+from .redact import redact_body
 from .runtime import (
     HEAT_PUMP_CONFIG_MODE_AUTO,
     HEAT_PUMP_CONFIG_MODE_COOL,
@@ -602,7 +603,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.error(
                     "Coordinator %s: Fetched data is not a dict or essential keys ('poolSync', 'devices') are missing. Data: %s",
                     self.name,
-                    data,
+                    redact_body(data),
                 )
                 raise UpdateFailed(
                     f"Malformed data received from {self.name}: essential keys missing or data not a dict."
@@ -693,7 +694,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.name,
                 err,
                 getattr(err, "status_code", "N/A"),
-                getattr(err, "body", "N/A"),
+                redact_body(getattr(err, "body", "N/A")),
             )
             raise UpdateFailed(f"API error for {self.name}: {err}") from err
 

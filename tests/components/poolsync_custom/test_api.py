@@ -19,13 +19,14 @@ from custom_components.poolsync_custom.api import (
     PoolSyncApiError,
 )
 from custom_components.poolsync_custom.const import CONF_PASSWORD, HEADER_AUTHORIZATION
+from custom_components.poolsync_custom.redact import redact_body, redact_headers
 
 TEST_IP_ADDRESS = "192.168.50.70"
 TEST_PASSWORD = "test-password"
 
 
 async def test_get_pushlink_status_does_not_log_password(caplog) -> None:
-    """Test push-link status does not log the returned password."""
+    """Test push-link status does not log the returned password at any level."""
     client = PoolSyncApiClient(TEST_IP_ADDRESS, Mock())
 
     with (
@@ -34,16 +35,64 @@ async def test_get_pushlink_status_does_not_log_password(caplog) -> None:
             "_request",
             new=AsyncMock(return_value={CONF_PASSWORD: TEST_PASSWORD}),
         ),
-        caplog.at_level(logging.INFO, logger="custom_components.poolsync_custom.api"),
+        caplog.at_level(logging.DEBUG, logger="custom_components.poolsync_custom.api"),
     ):
         response = await client.get_pushlink_status()
 
     assert response == {CONF_PASSWORD: TEST_PASSWORD}
-    assert all(
-        TEST_PASSWORD not in record.getMessage()
-        for record in caplog.records
-        if record.levelno >= logging.INFO
-    )
+    assert all(TEST_PASSWORD not in record.getMessage() for record in caplog.records)
+
+
+def test_redact_headers_fully_redacts_authorization() -> None:
+    """Test authorization header is fully redacted regardless of length."""
+    headers = {
+        HEADER_AUTHORIZATION: TEST_PASSWORD,
+        "user": "b167ecc8-87ce-47da-9b7d-cab632a2eeba",
+    }
+
+    redacted = redact_headers(headers)
+
+    assert redacted[HEADER_AUTHORIZATION] == "<redacted>"
+    assert TEST_PASSWORD not in redacted[HEADER_AUTHORIZATION]
+    assert redacted["user"] == headers["user"]
+
+
+def test_redact_headers_keeps_other_headers() -> None:
+    """Test non-authorization headers are left unchanged."""
+    headers = {"Content-Type": "application/json"}
+
+    assert redact_headers(headers) == headers
+
+
+def test_redact_body_redacts_password_in_dict() -> None:
+    """Test password values are redacted in nested dicts."""
+    body = {"poolSync": {"password": TEST_PASSWORD, "macAddress": "aa:bb"}}
+
+    redacted = redact_body(body)
+
+    assert redacted["poolSync"]["password"] == "<redacted>"
+    assert redacted["poolSync"]["macAddress"] == "aa:bb"
+    assert TEST_PASSWORD not in str(redacted)
+
+
+def test_redact_body_redacts_password_in_string() -> None:
+    """Test password values are redacted in raw JSON strings."""
+    body = f'{{"password": "{TEST_PASSWORD}", "macAddress": "aa:bb"}}'
+
+    redacted = redact_body(body)
+
+    assert TEST_PASSWORD not in redacted
+    assert '"password": "<redacted>"' in redacted
+
+
+def test_redact_body_redacts_password_in_list() -> None:
+    """Test password values are redacted in lists."""
+    body = [{"password": TEST_PASSWORD}, {"macAddress": "aa:bb"}]
+
+    redacted = redact_body(body)
+
+    assert redacted[0]["password"] == "<redacted>"
+    assert redacted[1]["macAddress"] == "aa:bb"
 
 
 async def test_set_device_config_value_accepts_non_json_success_body() -> None:
@@ -174,6 +223,28 @@ async def test_request_returns_json_payload_on_success() -> None:
     assert result == {"poolSync": {}}
     _, kwargs = session.request.call_args
     assert kwargs["headers"][HEADER_AUTHORIZATION] == TEST_PASSWORD
+
+
+async def test_request_does_not_log_password_in_headers(caplog) -> None:
+    """Test the request debug line does not leak the password in headers."""
+    session = Mock()
+    response = Mock()
+    response.status = 200
+    response.headers = {"Content-Type": "application/json"}
+    response.text = AsyncMock(return_value='{"poolSync": {}}')
+    response.json = AsyncMock(return_value={"poolSync": {}})
+
+    request_context = AsyncMock()
+    request_context.__aenter__.return_value = response
+    request_context.__aexit__.return_value = False
+    session.request.return_value = request_context
+
+    client = PoolSyncApiClient(TEST_IP_ADDRESS, session)
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.poolsync_custom.api"):
+        await client._request("GET", "/api/poolsync?cmd=test", password=TEST_PASSWORD)
+
+    assert all(TEST_PASSWORD not in record.getMessage() for record in caplog.records)
 
 
 async def test_request_raises_invalid_json_when_success_body_is_not_json() -> None:
