@@ -66,12 +66,12 @@ Functions that build HTTP requests, with their methods, inferred from Hermes ass
 | `getSync` | `GET` | `?cmd=poolSync` or `?cmd=poolSync&all` | Read all controller+device data |
 | `getDevice` | `GET` | `?cmd=devices&device={id}` | Read single device (401 on fw 860) |
 | `checkChangeStatus` | `GET` | `?cmd=changeStatus` | May check device status |
-| `checkPushLinking` | `GET` | `?cmd=pushLink&...` | Poll push-link state |
+| `checkPushLinking` | `GET` | `?cmd=pushLink&status` | Poll push-link state |
 | `updateSync` | `PATCH` | `?cmd=poolSync` | Controller-level write |
 | `updateDevice` | `PATCH` | `?cmd=devices&device={id}` | Device-level config write |
 | `putDevice` | `PUT` | `/api/dongle/devices/{id}` | Full device state replace (dongle API) |
 | `putDongleState` | `PUT` | `/api/dongle/state` | Dongle state update |
-| `startPushLinking` | `POST`/`PUT` | `/api/dongle/link` | Initiate push-link pairing |
+| `startPushLinking` | `PUT` (local) / `POST` (dongle) | `?cmd=pushLink&start` / `/api/dongle/link` | Initiate push-link pairing. The dongle variant sends body `{"pushLink": true}` |
 | `endPushLinking` | `PATCH` | `?cmd=pushLink&end` | End push-link session |
 | `restartDevice` | `PUT` | `/api/dongle/software_restart` | Software restart |
 | `factoryReset` | `DELETE`/`PUT` | `?cmd=factoryReset` / `/api/dongle/factory_reset` | Factory reset |
@@ -501,11 +501,17 @@ All of these are built and tested. Data source for each is noted.
 
 | Step | Endpoint | Key Data | Reference |
 |------|----------|----------|-----------|
-| Start push-link | `GET /api/poolsync?cmd=pushLink&start` | `status: "ok"` on success | `api.py:start_pushlink()` |
+| Start push-link | `PUT /api/poolsync?cmd=pushLink&start` | `status: "ok"` on success | `api.py:start_pushlink()` |
 | Poll for button press | `GET /api/poolsync?cmd=pushLink&status` | `timeRemaining` (seconds), `password` (once pressed) | `config_flow.py:_async_poll_pushlink()` |
 | Timeout | — | 120 s max; poll every 5 s | `const.py:PUSHLINK_*` |
 
 Once the user presses the physical button, the API returns the device `password` which is stored in the config entry. The `macAddress` from the full data payload (`GET /api/poolsync?cmd=poolSync&all`) is used as the unique ID.
+
+> **Method correction (verified 2026-10-11 against app v4.73 and `api.py`):** `pushLink&start` is a **PUT**, not a GET as previously recorded. This table, `const.py:API_PATH_PUSHLINK_START`, and the app's `startPushLinking` (Hermes function #14049) all agree. The header set for `&start` is `User` only — `Authorization` is not sent, since the password does not exist yet.
+>
+> The app also closes the session with `PATCH /api/poolsync?cmd=pushLink&end` (`endPushLinking`, #14051). The integration does not currently call `&end`; on a timeout the link session is left open on the device, which is a plausible cause of a subsequent `&start` returning HTTP 400 with an empty body.
+>
+> Related device-side state resets (not currently used by the integration): `DELETE /api/poolsync?cmd=pushLink` (app `legacy_resetHashAPI`, clears the local auth hash) and `POST /api/dongle/link` with body `{"reset": true}` (app `resetHash`).
 
 ### 1.2 Controller-Level Sensors (`role="controller"`)
 
