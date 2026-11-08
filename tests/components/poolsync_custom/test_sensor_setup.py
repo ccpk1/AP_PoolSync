@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import Mock, patch
 
+import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.util import dt as dt_util
@@ -826,3 +827,83 @@ def test_bool_to_on_off_maps_booleans() -> None:
     assert _bool_to_on_off(1) == "on"
     assert _bool_to_on_off(0) == "off"
     assert _bool_to_on_off("not-a-bool") is None
+
+
+@pytest.mark.parametrize(
+    ("ctrl_flags", "expect_value", "expect_attrs"),
+    [
+        # Flow bit set (HP order, bit 0) -> a normal reading.
+        (1, 78.0, None),
+        # No flow -> blank (renders as unknown) with the reason attached.
+        (0, None, {"unavailable_reason": "no_flow"}),
+    ],
+)
+async def test_water_temperature_is_unknown_without_flow(
+    ctrl_flags: int, expect_value: float | None, expect_attrs: dict | None
+) -> None:
+    """Test no-flow water temperature shows unknown with a reason, not unavailable."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_heat_pump")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "0": {
+                "nodeAttr": {"pid": 9984},
+                "config": {"mode": 1, "setpoint": 78},
+                "status": {"waterTemp": 78.0, "ctrlFlags": ctrl_flags, "stateFlags": 0},
+            }
+        },
+        "deviceType": {"0": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    description, value_fn = next(
+        entry
+        for entry in SENSOR_DESCRIPTIONS_HEATPUMP
+        if entry[0].key == "hp_water_temp"
+    )
+    sensor = PoolSyncSensor(coordinator, "heat_pump", description, value_fn)
+
+    assert sensor.native_value == expect_value
+    assert sensor.available is True
+    assert sensor.extra_state_attributes == expect_attrs
+
+
+async def test_water_temperature_unknown_when_probe_value_missing() -> None:
+    """Test a missing reading with flow present is unknown without a reason."""
+    coordinator = Mock()
+    coordinator.name = "PoolSync"
+    coordinator.mac_address = "AABBCCDDEEFF"
+    coordinator.get_device_info = Mock(
+        return_value={"identifiers": {("poolsync_custom", "AABBCCDDEEFF_heat_pump")}}
+    )
+    coordinator.last_update_success = True
+    coordinator.data = {
+        "poolSync": {},
+        "devices": {
+            "0": {
+                "nodeAttr": {"pid": 9984},
+                "config": {"mode": 1, "setpoint": 78},
+                # Flow present, but the probe value is missing entirely.
+                "status": {"ctrlFlags": 1, "stateFlags": 0},
+            }
+        },
+        "deviceType": {"0": "heatPump"},
+    }
+    coordinator.parsed_data = parse_poolsync_runtime_data(coordinator.data)
+
+    description, value_fn = next(
+        entry
+        for entry in SENSOR_DESCRIPTIONS_HEATPUMP
+        if entry[0].key == "hp_water_temp"
+    )
+    sensor = PoolSyncSensor(coordinator, "heat_pump", description, value_fn)
+
+    assert sensor.native_value is None
+    assert sensor.available is True
+    assert sensor.extra_state_attributes is None

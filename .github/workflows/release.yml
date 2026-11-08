@@ -1,0 +1,96 @@
+name: Release
+
+# Publishes the HACS distribution zip for a version tag.
+#
+# Requirements this workflow exists for:
+#   * hacs.json declares "zip_release": true and "filename": "poolsync_custom.zip",
+#     so HACS downloads the release ASSET rather than GitHub's source snapshot.
+#     Asset downloads are what GitHub counts, so releases need the asset.
+#   * HACS extracts the asset with zipfile.extractall() straight into
+#     config/custom_components/poolsync_custom, so the archive must contain the
+#     integration files AT ITS ROOT - no "custom_components/" and no
+#     "poolsync_custom/" wrapper. A wrapper produces
+#     custom_components/poolsync_custom/poolsync_custom/... and breaks the install.
+#
+# Tag format is plain MAJOR.MINOR.PATCH (matching existing tags such as 2.0.1);
+# a leading "v" is also accepted.
+
+on:
+  push:
+    tags:
+      - "[0-9]*"
+      - "v[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish the zip asset for
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  INTEGRATION: poolsync_custom
+  ARCHIVE: poolsync_custom.zip
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Read version from manifest
+        id: meta
+        run: |
+          version="$(python3 -c "import json;print(json.load(open('custom_components/$INTEGRATION/manifest.json'))['version'])")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the tag matches manifest.json
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          tag="${TAG_NAME#v}"
+          if [ "$tag" != "${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::Tag '$TAG_NAME' does not match manifest version '${{ steps.meta.outputs.version }}'. Bump custom_components/$INTEGRATION/manifest.json first."
+            exit 1
+          fi
+
+      - name: Build the HACS archive
+        run: |
+          # Zip the CONTENTS of the integration directory so extractall() lands
+          # __init__.py, manifest.json, ... directly in custom_components/<domain>.
+          cd "custom_components/$INTEGRATION"
+          rm -rf __pycache__
+          zip -r -9 "$GITHUB_WORKSPACE/$ARCHIVE" . \
+            -x '*/__pycache__/*' '__pycache__/*' '*.pyc' '*.pyo' '.DS_Store'
+
+      - name: Verify the archive layout
+        run: |
+          unzip -l "$ARCHIVE" > /tmp/archive.txt
+          cat /tmp/archive.txt
+
+          grep -Eq ' manifest\.json$' /tmp/archive.txt || {
+            echo "::error::manifest.json is not at the archive root; HACS extraction would nest it."
+            exit 1
+          }
+          grep -q 'custom_components/' /tmp/archive.txt && {
+            echo "::error::Archive contains a custom_components/ directory; extractall() already targets it."
+            exit 1
+          }
+          grep -q "$INTEGRATION/" /tmp/archive.txt && {
+            echo "::error::Archive contains an $INTEGRATION/ wrapper directory."
+            exit 1
+          }
+          echo "Archive layout OK: integration files are at the root."
+
+      - name: Create or update the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: ${{ env.ARCHIVE }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true

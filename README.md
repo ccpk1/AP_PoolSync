@@ -393,6 +393,52 @@ If you run `pytest` directly in an incompatible interpreter, collection is
 limited to the parsing-only modules (`test_runtime`, `test_fault_codes`,
 `test_equipment`) instead of failing outright.
 
+### Releasing
+
+HACS installs from the **release asset**, not from GitHub's source snapshot
+(`hacs.json` sets `zip_release` and `filename`). Asset downloads are the ones
+GitHub counts, so a release without the zip is both uncounted and installed from
+a source archive instead.
+
+HACS extracts the asset straight into `config/custom_components/poolsync_custom`,
+so the archive must contain the integration files **at its root** — no
+`custom_components/` and no `poolsync_custom/` wrapper — which otherwise nests
+them one level too deep and breaks the install.
+
+Release steps:
+
+```bash
+# 1. Bump the version in custom_components/poolsync_custom/manifest.json
+#    (and pyproject.toml, which is kept in sync).
+
+# 2. Land it on main, then tag and push.
+git tag 2.1.0
+git push origin 2.1.0
+```
+
+Pushing the tag runs `.github/workflows/release.yml`, which:
+
+1. fails if the tag does not match `manifest.json`'s `version`,
+2. builds `poolsync_custom.zip` from the contents of
+   `custom_components/poolsync_custom/` (excluding `__pycache__`),
+3. fails if `manifest.json` is not at the archive root or a wrapper directory is
+   present,
+4. creates the GitHub release and attaches the asset.
+
+To republish an existing tag, run the **Release** workflow from the Actions tab
+and give it the tag name. To do it by hand instead, build the archive from inside
+the integration directory so the paths are flat, then attach it to the release
+with the exact filename HACS expects:
+
+```bash
+cd custom_components/poolsync_custom
+zip -r -9 ../../../poolsync_custom.zip . -x '*/__pycache__/*' '__pycache__/*' '*.pyc'
+```
+
+Note that enabling `zip_release` means releases published before the asset
+existed cannot be installed through HACS any more; users should be on the current
+release.
+
 ---
 
 ## Disclaimers & Development Model
