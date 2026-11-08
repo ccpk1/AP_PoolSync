@@ -276,6 +276,34 @@ Special thanks to [@socbrian](https://github.com/socbrian) for the initial rever
 
 ---
 
+## Development
+
+### Running the tests
+
+`pytest-homeassistant-custom-component` pins the exact Home Assistant release it
+was built for, so the suite needs a virtual environment where that pin is
+satisfied. Do not run it from a Home Assistant *core* development environment —
+an editable core checkout is on a `.dev` build and the plugin cannot import
+against it.
+
+```bash
+./utils/setup_test_env.sh    # creates .venv and installs .[dev] (no version pins)
+./utils/run_tests.sh         # full suite in .venv
+./utils/run_tests.sh -k heat_pump
+```
+
+Nothing is version-pinned on purpose: the test plugin is what selects the Home
+Assistant release, so refreshing dependencies (`./utils/setup_test_env.sh
+--fresh`) always produces a matching pair and no manual version bumps are
+needed. A scheduled CI job runs the suite against the newest upstream releases
+to surface breakage before it reaches a release.
+
+If you run `pytest` directly in an incompatible interpreter, collection is
+limited to the parsing-only modules (`test_runtime`, `test_fault_codes`,
+`test_equipment`) instead of failing outright.
+
+---
+
 ## Disclaimers & Development Model
 
 🤖 **AI-Assisted Engineering:** In today's landscape, leveraging AI tooling is one of the only ways a solo maintainer can build, test, and support a complex multi-device integration at this scale. However, this code is not "vibe coded." Human oversight dictates the architecture, every commit is manually audited, and code is validated against Home Assistant Gold standards with continuous integration test coverage.
