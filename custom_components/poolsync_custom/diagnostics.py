@@ -27,6 +27,7 @@ from .runtime import (
     get_heat_pump_runtime,
     get_number_value,
     get_sensor_value,
+    get_sync_flags,
     get_valve_position_name,
     get_valve_position_options,
 )
@@ -62,6 +63,11 @@ async def async_get_config_entry_diagnostics(
         "last_failure_context": coordinator.last_failure_context,
         "last_failure_detail": coordinator.last_failure_detail,
         "last_update_success": coordinator.last_update_success,
+        "last_successful_update": (
+            coordinator.last_success_utc.isoformat()
+            if getattr(coordinator, "last_success_utc", None)
+            else None
+        ),
         "last_exception": (
             str(coordinator.last_exception) if coordinator.last_exception else None
         ),
@@ -74,6 +80,11 @@ async def async_get_config_entry_diagnostics(
     if coordinator.data is not None:
         result["runtime_data"] = async_redact_data(coordinator.data, TO_REDACT)
         parsed_data = ensure_parsed_data(coordinator)
+
+        # Momentary physical-button state, for "I pressed AUTH and nothing
+        # happened" reports. See docs/poolsync-reverse-engineering.md §1.1d.
+        if sync_flags := get_sync_flags(parsed_data):
+            result["sync_flags"] = sync_flags
 
         if heat_pump_runtime := get_heat_pump_runtime(parsed_data):
             result["heat_pump_debug"] = {

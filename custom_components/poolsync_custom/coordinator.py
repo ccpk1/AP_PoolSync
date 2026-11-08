@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from homeassistant.core import HomeAssistant
@@ -13,6 +13,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     PoolSyncApiAuthError,
@@ -109,6 +110,10 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Monotonic sequence bumped on each successful data fetch, so write
         # entities can tell whether a coordinator update reflects post-write data.
         self._refresh_seq = 0
+        # UTC timestamp of the last successful fetch. Diagnostics use it to show
+        # how old the served snapshot is, which a bare last_update_success
+        # cannot answer.
+        self.last_success_utc: datetime | None = None
         self.last_failure_class: PoolSyncFailureClass | None = None
         self.last_failure_detail: str | None = None
         self.last_failure_context: PoolSyncFailureContext | None = None
@@ -611,6 +616,7 @@ class PoolSyncDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self.parsed_data = parse_poolsync_runtime_data(data)
             self._refresh_seq += 1
+            self.last_success_utc = dt_util.utcnow()
             self._consecutive_transport_failures = 0
             self._clear_last_failure()
             self._log_recovered_if_needed()

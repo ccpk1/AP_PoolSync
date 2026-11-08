@@ -25,6 +25,7 @@ from custom_components.poolsync_custom.runtime import (
     get_heat_pump_climate_target_temperature,
     get_heat_pump_runtime,
     get_sensor_value,
+    get_sync_flags,
     get_wifi_signal_status,
     parse_poolsync_runtime_data,
 )
@@ -569,3 +570,36 @@ def test_water_temperature_is_gated_on_flow(sample_name: str, flows: bool) -> No
     else:
         assert current is None
         assert sensor is None
+
+
+@pytest.mark.parametrize(
+    ("raw_flags", "expected_true"),
+    [
+        (0, set()),
+        (1 << 0, {"is_updating"}),
+        (1 << 1, {"connect_button_pressed"}),
+        (1 << 2, {"service_button_pressed"}),
+        (1 << 3, {"service_access_button_pressed"}),
+        (1 << 4, {"setup_button_pressed"}),
+        ((1 << 2) | (1 << 0), {"service_button_pressed", "is_updating"}),
+    ],
+)
+def test_controller_sync_flags_decode(raw_flags: int, expected_true: set[str]) -> None:
+    """Test controller status.flags decodes to the documented button bits."""
+    payload = _load_diagnostics_json("090-all-off.json")
+    runtime_data = payload["data"]["runtime_data"]
+    runtime_data["poolSync"]["status"]["flags"] = raw_flags
+
+    flags = get_sync_flags(parse_poolsync_runtime_data(runtime_data))
+
+    assert flags is not None
+    assert {name for name, set_ in flags.items() if set_} == expected_true
+
+
+def test_controller_sync_flags_absent_returns_none() -> None:
+    """Test a payload without status.flags yields None rather than all-False."""
+    payload = _load_diagnostics_json("090-all-off.json")
+    runtime_data = payload["data"]["runtime_data"]
+    runtime_data["poolSync"]["status"].pop("flags", None)
+
+    assert get_sync_flags(parse_poolsync_runtime_data(runtime_data)) is None

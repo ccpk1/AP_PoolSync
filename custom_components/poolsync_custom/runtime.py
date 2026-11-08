@@ -65,6 +65,17 @@ HEAT_PUMP_PID_HP10 = 9985
 HEAT_PUMP_LAYOUT_HP: PoolSyncHeatPumpFlagLayout = "hp"
 HEAT_PUMP_LAYOUT_HP10: PoolSyncHeatPumpFlagLayout = "hp10"
 
+# Controller-level status.flags (app: SYNC_FLAGS, parsed by parseSyncFlags).
+# The button bits are momentary, so they show which physical button the dongle
+# currently sees held - useful when a user reports that a press did nothing.
+SYNC_FLAGS: dict[str, int] = {
+    "is_updating": 1 << 0,
+    "connect_button_pressed": 1 << 1,
+    "service_button_pressed": 1 << 2,
+    "service_access_button_pressed": 1 << 3,
+    "setup_button_pressed": 1 << 4,
+}
+
 _HEAT_PUMP_CTRL_FLAGS: dict[PoolSyncHeatPumpFlagLayout, dict[str, int]] = {
     HEAT_PUMP_LAYOUT_HP: {"flow": 1 << 0, "compressor": 1 << 2, "fan": 1 << 3},
     HEAT_PUMP_LAYOUT_HP10: {"flow": 1 << 3, "compressor": 1 << 0, "fan": 1 << 1},
@@ -1020,6 +1031,18 @@ def _state_flag(
     if state_flags_raw is None:
         return None
     return _heat_pump_state_flag(state_flags_raw, layout, name)
+
+
+def get_sync_flags(parsed_data: PoolSyncParsedData) -> dict[str, bool] | None:
+    """Return the controller status flags decoded to named booleans.
+
+    Includes the momentary physical-button bits, which is how you can tell
+    whether a pairing button press actually reached the dongle.
+    """
+    flags = _get_int_value(parsed_data.system.status, "flags")
+    if flags is None:
+        return None
+    return {name: bool(flags & mask) for name, mask in SYNC_FLAGS.items()}
 
 
 def _resolve_device_types(data: dict[str, Any]) -> dict[str, list[str]]:
