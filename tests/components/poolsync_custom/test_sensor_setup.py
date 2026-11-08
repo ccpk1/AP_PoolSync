@@ -129,7 +129,12 @@ async def test_async_setup_entry_uses_detected_device_ids(hass) -> None:
     assert chlor_board_sensor.native_value == 94.63
     assert heat_mode_sensor.native_value == "heat_pool"
     assert heat_board_sensor.native_value == 76.99
-    assert heat_fault_code_sensor.native_value == "8"
+    assert heat_fault_code_sensor.native_value == "HP5 Lockout"
+    assert heat_fault_code_sensor.extra_state_attributes == {
+        "faults": ["HP5 Lockout"],
+        "raw": [8, 0],
+        "pid": None,
+    }
     assert heat_sensor.native_value == 84
     assert heat_pool_sensor.native_value == 84
     assert heat_spa_sensor.native_value == 99

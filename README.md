@@ -205,11 +205,12 @@ The integration dynamically generates discrete devices and entities based on wha
 > ⚠️ **ChemSync write controls are not yet confirmed.** The pH/ORP setpoint and max daily feed writes are implemented from the reverse-engineered API but have not been validated against a live ChemSync device. If you have a ChemSync and these controls aren't working properly, please [open a GitHub issue](https://github.com/ccpk1/AP_PoolSync/issues) — and if you're willing to work with me to finalize them (including capturing the correct command syntax), that would be a huge help.
 
 ### 🌡️ Heat Pumps & Climate
-- **Control:** Full Home Assistant `climate` entity for target water temperature, HVAC modes, and preset selection. Exposes current temperature, target temperature, HVAC action, and min/max temperature.
-- **Sensors:** Water Temperature, Air Temperature, Pool/Spa Setpoint tracking, Active Target Temperature, Fault Code.
+- **Control:** Full Home Assistant `climate` entity for target water temperature, HVAC modes, and preset selection. Exposes current temperature, target temperature, HVAC action, and min/max temperature. HVAC action follows the heat pump's own state machine (off / heating / cooling / idle).
+- **Sensors:** Water Temperature, Air Temperature, Pool/Spa Setpoint tracking, Active Target Temperature, Active Faults.
 - **Diagnostics:** Board Temperature, Outlet Water Temperature, Defrost Sensor 1 & 2, Top Fault Code & Count.
-- **Binary Sensors:** Compressor state, Fan state, Water Flow status, Online/Fault flags, Remote Control.
-- **Fault Sensor:** The fault binary sensor exposes both the raw `fault_code` and decoded `active_faults` (e.g. "Low Pressure", "High Pressure").
+- **Binary Sensors:** Compressor state, Fan state, Water Flow status, Online/Fault flags, Remote Control, High/low pressure (HP10 units).
+- **Fault reporting:** Faults are a bitmask, not a single code, so the *Active Faults* sensor shows the decoded names (e.g. "Compressor Fault") with the raw words and the device product ID as attributes. The fault binary sensor exposes the same `active_faults` list. The decode table is chosen by the heat pump's product ID, so `Water Sensor 1` and `Low Pressure` are never confused.
+- **Water temperature needs flow:** with no water flow the probe is sitting in a stagnant pipe, so water temperature reports as unavailable with an `unavailable_reason: no_flow` attribute instead of a misleading number. This matches the PoolSync app, which shows "No Flow" in the same situation.
 
 ### 🔄 Pumps & Motorized Valves
 - **Mode Select:** `Auto` (follows active group), `Manual` (user RPM), `Off`.

@@ -12,6 +12,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -174,6 +175,15 @@ BINARY_SENSOR_DESCRIPTIONS_HEATPUMP: tuple[
             entity_registry_enabled_default=True,
         ),
         lambda v: bool(v) if isinstance(v, int) else None,
+    ),
+    (
+        BinarySensorEntityDescription(
+            key="heatpump_pressure",
+            translation_key="high_low_pressure",
+            entity_registry_enabled_default=True,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        None,
     ),
 )
 

@@ -118,7 +118,7 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     )
     assert diagnostics["heat_pump_debug"] == {
         "active_target_temperature": 88,
-        "active_fault_code": 8,
+        "active_faults": ["HP5 Lockout"],
         "capabilities": {
             "model_number": "075AHDSBLH",
             "profile": "aquacal_heat_only_digital",

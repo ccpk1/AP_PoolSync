@@ -48,6 +48,9 @@ from .runtime import (
     get_equipment_runtime,
     get_group_duration,
     get_group_ends_at,
+    get_heat_pump_fault_names,
+    get_heat_pump_runtime,
+    get_role_data,
     get_sensor_value,
 )
 
@@ -980,6 +983,29 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
             if isinstance(rssi, (int, float)):
                 return {"rssi_dbm": rssi}
             return None
+
+        if self.entity_description.key == "hp_fault_code":
+            device = get_role_data(parsed_data, "heat_pump", index=self._device_index)
+            if device is None or device.data is None:
+                return None
+            pid = (device.node_attr or {}).get("pid")
+            raw = device.data.get("faults")
+            return {
+                "faults": get_heat_pump_fault_names(
+                    parsed_data, index=self._device_index
+                ),
+                "raw": raw if isinstance(raw, list) else [],
+                "pid": pid if isinstance(pid, int) else None,
+            }
+
+        if self.entity_description.key == "hp_water_temp":
+            runtime = get_heat_pump_runtime(parsed_data, index=self._device_index)
+            if runtime is None or runtime.has_flow is not False:
+                return None
+            # The value is suppressed rather than wrong: without flow the probe
+            # sits in a stagnant pipe, which is why the vendor app shows
+            # "No Flow" instead of a temperature.
+            return {"unavailable_reason": "no_flow"}
 
         if self.entity_description.key == "group_info":
             equip_runtime = get_equipment_runtime(parsed_data)

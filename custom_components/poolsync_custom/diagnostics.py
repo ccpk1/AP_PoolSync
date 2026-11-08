@@ -24,6 +24,7 @@ from .runtime import (
     get_group_duration,
     get_group_schedule_mode,
     get_group_schedule_slots,
+    get_heat_pump_fault_names,
     get_heat_pump_runtime,
     get_number_value,
     get_sensor_value,
@@ -89,7 +90,7 @@ async def async_get_config_entry_diagnostics(
         if heat_pump_runtime := get_heat_pump_runtime(parsed_data):
             result["heat_pump_debug"] = {
                 "active_target_temperature": heat_pump_runtime.active_target_temperature,
-                "active_fault_code": get_sensor_value(parsed_data, "hp_fault_code"),
+                "active_faults": get_heat_pump_fault_names(parsed_data),
                 "capabilities": {
                     "model_number": heat_pump_runtime.capabilities.model_number,
                     "profile": heat_pump_runtime.capabilities.profile,

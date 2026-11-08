@@ -23,6 +23,7 @@ from custom_components.poolsync_custom.runtime import (
     get_heat_pump_climate_preset_mode,
     get_heat_pump_climate_preset_modes,
     get_heat_pump_climate_target_temperature,
+    get_heat_pump_fault_names,
     get_heat_pump_runtime,
     get_sensor_value,
     get_sync_flags,
@@ -603,3 +604,67 @@ def test_controller_sync_flags_absent_returns_none() -> None:
     runtime_data["poolSync"]["status"].pop("flags", None)
 
     assert get_sync_flags(parse_poolsync_runtime_data(runtime_data)) is None
+
+
+@pytest.mark.parametrize(
+    ("sample_name", "expected"),
+    [
+        # 090 / SQ160R / T75 fixtures carry no faults in these snapshots.
+        ("090-all-off.json", []),
+        # t75-heatpump-fault: faults [8, 0]; HP bit 3 is hp5Lockout.
+        ("t75-heatpump-fault.json", ["HP5 Lockout"]),
+        ("hp10-issue30-pump-off.json", []),
+    ],
+)
+def test_heat_pump_fault_names_are_decoded(
+    sample_name: str, expected: list[str]
+) -> None:
+    """Test fault names are decoded with the PID-appropriate table."""
+    parsed_data = _load_parsed_data(sample_name)
+
+    assert get_heat_pump_fault_names(parsed_data) == expected
+
+
+def test_heat_pump_fault_names_follow_pid_table() -> None:
+    """Test the same fault word decodes differently for 9985 and 9984/9986."""
+    payload = _load_diagnostics_json("hp10-issue30-pump-off.json")
+    runtime_data = payload["data"]["runtime_data"]
+    runtime_data["devices"]["0"]["faults"] = [1 << 4]
+
+    hp10 = get_heat_pump_fault_names(parse_poolsync_runtime_data(runtime_data))
+    runtime_data["devices"]["0"]["nodeAttr"]["pid"] = 9984
+    hp = get_heat_pump_fault_names(parse_poolsync_runtime_data(runtime_data))
+
+    assert hp10 == ["Compressor Fault"]
+    assert hp == ["Defrost Sensor 1 Open"]
+
+
+def test_fault_code_sensor_state_is_decoded_names() -> None:
+    """Test hp_fault_code reports names, not the raw bitmask word."""
+    parsed_data = _load_parsed_data("t75-heatpump-fault.json")
+
+    assert get_sensor_value(parsed_data, "hp_fault_code") == "HP5 Lockout"
+    # A snapshot with no faults reports nothing rather than a misleading 0.
+    assert (
+        get_sensor_value(_load_parsed_data("090-all-off.json"), "hp_fault_code") is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("sample_name", "expected"),
+    [
+        # HP10 control bit 2 is highPressureLowPressure (the app's "HP/LP" row).
+        ("hp10-issue30-pump-off.json", True),
+        # HP has no such bit in ctrlFlags, so it reports unknown, not False.
+        ("t75-heat-pool.json", None),
+        ("090-compressor-on-2900rpm-pool-group.json", None),
+    ],
+)
+def test_high_low_pressure_flag_is_layout_specific(
+    sample_name: str, expected: bool | None
+) -> None:
+    """Test the HP/LP pressure input is only decoded on the HP10 layout."""
+    runtime = get_heat_pump_runtime(_load_parsed_data(sample_name))
+
+    assert runtime is not None
+    assert runtime.pressure_switch_active is expected

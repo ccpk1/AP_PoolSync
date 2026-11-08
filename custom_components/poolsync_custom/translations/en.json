@@ -102,6 +102,9 @@
       "flow": {
         "name": "Flow"
       },
+      "high_low_pressure": {
+        "name": "High/low pressure"
+      },
       "node_connected": {
         "name": "Node connected"
       },
@@ -239,10 +242,7 @@
         "name": "Driver model number"
       },
       "fault_code": {
-        "name": "Fault code",
-        "state": {
-          "8": "HP/HP5"
-        }
+        "name": "Active faults"
       },
       "firmware_version": {
         "name": "Firmware version"
