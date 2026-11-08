@@ -42,6 +42,7 @@ type PoolSyncWifiSignalStatus = Literal["good", "fair", "poor"]
 type PoolSyncHeatPumpClimatePresetMode = Literal["pool", "spa"]
 type PoolSyncHeatPumpClimateHvacMode = Literal["off", "heat", "cool", "auto"]
 type PoolSyncHeatPumpClimateHvacAction = Literal["off", "idle", "heating", "cooling"]
+type PoolSyncHeatPumpFlagLayout = Literal["hp", "hp10"]
 
 HEAT_PUMP_MODE_OFF = "off"
 HEAT_PUMP_MODE_HEAT_POOL = "heat_pool"
@@ -55,8 +56,19 @@ HEAT_PUMP_CONFIG_MODE_HEAT = 1
 HEAT_PUMP_CONFIG_MODE_COOL = 2
 HEAT_PUMP_CONFIG_MODE_AUTO = 3
 HEAT_PUMP_POOL_SPA_MODE_SPA = 1
-HEAT_PUMP_CTRL_FLAGS_COMPRESSOR = 4
-HEAT_PUMP_CTRL_FLAGS_FAN = 8
+
+# Heat pumps use two different ctrlFlags/stateFlags bit orders, selected by the
+# device product ID. 9984 (firmware hpc/2700) and 9986 (hpc/2702) share one
+# layout; 9985 (hpc/2701, reported as "HP10" by the vendor app) swaps the
+# compressor/fan/flow positions. See docs/poolsync-reverse-engineering.md §0e.
+HEAT_PUMP_PID_HP10 = 9985
+HEAT_PUMP_LAYOUT_HP: PoolSyncHeatPumpFlagLayout = "hp"
+HEAT_PUMP_LAYOUT_HP10: PoolSyncHeatPumpFlagLayout = "hp10"
+
+_HEAT_PUMP_CTRL_FLAGS: dict[PoolSyncHeatPumpFlagLayout, dict[str, int]] = {
+    HEAT_PUMP_LAYOUT_HP: {"flow": 1 << 0, "compressor": 1 << 2, "fan": 1 << 3},
+    HEAT_PUMP_LAYOUT_HP10: {"flow": 1 << 3, "compressor": 1 << 0, "fan": 1 << 1},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +276,8 @@ class PoolSyncHeatPumpRuntime:
     """Derived runtime state for a parsed heat pump."""
 
     capabilities: PoolSyncHeatPumpCapabilities
+    pid: int | None
+    flag_layout: PoolSyncHeatPumpFlagLayout
     ctrl_flags_raw: int | None
     state_flags_raw: int | None
     has_flow: bool | None
@@ -905,19 +919,41 @@ def _get_temp_value(section: dict[str, Any] | None, key: str) -> int | float | N
     return value
 
 
-def _heat_pump_has_flow(ctrl_flags_raw: int) -> bool:
+def get_heat_pump_flag_layout(pid: int | None) -> PoolSyncHeatPumpFlagLayout:
+    """Return the flag layout used by a heat pump product ID.
+
+    Only PID 9985 (firmware hpc/2701) uses the HP10 order; 9984 and 9986 share
+    the HP order, and an unknown or missing PID falls back to HP.
+    """
+    return HEAT_PUMP_LAYOUT_HP10 if pid == HEAT_PUMP_PID_HP10 else HEAT_PUMP_LAYOUT_HP
+
+
+def _heat_pump_flag(
+    ctrl_flags_raw: int, layout: PoolSyncHeatPumpFlagLayout, name: str
+) -> bool:
+    """Return whether a named ctrlFlags bit is set for the given layout."""
+    return bool(ctrl_flags_raw & _HEAT_PUMP_CTRL_FLAGS[layout][name])
+
+
+def _heat_pump_has_flow(
+    ctrl_flags_raw: int, layout: PoolSyncHeatPumpFlagLayout
+) -> bool:
     """Return whether the heat pump reports active water flow."""
-    return ctrl_flags_raw != 0
+    return _heat_pump_flag(ctrl_flags_raw, layout, "flow")
 
 
-def _heat_pump_compressor_running(ctrl_flags_raw: int) -> bool:
+def _heat_pump_compressor_running(
+    ctrl_flags_raw: int, layout: PoolSyncHeatPumpFlagLayout
+) -> bool:
     """Return whether the heat pump controller has engaged the compressor."""
-    return (ctrl_flags_raw & HEAT_PUMP_CTRL_FLAGS_COMPRESSOR) != 0
+    return _heat_pump_flag(ctrl_flags_raw, layout, "compressor")
 
 
-def _heat_pump_fan_running(ctrl_flags_raw: int) -> bool:
+def _heat_pump_fan_running(
+    ctrl_flags_raw: int, layout: PoolSyncHeatPumpFlagLayout
+) -> bool:
     """Return whether the heat pump controller has engaged the fan."""
-    return (ctrl_flags_raw & HEAT_PUMP_CTRL_FLAGS_FAN) != 0
+    return _heat_pump_flag(ctrl_flags_raw, layout, "fan")
 
 
 def _resolve_device_types(data: dict[str, Any]) -> dict[str, list[str]]:
@@ -1152,6 +1188,8 @@ def get_heat_pump_runtime(
 
     hp_status = hp_devices[index].status
     hp_config = hp_devices[index].config
+    pid = _get_int_value(hp_devices[index].node_attr, "pid")
+    flag_layout = get_heat_pump_flag_layout(pid)
     ctrl_flags_raw = _get_int_value(hp_status, "ctrlFlags")
     state_flags_raw = _get_int_value(hp_status, "stateFlags")
     mode_value = _get_int_value(hp_config, "mode")
@@ -1195,15 +1233,17 @@ def get_heat_pump_runtime(
 
     return PoolSyncHeatPumpRuntime(
         capabilities=capabilities,
+        pid=pid,
+        flag_layout=flag_layout,
         ctrl_flags_raw=ctrl_flags_raw,
         state_flags_raw=state_flags_raw,
-        has_flow=_heat_pump_has_flow(ctrl_flags_raw)
+        has_flow=_heat_pump_has_flow(ctrl_flags_raw, flag_layout)
         if ctrl_flags_raw is not None
         else None,
-        compressor_running=_heat_pump_compressor_running(ctrl_flags_raw)
+        compressor_running=_heat_pump_compressor_running(ctrl_flags_raw, flag_layout)
         if ctrl_flags_raw is not None
         else None,
-        fan_running=_heat_pump_fan_running(ctrl_flags_raw)
+        fan_running=_heat_pump_fan_running(ctrl_flags_raw, flag_layout)
         if ctrl_flags_raw is not None
         else None,
         mode_value=mode_value,

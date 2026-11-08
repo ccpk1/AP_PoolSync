@@ -396,7 +396,8 @@ The app decodes a device's `faults[]` array as a **bitmask**. The `faultParser` 
 - PID `9729` / `9730` (ChlorSync / Chlor Cell) → `CHLOR_FAULTS`
 - PID `9731` → `COMM_CHLOR_FAULTS` (multi-cell / comm units)
 - PID `10752` (ChemSync) → `CHEM_FAULTS`
-- PID `9984` / `9985` / `9986` (heat pumps) → `HP_FAULTS`
+- PID `9984` / `9986` (heat pumps, hpc/2700 + hpc/2702) → `HP_FAULTS`
+- PID `9985` (heat pump, hpc/2701 — "HP10") → `HP10_FAULTS` (see §0e, **not** `HP_FAULTS`)
 
 **`CHLOR_FAULTS`** (ChlorSync / Chlor Cell):
 
@@ -435,6 +436,160 @@ The app decodes a device's `faults[]` array as a **bitmask**. The `faultParser` 
 **Example decode (fault code 512):** 512 = 2⁹ → bit 9 → **`highSaltWarning`** (High Salt Warning). This matches the Beach Spa diagnostic, where the chlorinator reported `saltPPM: 5995` (elevated) with `faults: [512]`.
 
 **Fault-count histogram structure:** The `faultCounts` histogram groups faults into `stats[]` buckets — ChlorSync uses `stats[13–18]` (4 faults per bucket), ChemSync uses `stats[6–8]`. The `CHLOR_FAULTS` field maps to the raw `faults` array in the API payload (confirmed via the `CHLOR_FAULTS: 'faults'` key mapping).
+
+**Multi-word fault arrays:** the per-fault reducer (Hermes #19970) maps a *linear* template index to `word = floor(i / 32)` and `bit = i % 32`, i.e. `faults[0]` bits 0–31 then `faults[1]` bits 0–11. Any implementation that decodes each array element independently from bit 0 (as the integration currently does) mis-decodes `faults[1]` and beyond. HP10 only ever uses `faults[0]`.
+
+---
+
+### 0e. Heat Pump Firmware Families — `HP` (9984/9986) vs `HP10` (9985)
+
+> **Source of truth:** app v4.73 Hermes disassembly in `tests/PoolSync_4.73/hbctool_output.hasm`. Everything below was read from bytecode, not inferred from captures.
+>
+> This section exists because the 2026-11-02 diagnostics in issue #30 proved the integration was decoding a PID **9985** unit with the 9984/9986 layout: integration reported flow=on / compressor=on while the app showed Flow OFF / Compressor OFF / "No Flow" from the *same* payload (`stateFlags: 8`, `ctrlFlags: 4`).
+
+#### 0e.1 PID → firmware family
+
+| PID | Firmware path (`pcfw/…`) | App version table | Model class |
+|-----|--------------------------|-------------------|-------------|
+| 9984 | `hpc/2700` | version 573, min 568 | `HeatPump` |
+| **9985** | `hpc/2701` | **version 275, min 274** | **`Hp10`** |
+| 9986 | `hpc/2702` | version 46, min 46 | `HeatPump` |
+
+The hex directory name *is* the PID (`0x2700` = 9984, `0x2701` = 9985, `0x2702` = 9986; likewise `0x1000` = 4096 dongle, `0x2601`–`0x2603` = 9729–9731 ChlorSync, `0x2A00` = 10752 ChemSync). Evidence: firmware/version table keyed with `DefineOwnByIndexL` per PID at disasm byte ~11911693–11913900, and the dispatch block in `_loop` (Hermes #21178, `_loop` @ `0x004d55c7`) which branches `pid === 9984 || pid === 9986` → `parseHp*`, `pid === 9985` → `parseHp10*`.
+
+The issue #30 unit reports `appFwVersion: 275`, `hwVersion: "E"` — an exact match for the 9985 (2701) entry, independent of `nodeAttr.pid`.
+
+#### 0e.2 How the bit layout was verified (method)
+
+All flag parsers share one body (`parseHpStateFlags` #12188 @`0x003eec3e`, `parseHp10StateFlags` #12189 @`0x003eed08`, `parseHpControlFlags` #12190 @`0x003eedd2`, `parseHp10ControlFlags` #12191 @`0x003eee9c`, plus `parseDeviceFlags` #12187 and `parseSyncFlags`):
+
+```js
+let bits = isNaN(value) ? '0' : Number(value).toString(2);
+bits.split('').reverse().forEach((char, i) => {      // closure #19969
+  if (char !== '1') return;
+  result[Object.keys(TEMPLATE)[i]] = true;           // LSB = template key 0
+});
+```
+
+So **template key order == bit index, LSB first**. This is cross-checked against the 9984/9986 fixtures already in the repo (`t75-heat-pool` `ctrlFlags=13` → flow(0)+compressor(2)+fan(3); `t75-off-*` `stateFlags=1` → `isOff`; `t75-heatpump-fault` `stateFlags=192` → `isFaulted`(6)+`isLockedOut`(7); `t75-spa-startup` `stateFlags=520` → `isHeating`(3)+`isMakeDelay`(9)).
+
+Templates are the objects bound to the identifiers listed below, defined around disasm byte 11936000–11940900.
+
+#### 0e.3 `status.stateFlags`
+
+| Bit | `HP` (9984/9986) — `HP_STATE_FLAGS` | `HP10` (9985) — `HP10_STATE_FLAGS` |
+|-----|-------------------------------------|------------------------------------|
+| 0 | `isOff` | `isOff` |
+| 1 | `isWaitFlow` | `isHeating` |
+| 2 | `isHolding` | `isHolding` |
+| 3 | `isHeating` | `isWaitFlow` |
+| 4 | `isCooling` | `isDefrosting` |
+| 5 | `isDefrosting` | `isFaulted` |
+| 6 | `isFaulted` | `isMakeDelay` |
+| 7 | `isLockedOut` | `isLockedOut` |
+| 8 | `isRemoteControlled` | `isLocalUIControl` |
+| 9 | `isMakeDelay` | — |
+| 10 | `isGasHeatingCoolDown` | — |
+| 11 | `isWaitSourceFlow` | — |
+| 12 | `isFreezeProtecting` | — |
+
+Note the **bit order differs**, not just the names: `isHeating` is bit 3 on `HP` and bit 1 on `HP10`; `isWaitFlow` is bit 1 on `HP` and bit 3 on `HP10`. HP10 also has no cooling, source-flow, gas-cool-down or freeze-protect states, and replaces `isRemoteControlled` with `isLocalUIControl` (local panel takeover).
+
+#### 0e.4 `status.ctrlFlags`
+
+| Bit | `HP` (9984/9986) — `HP_CONTROL_FLAGS` | `HP10` (9985) — `HP10_CONTROL_FLAGS` |
+|-----|---------------------------------------|--------------------------------------|
+| 0 | `flowSensorOneState` | **`compressorRelayState`** |
+| 1 | `flowSensorTwoState` | `fanRelayState` |
+| 2 | `compressorRelayState` | **`highPressureLowPressure`** |
+| 3 | `fanRelayState` | **`flowSensorOneState`** |
+| 4 | `fanSpeedState` | `twoWireEnabled` |
+| 5 | `reverseValveState` | `twoWireHeatModeOn` |
+| 6 | `flexRelayState` | — |
+| 7 | `gasRelayState` | — |
+| 8 | `geothermalPSR` | — |
+| 9 | `expansionModuleInstalled` | — |
+| 10 | `poweredOff` (app label: **"HP10 Panel Off"**) | — |
+
+HP10 is a **6-bit** word. The compressor/fan/flow positions are all different from `HP`, which is exactly why `ctrlFlags: 4` reads as "compressor ON" under the `HP` layout and as "HP/LP pressure input" under `HP10`.
+
+App-side consumers of these bits (for reference): `Flow` row ← `flowSensorOneState`, `Fan` ← `fanRelayState`, `Compressor` ← `compressorRelayState` (+ `compRPM` when `isVS`), Water Temperature row renders **"No Flow"** when `flowSensorOneState` is false. `buildUiStatus` renders the same bits as text rows.
+
+#### 0e.5 `faults[]`
+
+`HP` (9984/9986) → `HP_FAULTS` (44 entries, §0d) spanning `faults[0]` bits 0–31 and `faults[1]` bits 0–11.
+
+`HP10` (9985) → `HP10_FAULTS`, **8 entries, `faults[0]` only**:
+
+| Bit | Key | App card title |
+|-----|-----|----------------|
+| 0 | `waterSensorOne` | Water Sensor 1 |
+| 1 | `waterSensorTwo` | Water Sensor 2 |
+| 2 | `ds1Sensor` | Defrost Sensor 1 |
+| 3 | `ds2Sensor` | Defrost Sensor 2 |
+| 4 | `compressor` | Compressor Fault |
+| 5 | `highWaterTemp` | High Water Temperature |
+| 6 | `lowPressureHighPressure` | High/Low Pressure |
+| 7 | `lp5hp5Lockout` | HP5/LP5 |
+
+Consequence: the integration's HP table maps HP10 bit 0 (`Water Sensor 1`) to "Low Pressure", bit 2 (`Defrost Sensor 1`) to "LP5 Lockout", bit 4 (`Compressor Fault`) to "Defrost Sensor 1 Open", etc.
+
+#### 0e.6 Payload field availability
+
+Diffed against `t75-*` (9984) and `sq160r-*` (9986) fixtures and the issue #30 capture (9985):
+
+| Section | Present on HP10 only | Absent on HP10 (present on HP) |
+|---------|----------------------|--------------------------------|
+| `status` | `ws1Temp`, `ws2Temp` | `airTemp`, `boardTemp`, `compRPM`, `flowPeriod`, `outletTemp`, `solarTemp`, `geoInlet`, `geoOutlet`, `waterTemp2` |
+| `config` | — | `backupHeatMode`, `backupHeatStartTime`, `backupHeatStopTime`, `efficiencyMode`, `extCtrlMode`, `gasBoost`, `multiUnitAddr`, `multiUnitMode`, `poolSpaMode`, `schedAwayEnd`, `schedMode`, `serviceMode`, `solarMode`, `solarSetpoint`, `spaSetpoint`, `turboBoost` |
+| `system` | — | `compModelNum`, `dispFwVersion` |
+
+On HP10 `waterTemp` duplicates `ws1Temp` (both 87.3 in the capture) with `ws2Temp` ~0.3 °F lower; `ds1Temp`/`ds2Temp` are still present (89.06 / 86.64).
+
+#### 0e.7 Model-class differences (`_loop` #21178)
+
+| Property | `HP` | `HP10` |
+|----------|------|--------|
+| `isHeatPump` / `isHeatPump10` | true / false | false / true |
+| `availableHeatModes` | from model number via `getHeatModesFromModel()` — `…H…` → `['OFF','HEAT','COOL','AUTO']`, `…C…` → `['OFF','COOL']`, else `['OFF','HEAT']` | hardcoded `['OFF','HEAT']` |
+| `isVS` | model chars `-5..-4` ∈ {`V`,`Y`} | **always false** |
+| `isSubUnit` | `multiUnitMode === 2` | **always false** |
+| `isPhase2` | `pid === 9986 \|\| appFwVersion` in 512…767 | **always true** |
+| `logicIdSupport` | `pid === 9986 \|\| appFwVersion >= 518` | **always true** |
+| `remoteControl` | `getHpRemoteControlStatus(extCtrlMode, mode)` | always false |
+| `compRPM`, `flowPeriod`, `efficiencyMode`, `gasBoostMode`, `multiUnitAddr/Mode`, `poolSpaMode`, `displayVersion`, `compressorModel` | parsed | zero/undefined |
+| `maxTemp` / `minTemp` fallback | 110 / 60 | 110 / 60 (payload supplies 104 / 60) |
+
+`getHpRemoteControlStatus(extCtrlMode, mode)` (Hermes #12209) compares `extCtrlMode` against `2` and `{2,4}` and `mode` against `{1,3}`; it is only ever non-zero for `HP` (the `Hp10` class hardcodes `remoteControl = false`). The exact truth table has not been re-derived from bytecode — treat it as “remote/external control active”.
+
+#### 0e.8 App UI differences driven by `isHeatPump10` / `isPhase2`
+
+- **Status banner priority** (`HeatPumpScreen` #14514, chain at `0x000280`): powered off → locked out → faulted → two-wire → sub-unit, where
+  - "System is Powered Off" = `isHeatPump10 && isOff` (HP10) — the exact string users see when the panel/unit reports off,
+  - "System Locked Out" = `isHeatPump10 && !isOff && isLockedOut`,
+  - "two-wire" = `isHeatPump10 && !isOff && !isLockedOut && twoWireEnabled`,
+  - HP10 does **not** use `ctrlFlags` bit 10 for this; HP's `poweredOff` bit has no HP10 equivalent.
+- **Faulted banner** uses `faults.waterSensorOne || faults.waterSensorTwo` on HP10 (i.e. water-sensor faults only), not `isFaulted`.
+- **Controls disabled** when `(isHeatPump10 && isOff) || (isHeatPump10 && isLockedOut) || isFaulted`.
+- **Setpoint writes** (`updateTemp` #21718): `isPhase2` ⇒ always write `config.setpoint`; otherwise write `spaSetpoint` when `poolSpaMode !== 0`. Writes are refused when `!isOnline` or `isFreezeProtecting`.
+- **Slider label**: `isPhase2` → "Setpoint"; else "Pool Setpoint"/"Spa Setpoint". Because T75 fw 563 also satisfies `isPhase2`, the T75 shows a single "Setpoint" too.
+- **Settings rows** (`HeatPumpSettings` #14522): `Compressor` (RPM), `Flow Hours`, `Efficiency Mode`, `Compressor Model` require `isVS && !isSubUnit`; `Schedule Mode` requires `!isPhase2 && !isSubUnit`; `Logical ID` requires `logicIdSupport`; `Gas Boost` requires `!isPhase2 && !isSubUnit` (shown on phase-2 units even though HP10 has no `gasBoost` field).
+- **HP10 status detail list** (`buildUiStatus` #20240) is a distinct 20-row set: Off, Heating, Holding Setpoint Temp, Waiting for Flow, Defrosting, Faulted, Make Delay, Locked Out, Local UI Control, Compressor Relay State, Fan Relay State, HP/LP, Flow Sensor 1 State, Two-Wire Enabled, Two-Wire Heat Mode, Water Temp, Water Sensor 1/2 Temp, Defrost Sensor 1/2 Temp.
+- HP10 shows **no** `Compressor Speed`, `Flow Period (3-day avg)`, `Outlet Water Temp`, `Ambient Air Temp`, `Solar Temp`, `Board Temperature` rows (those belong to the `HP` list).
+
+#### 0e.9 What the 2026-11-02 payload decodes to
+
+Capture: `pid 9985`, `stateFlags: 8`, `ctrlFlags: 4`, `faults: [0]`, `waterTemp: 87.3`, `ws1Temp: 87.3`, `ws2Temp: 86.98`.
+This capture is stored as `tests/sample_diagnostics/hp10-issue30-pump-off.json`.
+
+| Signal | `HP` layout (integration 2.0.1 and earlier) | `HP10` layout (app, and integration after the PID-aware fix) |
+|--------|--------------------------------|---------------------|
+| flow | on (`ctrlFlags != 0`) | **off** (bit 3 clear) |
+| compressor | on (bit 2) | **off** (bit 0 clear) |
+| fan | off (bit 3) | off (bit 1 clear) |
+| state | — | `isWaitFlow` (bit 3) |
+| ctrl bit 2 | compressor | `HP/LP` pressure input |
+| water temp | 87.3 shown | "No Flow" |
 
 ---
 
@@ -512,6 +667,121 @@ Once the user presses the physical button, the API returns the device `password`
 > The app also closes the session with `PATCH /api/poolsync?cmd=pushLink&end` (`endPushLinking`, #14051). The integration does not currently call `&end`; on a timeout the link session is left open on the device, which is a plausible cause of a subsequent `&start` returning HTTP 400 with an empty body.
 >
 > Related device-side state resets (not currently used by the integration): `DELETE /api/poolsync?cmd=pushLink` (app `legacy_resetHashAPI`, clears the local auth hash) and `POST /api/dongle/link` with body `{"reset": true}` (app `resetHash`).
+
+#### 1.1a Pairing instructions are selected by UI host, not by model
+
+The authorization button differs per hardware variant, and the app has **two** screens that encode this:
+`PushLinkScreen` (#14549, "Device Linking", legacy) and `SetupPushLink` (#14724, setup wizard). Both were
+read from `tests/PoolSync_4.73/hbctool_output.hasm`; all strings below are verbatim.
+
+**Screen 1 — `PushLinkScreen` (#14549), keyed on `status.remoteUiPid`:**
+
+```
+0x0001ba  LoadConstInt 4096   ; remoteUiPid
+0x0001c0  StrictEq  R19
+0x0001cf  JmpFalse  -> 0x0002e4
+          ... "Press and hold the Service Button (middle button) on your <defaultName>
+               for 3 seconds before the timer runs out to authorize this device. You will
+               need to authorize all mobile devices you wish to access this <defaultName>."
+0x0002e4  LoadConstInt 9986
+0x0002ea  StrictEq  R7
+0x0002f6  JmpFalse  -> 0x0003e8
+          ... "Press AUTH on the heat pump display:" +
+              "Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the
+               POOLSYNC WIFI menu screen or the MAIN status screen of the heat pump."
+0x0003e8  LoadConstInt 9731
+0x0003ee  StrictEq  R18
+0x0003f6  JmpFalse  -> 0x0004e8
+          ... "Press Yes on the chlorinator display to authorize this device:" +
+              "Tip: If the POOLSYNC AUTHORIZE screen does not appear then press the MENU button
+               and navigate to the Network setting, press Select, navigate to the Authorize
+               setting and press Select."
+0x0004e8  (fallthrough: progress bar, no instruction text)
+```
+
+**Screen 2 — `SetupPushLink` (#14724), keyed on `deviceToSetup` (the setup wizard's device type):**
+
+```
+0x0001a2  'wall'      -> "Press and hold the Service Button on your <device>
+                          for 3 seconds before the timer runs out to authorize this device. …"
+0x0002b2  'embedded'  -> "Press AUTH on the heat pump display:" + POOLSYNC WIFI / MAIN status tip
+0x00048c  'commChlor' -> "Press Yes on the chlorinator display:"  + MENU → Network → Select → Authorize tip
+```
+
+The two screens agree, which cross-validates the mapping:
+
+| UI host | `remoteUiPid` | wizard `setupType` | Instruction | Illustration asset |
+|---------|---------------|--------------------|-------------|--------------------|
+| PoolSync controller (standalone wall unit, or built into the heat pump) | `4096` | `wall` | hold **Service (middle)** button ~3 s | `images.pushLink1` / `pushLink2`, `instructionImage(_new)` |
+| Heat pump display | `9986` | `embedded` | press **AUTH** on the heat pump display | `images.embeddedAuth` |
+| Chlorinator display | `9731` | `commChlor` | press **Yes** on the chlorinator display | `images.commChlorAuth` |
+| anything else | — | — | **no instruction text at all** (progress bar only) | — |
+
+Corrections to earlier notes in this document: `embeddedAuth` and `commChlorAuth` are *image asset names*, not
+setup types; `hwVersion === '3.0'` does **not** select text — inside the 4096 branch it only picks
+`pushLink1`/`pushLink2` and `instructionImage`/`instructionImage_new` (`0x000290`, `0x0002ab`).
+
+**There is no 10-second hold in app v4.73.** The only durations in any instruction are:
+
+| Duration | Operation | Verbatim |
+|----------|-----------|----------|
+| 3 s | authorize (both pairing screens) | "…for 3 seconds before the timer runs out to authorize this device…" |
+| 15 s | enter **Wi-Fi setup mode** (`SetupDeviceSelection` #14676, asset `tropicSetupLights`) | "are flashing. If not, hold the button for 15 seconds or until they flash." — preceded by "Press the Setup button on the physical device to begin. The third light will turn on once in setup mode." and "Do not press the setup button." (when already on Wi-Fi) |
+| 30 s | software restart | "Do you want to restart your device? This may take up to 30 seconds before you can use it again." |
+
+Button names used by the app (`parseSyncFlags` labels + `stats` counters): **Connect**, **Service**,
+**Service Access**, **Setup**. The pairing text refers to the Service button as the "middle" button.
+
+**Field observations vs the app text:**
+
+| Unit | `remoteUiPid` | `hwVersion` | What actually worked |
+|------|---------------|-------------|----------------------|
+| T75 / 075AHDSBLH (standalone controller, project owner) | 4096 | 2.0 | single AUTH press |
+| 090 system | 4096 | 3.0 | not reported |
+| SQ160R (heat pump hosts the UI) | 9986 | 3.0 | not reported |
+| Issue #30 AquaCal 055AHDSBLH (integrated) | 4096 | 3.0 | AUTH alone did nothing; **Service, then AUTH** worked (2026-11-02) |
+
+The app's text for `4096`/`wall` (hold Service ~3 s) matches the issue #30 unit. The standalone T75 accepts a
+single AUTH press, so on at least some controller hardware either action authorizes. The integration therefore
+cannot name one universal button and states the app's per-host instruction plus that fallback.
+
+#### 1.1b Authorized clients (why a re-pair can break an existing client)
+
+- Each successful `pushLink` authorizes **one client** and hands back the password. The app's copy: *"You will need to authorize all mobile devices you wish to access this `<device>`"*, and the setup wizard has a step *"Clear all previously authorized users who can remotely access the device."*
+- That step is `DELETE /api/poolsync?cmd=pushLink` (`resetHash` #14052, `legacy_resetHashAPI` #21260), sent **with** `Authorization` + `User` headers. Full device wipe is `DELETE /api/poolsync?cmd=factoryReset` (`factoryReset` #14060).
+- Practically: if a device is re-paired from the app or the user runs the "clear authorized users" step, the password stored in the Home Assistant config entry may be invalidated. Symptom would be HTTP 401 / `ConfigEntryAuthFailed`, **not** frozen values or connection refused.
+- The dongle also exposes `poolSync.config.authorized` (mapped by `AUTHORIZED`) in newer firmware; absent in the 864-firmware payload from issue #30.
+
+#### 1.1c Local API surface used by the app v4.73
+
+| Endpoint | Method | App function | Notes |
+|----------|--------|--------------|-------|
+| `/api/poolsync?cmd=poolSync&all` | GET | `getSync` #14053 | full snapshot; same path the integration uses (`API_PATH_ALL_DATA`) |
+| `/api/poolsync?cmd=poolSync` | PATCH | `updateSync` #14054 | controller-level config writes |
+| `/api/poolsync?cmd=changeStatus` | GET | `checkChangeStatus` #14055 | lightweight change check (not used by the integration) |
+| `/api/poolsync?cmd=devices&device={id}` | GET / PATCH | `getDevice` #14057 / `updateDevice` #14058 | per-device read/write; PATCH sends `Content-Type: application/json` + `Authorization` + `User` |
+| `/api/poolsync?cmd=discover` | GET | `discoverDevices` #14056 | ask the dongle to re-scan attached equipment |
+| `/api/poolsync?cmd=restart` | GET | `restartDevice` #14059 | software restart ("may take up to 30 seconds") |
+| `/api/dongle`, `/api/dongle/state`, `/api/dongle/devices/{id}` | GET/PUT | `getDongle` #14069, `putDongleState` #14070, `putDevice` #14071 | newer API; the app falls back to it on HTTP 404 from the legacy path |
+| `/api/dongle/software_restart`, `/api/dongle/factory_reset` | POST/DELETE | `restartDevice` #14072 | newer equivalents |
+
+`updateDevice` also calls `thingsAPI.updateShadow(...)` before the local PATCH — the app keeps the cloud shadow in sync, but the local PATCH is what changes the device.
+
+#### 1.1d Dongle-side state worth reading during pairing / comms troubleshooting
+
+`poolSync.status.flags` (`SYNC_FLAGS`, parsed by `parseSyncFlags`) is a 5-bit word the integration currently ignores:
+
+| Bit | Key | Meaning |
+|-----|-----|---------|
+| 0 | `isUpdating` | device/shadow update in progress |
+| 1 | `connectButtonPressed` | Connect button currently held |
+| 2 | `serviceButtonPressed` | Service button currently held |
+| 3 | `serviceAccessButtonPressed` | Service-Access button currently held |
+| 4 | `setupButtonPressed` | Setup button currently held |
+
+Polling this while the user presses a button would conclusively show whether the press reached the dongle ("I pressed AUTH and nothing happened" vs "the dongle never saw it"). Cumulative press counters already exist in `poolSync.stats`: `numConnectButtonPresses`, `numServiceButtonPresses`, `numServiceAccessButtonPresses`, `numSetupButtonPresses` (issue #30 unit: 4 / 2 / 5 / 0).
+
+Other per-device comms counters: `stats.numDeviceMsgNoResp`, `stats.numDeviceOffline`, `stats.lastOfflineDevPid`, `stats.lastOfflineDevAddr`, `stats.device0CommErrors` … `device7CommErrors`, plus `numDeviceCmdErrResp`. The app labels these "Num Device MSG No Resp", "Num of Times Devices Offline", "Last Offline Dev PID/Addr".
 
 ### 1.2 Controller-Level Sensors (`role="controller"`)
 
@@ -625,17 +895,31 @@ When model decode fails, fall back to checking whether `poolSpaMode` and `spaSet
 
 **Source: `devices[hp_id].status.ctrlFlags`**
 
-| Bit | Mask | Meaning | Entity |
-|-----|------|---------|--------|
+The bit order is selected by `nodeAttr.pid` (see §0e). `runtime.get_heat_pump_flag_layout()`
+returns `hp` for 9984/9986 (and for a missing PID) and `hp10` for 9985.
+
+| Bit (`hp`) | Mask | Meaning | Entity |
+|------------|------|---------|--------|
+| 0 | 1 | `flowSensorOneState` → `has_flow` | `binary_sensor.heatpump_flow` |
 | 2 | 4 | Compressor engaged | `binary_sensor.heatpump_compressor` |
 | 3 | 8 | Fan running | `binary_sensor.heatpump_fan` |
 
-`has_flow` = `ctrlFlags != 0` (any non-zero ctrlFlags means the controller sees water flow).
+| Bit (`hp10`) | Mask | Meaning | Entity |
+|--------------|------|---------|--------|
+| 0 | 1 | Compressor engaged | `binary_sensor.heatpump_compressor` |
+| 1 | 2 | Fan running | `binary_sensor.heatpump_fan` |
+| 2 | 4 | `highPressureLowPressure` (HP/LP input) | not exposed |
+| 3 | 8 | `flowSensorOneState` → `has_flow` | `binary_sensor.heatpump_flow` |
+
+`has_flow` is the dedicated flow-sensor bit — never `ctrlFlags != 0`. Other control
+bits (expansion module, gas/geothermal relays, fan speed, HP/LP) do not imply flow.
 
 **Sample evidence:**
-- t75-heatpump-fault.json: `ctrlFlags=1`, fan bit=0 → fan off (old logic said fan on; bitmask fix confirmed)
-- t75-spa-startup: `ctrlFlags=520` → bits 3 (fan) and 9 set → fan on, compressor off ✓
-- 090 compressor on: `ctrlFlags=909` → bits 0,2,3,7,9 set → flow + compressor + fan ✓
+- t75-heatpump-fault.json: `ctrlFlags=1` → bit 0 only → flow on, compressor and fan off
+- t75-spa-startup: `ctrlFlags=9` → bits 0 and 3 → flow + fan, compressor off (`stateFlags=520` is a separate word)
+- 090 compressor on: `ctrlFlags=909` → bits 0,2,3,7,8,9 → flow + compressor + fan (bits 7-9 are gas/geothermal/expansion relays)
+- **090 all off: `ctrlFlags=512` → bit 9 only → no flow** — regression case for the previous `ctrlFlags != 0` rule, which reported flow on a switched-off unit
+- hp10-issue30-pump-off.json: `ctrlFlags=4` → bit 2 only → HP/LP input; flow, compressor and fan all off
 
 ### 2.5 Heat Pump Sensors
 
@@ -1416,3 +1700,89 @@ Each finding in sections 3 and 5 needs to be confirmed before building. The proc
 | Confirmed, not yet built | 🔵 |
 | Probable, awaiting confirmation | 🟡 |
 | Speculative | 🟢 |
+
+---
+
+## 7. HP10 (PID 9985): Gaps, Communications Evidence & Open Questions
+
+Reference layout: §0e. This section tracks the work items and the questions we cannot answer from a single capture.
+
+### 7.1 Integration gaps (code state at 2.0.1)
+
+| # | Gap | Location | Status |
+|---|-----|----------|--------|
+| G1 | No PID awareness — every heat pump is decoded with the `HP` layout | `runtime.py` flag helpers | ✅ **fixed** — `get_heat_pump_flag_layout()` selects `hp`/`hp10` from `nodeAttr.pid` |
+| G2 | `has_flow = ctrlFlags != 0` | `runtime.py` `_heat_pump_has_flow()` | ✅ **fixed** — flow is the dedicated flow-sensor bit; `090-all-off` (`ctrlFlags=512`) no longer reports flow |
+| G3 | HP10 fault table missing — 9985 faults decoded with `HP_FAULTS` | `fault_codes.py` | ✅ **fixed** — `HP10_FAULTS` (8 bits) selected by PID 9985 in `get_fault_table()` |
+| G4 | Multi-word fault arrays decoded per element from bit 0 | `fault_codes.py:decode_faults()` | ✅ **fixed** — linear index `word * 32 + bit` |
+| G13 | Zero PID 9985 test coverage | `tests/sample_diagnostics/` | ✅ **fixed** — `hp10-issue30-pump-off.json` + `test_heat_pump_ctrl_flags_use_pid_layout` |
+| G5 | `stateFlags` parsed but unused | `runtime.py` | 🔵 open — no `isOff` / `isWaitFlow` / `isHolding` / `isDefrosting` / `isMakeDelay` / `isLockedOut` / `isLocalUIControl` / `isHeating`; climate action is inferred from the compressor relay instead |
+| G6 | HP10 `twoWireEnabled` / `twoWireHeatModeOn` never exposed | `runtime.py` | 🔵 open — cannot tell whether the unit is under external dry-contact control |
+| G7 | HP10 sensor set not mapped: `ws1Temp`, `ws2Temp` | `runtime.py` sensor getters | 🔵 open — `hp_water_temp2` maps `waterTemp2`, which HP10 never sends (`null` while `ws2Temp` = 86.98) |
+| G8 | Water temperature not gated on flow | `runtime.py` sensor getters | 🔵 open — app shows "No Flow"; integration shows a number the app considers meaningless |
+| G9 | `_TEMP_SENTINELS` / `_get_temp_value` are dead code | `runtime.py` | 🔵 open — sentinel filtering is never applied to any temperature |
+| G10 | `hp_fault_code` reports the first non-zero **word** as a "code" | `runtime.py` | 🔵 open — inconsistent with bitmask semantics; for HP10 any value is a bitfield |
+| G11 | `poolSync.status.flags` (`SYNC_FLAGS`) unused | controller sensors | 🔵 open — loses button-press / `isUpdating` visibility during pairing |
+| G12 | Write guards differ from app: no `isOnline` / freeze-protect refusal | `coordinator.py` write paths | 🟢 deferred — HA can write while the app would refuse (low impact) |
+
+Fixes for G1–G4 and G13 landed together; the only behavioural change on existing hardware is
+that a non-zero `ctrlFlags` without the flow bit no longer reports flow (previously wrong).
+Diagnostics now include `heat_pump_debug.pid` and `heat_pump_debug.flag_layout` so future
+reports are self-identifying.
+
+### 7.2 What pairing/communications evidence suggests about issue #30
+
+Two separate events are involved; they should not be conflated.
+
+**(a) 2026-11-02 — flow/compressor shown ON while the pump was OFF (app showed OFF).**
+
+- Not polling/staleness: the diagnostics show `last_update_success: true`, `last_failure_class: null`, `update_interval_seconds: 120`, and the dongle clock (`status.dateTime`) at 12:41:09, ~6 min after the 12:35 observation. A fresh poll was decoded with the wrong layout (§0e.9).
+- Not communication loss: the payload is internally consistent for an HP10 unit — `stateFlags: 8` = `isWaitFlow`, `ctrlFlags: 4` = `HP/LP` input, compressor/fan/flow bits all clear, and the app's "No Flow" + "Flow OFF" come from those same bits.
+- Pairing is unrelated to this one: it is a decode defect (G1/G2).
+
+**(b) 2026-11-05 — PoolSync froze repeatedly and the app said "System is Powered Off".**
+
+- `poolSync.status.flags` = 0 and `stats.cfgRamConflicts` / `cfgNvramConflicts` = 0, so no config-conflict restart storm at snapshot time.
+- `stats`: `numPowerups: 19`, `systemRestarts: 16`, `lastEsp32ResetReason: 3` (ESP-IDF `ESP_RST_SW` = software restart), `restartHistory: "08070908"`, `wifiDisconnects: 21`, `awsDisconnects: 10`, `mqttKeepAliveTimeouts: 524342`, `upTimeSecs: 1009806` (~11.7 days), `numConsoleIncorrectPassword: 20`.
+- `stats.numDeviceMsgNoResp: 2` and `stats.device0CommErrors: 2` — the dongle↔heat-pump link had logged only two non-responses at snapshot time, so a persistent bus failure is not proven.
+- "System is Powered Off" is `isHeatPump10 && isOff` (state flag bit 0) — the *heat pump* told the dongle it was off. Combined with the compressor stopping, that is the heat pump's own behaviour, not HA's.
+- Later in the same log HA got `Connect call failed ('192.168.1.153', 80)` — the dongle's HTTP listener went away, consistent with the software-restart counters. The integration then serves the last snapshot for up to 3 consecutive failures (`_MAX_STALE_TRANSPORT_FAILURES`), so ~6 min of frozen-but-plausible values before entities go unavailable.
+- Nothing HP10-specific was found in the pairing or transport layer: the app uses the same endpoints, the same `&all` snapshot, and tolerates far more polling than HA's 120 s (the app's polling middleware loop carries a 2500 ms constant, #25969 `_loop` @ `0x0055fa6b` — **tentative**, that loop is a transpiled generator with several constants).
+
+**Plausible-but-unproven for (b):** `ctrlFlags` bit 2 (`highPressureLowPressure`) was *set* in the 11-02 capture while the compressor was off and `faults: [0]` reported nothing. If HP10 latches a pressure-switch condition that never appears in `faults[]`, it could explain both "no fault code" and the repeated stops. One capture cannot settle this (§7.3 Q2).
+
+**Not implicated for either event:**
+
+- Multi-client authorization (§1.1b) would present as 401 auth failure, not frozen values.
+- Two-wire control (`twoWireEnabled`) and panel takeover (`isLocalUIControl`) were both clear in the 11-02 capture (`ctrlFlags` bit 4 = 0, `stateFlags` bit 8 = 0).
+- Wi-Fi signal: `rssi: -40`, `minRssi: -62` — strong.
+
+### 7.3 Open questions (HP10)
+
+| # | Question | Why it matters | What would answer it |
+|---|----------|----------------|----------------------|
+| Q1 | Do real 9985 captures match the HP10 bit maps in §0e.3/§0e.4 across pump-on, heating, idle-with-flow and defrost states? | Only one 9985 payload exists today | 4 captures from any 9985 unit (all modes) |
+| Q2 | Is HP10 `ctrlFlags` bit 2 (`highPressureLowPressure`) a latched condition or a live switch input? Should it suppress heating / be surfaced as a fault? | Candidate cause of the 11-05 stops with no `faults[]` entry | capture with bit 2 set + service-manual cross-check |
+| Q3 | What exactly does `isLocalUIControl` (state bit 8) mean, and should HA disable writes while it is set? | Panel takeover would silently ignore HA writes | capture with the panel being operated |
+| Q4 | With `twoWireEnabled` set, are `mode`/`setpoint` writes still honoured, or does the dry contact override them? | Could make heat control a no-op | capture from a two-wire installation |
+| Q5 | Is HP10 `waterTemp` a computed value or a mirror of `ws1Temp`? Should `hp_water_temp2` map to `ws2Temp` on 9985? | Sensor accuracy / duplicate entities | 2 captures with different ws1/ws2 spread |
+| Q6 | Should water temperature be reported unavailable when `flowSensorOneState` is false (app behaviour)? | User-visible correctness (issue #30 asked for it) | product decision, no capture needed |
+| Q7 | Is `faults[]` on HP10 always a single word, and are bits 8+ used? | Unknown bits currently decode to nothing | capture with an induced fault (e.g. unplug a water sensor) |
+| Q8 | Why does the app's per-PID fault **card** table for 9985 contain only `pressure` / `pressureLockout`, while the `HP10_FAULTS` bit template uses `lowPressureHighPressure` / `lp5hp5Lockout`? | Either a vendor naming mismatch (cards never render) or a table we misread | induced pressure fault + watch the app's alert card |
+| Q9 | Does HP10 support cooling or auto? App hardcodes `['OFF','HEAT']` and `supports_cooling = false` | Configuration surface | model-number list from AquaCal / a cooling unit capture |
+| Q10 | `setpointMax` 104 vs app fallback 110 — which wins when the payload omits it? | Range clamping | capture from a unit without limits |
+| Q11 | Can `remoteUiPid` be 9984/9985 (heat pump as UI host)? If so the pairing screen shows no button text at all | Affects the pairing UX we document | unit where the heat pump drives the UI |
+| Q12 | Does `isOff` (state bit 0) mean the panel switch is off, or standby? And why is HP's `poweredOff` control bit labelled "HP10 Panel Off"? | Interpretation of the app's "System is Powered Off" banner | panel on/off capture pair |
+| Q13 | What are `ds1Temp`/`ds2Temp` on HP10 (defrost/suction vs water sensors)? In the capture 89.06 / 86.64 bracket `waterTemp` 87.3 | Whether they are safe to expose | service manual + heating capture |
+| Q14 | Does `logicIdSupport` (`true` for HP10) imply multi-unit / logical-ID addressing that HA should use for writes? | Multi-unit installs | multi-unit capture |
+
+### 7.4 Suggested next captures
+
+1. PID 9985, pump **on**, unit **heating** (expect compressor bit 0 + fan bit 1 set, `isHeating` bit 1 set, no `isWaitFlow`).
+2. PID 9985, pump **on**, unit **idle at setpoint** (expect flow bit 3 set, compressor/fan clear, `isHolding`).
+3. PID 9985 with an **induced water-sensor fault** (expected bit 0/1 in `faults[0]`, `isFaulted` bit 5).
+4. PID 9985 **panel switched off** (expected `isOff` bit 0; confirms Q12 and the banner mapping).
+5. Same unit **with a pressure condition** if one can be triggered safely (Q2/Q8).
+
+Store captures in `tests/sample_diagnostics/` with `hp10-*` names so `test_runtime.py` can pin the new layout.
+

@@ -3,3 +3,6 @@ __pycache__/
 tests/PoolSync_*
 .coverage
 htmlcov/
+# Virtual environments and editable-install metadata
+.venv/
+*.egg-info/

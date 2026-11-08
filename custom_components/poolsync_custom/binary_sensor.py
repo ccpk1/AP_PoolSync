@@ -24,6 +24,7 @@ from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
     get_equipment_runtime,
+    get_role_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -465,6 +466,10 @@ class PoolSyncBinarySensor(
             if fault_code != 0:
                 attrs["fault_code"] = fault_code
                 break
-        if active := decode_faults(self._role_key, faults):
+        role_data = get_role_data(parsed_data, self._role_key, index=self._device_index)
+        pid = (role_data.node_attr or {}).get("pid") if role_data else None
+        if active := decode_faults(
+            self._role_key, faults, pid if isinstance(pid, int) else None
+        ):
             attrs["active_faults"] = active
         return attrs or None

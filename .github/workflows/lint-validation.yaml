@@ -29,4 +29,4 @@ jobs:
         run: bash ./utils/quick_lint.sh
 
       - name: Run pytest
-        run: python -m pytest tests/ -v
+        run: bash ./utils/run_tests.sh -v

@@ -1,0 +1,61 @@
+name: Upstream compatibility
+
+# Canary for new Home Assistant releases. The plugin selects which Home
+# Assistant version is tested, so this job needs no version pins: it resolves
+# the newest pair available and reports breakage before a release ships.
+# Failures here do not block pull requests; fix them (or file an issue) on the
+# next dependency refresh.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install newest released dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade -e ".[dev]"
+          python -m pip show homeassistant pytest-homeassistant-custom-component \
+            | grep -E '^(Name|Version):'
+
+      - name: Run tests against newest release
+        run: bash ./utils/run_tests.sh -v
+
+  upcoming-release:
+    runs-on: ubuntu-latest
+    continue-on-error: true # pre-releases; informational only
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install pre-release dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade --pre -e ".[dev]"
+          python -m pip show homeassistant pytest-homeassistant-custom-component \
+            | grep -E '^(Name|Version):'
+
+      - name: Run tests against pre-release
+        run: bash ./utils/run_tests.sh -v

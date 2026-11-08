@@ -33,7 +33,7 @@ Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Wheth
 | :--- | :--- |
 | **Home Assistant** | Core `2025.1.0` or newer |
 | **Network** | Local network access to the PoolSync IP address |
-| **Hardware Support** | Standalone PoolSync Controller **OR** PoolSync integrated into Heat Pump |
+| **Hardware Support** | Standalone PoolSync Controller or PoolSync integrated into a heat pump (chlorinator-hosted PoolSync is app-documented but untested) |
 | **Ecosystem Units** | ChlorSync, ChemSync, Heat Pumps, Variable-Speed Pumps, Valves, Group Scenes |
 
 ---
@@ -55,7 +55,21 @@ Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Wheth
 
 1. In Home Assistant, go to **Settings** → **Devices & Services** → **Add Integration**.
 2. Search for **PoolSync Custom** and enter the local IP address of your PoolSync device.
-3. When prompted, press the physical **Auth** or **Service** button on your PoolSync controller.
+
+Home Assistant then opens a **120-second** window and waits for your PoolSync to hand back an access password.
+What you press during that window depends on your hardware, because PoolSync is sold in a few different shapes.
+
+> **The walkthrough and screenshots below are from a standalone PoolSync controller** — the hardware this
+> project was built on. If your PoolSync does **not** have its own screen and you operate it from your heat
+> pump or chlorinator display, use the matching section instead.
+
+---
+
+### If your PoolSync has its own panel
+
+This covers the standalone controller, and any PoolSync unit that shows its own screen.
+
+**Next:** press the **AUTH** button once.
 
 <table>
   <tr>
@@ -70,9 +84,21 @@ Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Wheth
   </tr>
 </table>
 
-4. Wait for Home Assistant to complete pairing and generate config entries for all detected hardware.
+**If nothing happens,** hold the **Service** (middle) button for about **3 seconds** instead.
 
-If linking fails, the flow offers a retry path. If repeated attempts fail, restart the PoolSync device and try again.
+> **Why both?** The PoolSync phone app's own instruction for this hardware is to *"Press and hold the Service
+> Button (middle button) on your `<device>` for 3 seconds before the timer runs out to authorize this device."*
+> On the standalone controller this project was built on, a single AUTH press is enough — you can see the AUTH
+> LED light. So start with AUTH; fall back to the Service hold.
+>
+> If the AUTH LED never lights and every attempt times out, try pressing **Service** first (its LED lights) and
+> **then AUTH** while Home Assistant is still counting down. That two-button sequence is what resolved
+> [issue #30](https://github.com/ccpk1/AP_PoolSync/issues/30) on an integrated AquaCal unit.
+
+**Then:** wait for Home Assistant to complete pairing and generate config entries for all detected hardware.
+
+If linking fails, the flow offers a retry path. If repeated attempts fail, restart the PoolSync device and
+try again.
 <table>
   <tr>
     <td align="center" valign="top">
@@ -81,6 +107,70 @@ If linking fails, the flow offers a retry path. If repeated attempts fail, resta
     </td>
   </tr>
 </table>
+
+---
+
+### If you operate PoolSync from your heat pump's display
+
+On these units the PoolSync screens appear on the heat pump's display rather than on a PoolSync panel. The
+PoolSync phone app's instruction for that hardware is:
+
+> **"Press AUTH on the heat pump display:"**
+> *"Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the POOLSYNC WIFI menu screen or
+> the MAIN status screen of the heat pump."*
+
+So:
+
+- Press **AUTH** on the heat pump display.
+- If no **POOLSYNC AUTHORIZE** prompt appears, go to the **POOLSYNC WIFI** menu screen or the **MAIN** status
+  screen and press **AUTH** there.
+- If AUTH alone does nothing, the **Service then AUTH** fallback described in the section above is worth trying.
+
+No user running this configuration has reported its pairing behaviour yet, so the steps above are transcribed
+from the app.
+
+---
+
+### If you operate PoolSync from your chlorinator's display
+
+> 🟡 **Not yet reported by a user.** The PoolSync phone app has a dedicated instruction for this hardware, but
+> nobody running it has contacted this project, so the steps below are transcribed from the app and untested.
+
+The PoolSync phone app's instruction is:
+
+> **"Press Yes on the chlorinator display to authorize this device:"**
+> *"Tip: If the POOLSYNC AUTHORIZE screen does not appear then press the MENU button and navigate to the
+> Network setting, press Select, navigate to the Authorize setting and press Select."*
+
+So:
+
+- Press **Yes** on the chlorinator display.
+- If no **POOLSYNC AUTHORIZE** prompt appears, press **MENU** → **Network** → **Select** → **Authorize** →
+  **Select**, then press **Yes**.
+
+---
+
+### Authorization summary
+
+| Where you see the PoolSync screen | What to press |
+| :--- | :--- |
+| On the PoolSync's own panel | **AUTH** once; if nothing happens, hold **Service** ~3 s |
+| On your heat pump's display | **AUTH** on the heat pump display |
+| On your chlorinator's display *(untested here)* | **Yes** on the chlorinator display |
+
+Applies to all hardware types:
+
+- You must press within the **120-second** window; the pairing countdown is the deadline.
+- **Do not confuse this with the 15-second hold.** The app's *"hold the button for 15 seconds or until they
+  flash"* puts the unit into **Wi-Fi setup mode** (orange Option light + green Wi-Fi light flashing). It is not
+  how you authorize Home Assistant.
+- Close the PoolSync app on your phone before pairing. The app's own failure text is *"In order to authorize,
+  you must be on the same Wi-Fi network as the device."*
+- Relinking authorizes the Home Assistant client. If the device's authorized clients are cleared (app: *"Clear
+  all previously authorized users"*), Home Assistant raises a reauth prompt rather than silently going stale.
+- **Reporting a pairing problem?** Download diagnostics from **Settings → Devices & Services → PoolSync** and
+  include `poolSync.status.remoteUiPid` and `poolSync.system.hwVersion` — together with the button that finally
+  worked, that is what lets this guide be corrected for your hardware.
 
 ---
 
@@ -243,7 +333,7 @@ This removes the Home Assistant config entry and its entities. It does not chang
 
 ## Troubleshooting & Diagnostics
 
-- **Linking Issues:** If pairing times out, reboot the physical PoolSync controller and retry the HA configuration flow immediately after startup.
+- **Linking Issues:** Press the button for your hardware type — see [Initial Setup & Local Linking](#initial-setup--local-linking). If auth times out, try the **Service** hold (~3 s) then **AUTH**, and stay inside the 120-second window with the PoolSync app closed. If it still fails, reboot the physical PoolSync controller and retry the Home Assistant configuration flow immediately after startup.
 - **Intermittent Unavailability:** Check Wi-Fi RSSI on the controller device page. Outdoor pool equipment often suffers from marginal Wi-Fi signals; weak links cause TCP connection resets.
 - **Debugging:** Export Diagnostic JSON directly from the PoolSync Device page in HA when filing GitHub issues. I've made efforts to redact private information (such as hardware serial numbers, tokens, and passwords) in the exported diagnostic file, but you should always review it and double-check before submitting if you have any concerns. If you spot anything that should be redacted, please [open an issue](https://github.com/ccpk1/AP_PoolSync/issues) and I'll make sure it's covered in a future update.
 
@@ -273,6 +363,34 @@ When reporting a problem, include diagnostics, relevant logs, the PoolSync firmw
 ## Acknowledgments & Credits
 
 Special thanks to [@socbrian](https://github.com/socbrian) for the initial reverse-engineering work on the PoolSync local linking protocol.
+
+---
+
+## Development
+
+### Running the tests
+
+`pytest-homeassistant-custom-component` pins the exact Home Assistant release it
+was built for, so the suite needs a virtual environment where that pin is
+satisfied. Do not run it from a Home Assistant *core* development environment —
+an editable core checkout is on a `.dev` build and the plugin cannot import
+against it.
+
+```bash
+./utils/setup_test_env.sh    # creates .venv and installs .[dev] (no version pins)
+./utils/run_tests.sh         # full suite in .venv
+./utils/run_tests.sh -k heat_pump
+```
+
+Nothing is version-pinned on purpose: the test plugin is what selects the Home
+Assistant release, so refreshing dependencies (`./utils/setup_test_env.sh
+--fresh`) always produces a matching pair and no manual version bumps are
+needed. A scheduled CI job runs the suite against the newest upstream releases
+to surface breakage before it reaches a release.
+
+If you run `pytest` directly in an incompatible interpreter, collection is
+limited to the parsing-only modules (`test_runtime`, `test_fault_codes`,
+`test_equipment`) instead of failing outright.
 
 ---
 

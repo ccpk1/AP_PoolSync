@@ -55,6 +55,107 @@ def _load_parsed_data(sample_name: str):
 @pytest.mark.parametrize(
     (
         "sample_name",
+        "expected_pid",
+        "expected_layout",
+        "expected_flow",
+        "expected_fan",
+        "expected_compressor",
+    ),
+    [
+        # 9984 / 9986 use the HP order: flow bit 0, compressor bit 2, fan bit 3.
+        ("t75-heat-pool.json", 9984, "hp", True, True, True),
+        ("t75-heat-spa.json", 9984, "hp", True, True, True),
+        ("t75-heatpump-fault.json", 9984, "hp", True, False, False),
+        ("t75-in-celcius.json", 9984, "hp", False, False, False),
+        ("t75-off-no-flow.json", 9984, "hp", False, False, False),
+        ("t75-off-with-flow.json", 9984, "hp", True, False, False),
+        ("t75-remote-disabled.json", 9984, "hp", True, True, True),
+        ("t75-spa-startup-fan-nocompressor.json", 9984, "hp", True, True, False),
+        ("sq160r-heating.json", 9986, "hp", True, True, True),
+        ("sq160r-idle.json", 9986, "hp", True, False, False),
+        ("sq160r-off.json", 9986, "hp", False, False, False),
+        # 090: "all off" reports ctrlFlags 512 = expansion-module bit only.
+        ("090-all-off.json", 9986, "hp", False, False, False),
+        (
+            "090-compressor-off-filtration-group-1750rpm.json",
+            9986,
+            "hp",
+            True,
+            False,
+            False,
+        ),
+        (
+            "090-compressor-off-priming-filtration-group-3450rpm.json",
+            9986,
+            "hp",
+            True,
+            False,
+            False,
+        ),
+        ("090-compressor-on-2900rpm-pool-group.json", 9986, "hp", True, True, True),
+        ("090-manual-2000rpm.json", 9986, "hp", True, False, False),
+        ("090-pool-waterfall-valve-fountain.json", 9986, "hp", True, False, False),
+        # 9985 uses the HP10 order: compressor bit 0, fan bit 1, flow bit 3.
+        ("hp10-issue30-pump-off.json", 9985, "hp10", False, False, False),
+    ],
+)
+def test_heat_pump_ctrl_flags_use_pid_layout(
+    sample_name: str,
+    expected_pid: int,
+    expected_layout: str,
+    expected_flow: bool,
+    expected_fan: bool,
+    expected_compressor: bool,
+) -> None:
+    """Test flow/compressor/fan decode from the bit order of the device PID."""
+    runtime = get_heat_pump_runtime(_load_parsed_data(sample_name))
+
+    assert runtime is not None
+    assert runtime.pid == expected_pid
+    assert runtime.flag_layout == expected_layout
+    assert runtime.has_flow is expected_flow
+    assert runtime.fan_running is expected_fan
+    assert runtime.compressor_running is expected_compressor
+
+
+def test_090_all_off_does_not_report_flow() -> None:
+    """Test the 090 all-off snapshot does not derive flow from unrelated bits.
+
+    Regression: ``ctrlFlags: 512`` is bit 9 only (expansion module). The old
+    ``ctrlFlags != 0`` rule reported flow on a unit that was switched off.
+    """
+    runtime = get_heat_pump_runtime(_load_parsed_data("090-all-off.json"))
+
+    assert runtime is not None
+    assert runtime.ctrl_flags_raw == 512
+    assert runtime.has_flow is False
+    assert runtime.compressor_running is False
+    assert runtime.fan_running is False
+
+
+def test_hp10_pid_9985_uses_hp10_flag_order() -> None:
+    """Test PID 9985 decodes ctrlFlags with the HP10 bit order.
+
+    Issue #30 (2026-11-02): ``ctrlFlags: 4`` is the HP/LP input on HP10, while
+    the HP order would read it as the compressor relay.
+    """
+    runtime = get_heat_pump_runtime(_load_parsed_data("hp10-issue30-pump-off.json"))
+
+    assert runtime is not None
+    assert runtime.pid == 9985
+    assert runtime.flag_layout == "hp10"
+    assert runtime.ctrl_flags_raw == 4
+    assert runtime.compressor_running is False
+    assert runtime.has_flow is False
+    assert runtime.fan_running is False
+    # Under the HP order bit 2 is the compressor relay, so the old decode
+    # reported the compressor as running.
+    assert runtime.ctrl_flags_raw & (1 << 2)
+
+
+@pytest.mark.parametrize(
+    (
+        "sample_name",
         "expected_flow",
         "expected_fan",
         "expected_compressor",
