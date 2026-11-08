@@ -139,6 +139,19 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
         "pool_setpoint": 78,
         "pool_spa_mode": 1,
         "spa_setpoint": 88,
+        "state_flags": {
+            "is_off": False,
+            "is_wait_flow": False,
+            "is_holding": False,
+            "is_heating": True,
+            "is_cooling": False,
+            "is_defrosting": False,
+            "is_faulted": False,
+            "is_locked_out": False,
+            "is_make_delay": False,
+            "is_remote_controlled": False,
+            "is_local_ui_control": None,
+        },
         "state_flags_raw": 8,
     }
 

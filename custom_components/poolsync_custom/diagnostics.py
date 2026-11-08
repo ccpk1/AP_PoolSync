@@ -105,6 +105,19 @@ async def async_get_config_entry_diagnostics(
                 "pool_setpoint": heat_pump_runtime.pool_setpoint,
                 "pool_spa_mode": heat_pump_runtime.pool_spa_mode,
                 "spa_setpoint": heat_pump_runtime.spa_setpoint,
+                "state_flags": {
+                    "is_off": heat_pump_runtime.is_off,
+                    "is_wait_flow": heat_pump_runtime.is_wait_flow,
+                    "is_holding": heat_pump_runtime.is_holding,
+                    "is_heating": heat_pump_runtime.is_heating,
+                    "is_cooling": heat_pump_runtime.is_cooling,
+                    "is_defrosting": heat_pump_runtime.is_defrosting,
+                    "is_faulted": heat_pump_runtime.is_faulted,
+                    "is_locked_out": heat_pump_runtime.is_locked_out,
+                    "is_make_delay": heat_pump_runtime.is_make_delay,
+                    "is_remote_controlled": heat_pump_runtime.is_remote_controlled,
+                    "is_local_ui_control": heat_pump_runtime.is_local_ui_control,
+                },
                 "state_flags_raw": heat_pump_runtime.state_flags_raw,
             }
 
