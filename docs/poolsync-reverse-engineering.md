@@ -908,11 +908,17 @@ returns `hp` for 9984/9986 (and for a missing PID) and `hp10` for 9985.
 |--------------|------|---------|--------|
 | 0 | 1 | Compressor engaged | `binary_sensor.heatpump_compressor` |
 | 1 | 2 | Fan running | `binary_sensor.heatpump_fan` |
-| 2 | 4 | `highPressureLowPressure` (HP/LP input) | not exposed |
+| 2 | 4 | `highPressureLowPressure` (HP/LP input) | `binary_sensor.*_high_low_pressure` (diagnostic) |
 | 3 | 8 | `flowSensorOneState` → `has_flow` | `binary_sensor.heatpump_flow` |
 
 `has_flow` is the dedicated flow-sensor bit — never `ctrlFlags != 0`. Other control
 bits (expansion module, gas/geothermal relays, fan speed, HP/LP) do not imply flow.
+
+Bit 2 on HP10 is the **live** pressure-switch input (the app's own "HP/LP" status
+row), which is a different thing from the **latched** fault at `faults[0]` bit 6
+(`lowPressureHighPressure`). It is exposed as a diagnostic binary sensor so
+captures can settle what it means; see §7.3 Q2. It reports `None` on HP, where no
+such bit exists.
 
 **Sample evidence:**
 - t75-heatpump-fault.json: `ctrlFlags=1` → bit 0 only → flow on, compressor and fan off
@@ -1716,17 +1722,20 @@ Reference layout: §0e. This section tracks the work items and the questions we 
 | G3 | HP10 fault table missing — 9985 faults decoded with `HP_FAULTS` | `fault_codes.py` | ✅ **fixed** — `HP10_FAULTS` (8 bits) selected by PID 9985 in `get_fault_table()` |
 | G4 | Multi-word fault arrays decoded per element from bit 0 | `fault_codes.py:decode_faults()` | ✅ **fixed** — linear index `word * 32 + bit` |
 | G13 | Zero PID 9985 test coverage | `tests/sample_diagnostics/` | ✅ **fixed** — `hp10-issue30-pump-off.json` + `test_heat_pump_ctrl_flags_use_pid_layout` |
-| G5 | `stateFlags` parsed but unused | `runtime.py` | 🔵 open — no `isOff` / `isWaitFlow` / `isHolding` / `isDefrosting` / `isMakeDelay` / `isLockedOut` / `isLocalUIControl` / `isHeating`; climate action is inferred from the compressor relay instead |
+| G5 | `stateFlags` parsed but unused | `runtime.py` | ✅ **fixed** — all flags decoded per layout (`isOff`, `isWaitFlow`, `isHolding`, `isHeating`, `isCooling`, `isDefrosting`, `isFaulted`, `isLockedOut`, `isMakeDelay`, `isRemoteControlled`, `isLocalUIControl`); climate action follows `isOff`/`isHeating`/`isCooling`, bounded by capability |
 | G6 | HP10 `twoWireEnabled` / `twoWireHeatModeOn` never exposed | `runtime.py` | 🔵 open — cannot tell whether the unit is under external dry-contact control |
+| G6a | HP10 `ctrlFlags` bit 2 (`highPressureLowPressure`) never exposed | `runtime.py` | ✅ **exposed** as `binary_sensor.*_high_low_pressure` (diagnostic), `None` on HP. **Semantics still unconfirmed (Q2)** — it was set with the compressor off and no `faults[]` entry |
 | G7 | HP10 sensor set not mapped: `ws1Temp`, `ws2Temp` | `runtime.py` sensor getters | 🔵 open — `hp_water_temp2` maps `waterTemp2`, which HP10 never sends (`null` while `ws2Temp` = 86.98) |
-| G8 | Water temperature not gated on flow | `runtime.py` sensor getters | 🔵 open — app shows "No Flow"; integration shows a number the app considers meaningless |
-| G9 | `_TEMP_SENTINELS` / `_get_temp_value` are dead code | `runtime.py` | 🔵 open — sentinel filtering is never applied to any temperature |
-| G10 | `hp_fault_code` reports the first non-zero **word** as a "code" | `runtime.py` | 🔵 open — inconsistent with bitmask semantics; for HP10 any value is a bitfield |
-| G11 | `poolSync.status.flags` (`SYNC_FLAGS`) unused | controller sensors | 🔵 open — loses button-press / `isUpdating` visibility during pairing |
+| G8 | Water temperature not gated on flow | `runtime.py` sensor getters | ✅ **fixed** — `hp_water_temp` and climate current temperature report unknown without flow, with `unavailable_reason: no_flow` |
+| G9 | `_TEMP_SENTINELS` / `_get_temp_value` are dead code | `runtime.py` | ✅ **fixed** — sentinel filtering now applies to the heat pump water temperature |
+| G10 | `hp_fault_code` reports the first non-zero **word** as a "code" | `runtime.py` | ✅ **fixed** — renamed to *Active faults*; state is the decoded names, attributes carry `faults` / `raw` / `pid` |
+| G11 | `poolSync.status.flags` (`SYNC_FLAGS`) unused | diagnostics | ✅ **fixed** — `get_sync_flags()` decoded into the diagnostics dump |
 | G12 | Write guards differ from app: no `isOnline` / freeze-protect refusal | `coordinator.py` write paths | 🟢 deferred — HA can write while the app would refuse (low impact) |
 
-Fixes for G1–G4 and G13 landed together; the only behavioural change on existing hardware is
-that a non-zero `ctrlFlags` without the flow bit no longer reports flow (previously wrong).
+Fixes for G1–G5 and G8–G13 have landed. Behaviour changes on existing hardware: a non-zero
+`ctrlFlags` without the flow bit no longer reports flow; water temperature is unknown without
+flow; `hp_fault_code` now shows decoded names instead of a raw bitmask word; climate action
+follows the device's own state flags.
 Diagnostics now include `heat_pump_debug.pid` and `heat_pump_debug.flag_layout` so future
 reports are self-identifying.
 
@@ -1762,11 +1771,11 @@ Two separate events are involved; they should not be conflated.
 | # | Question | Why it matters | What would answer it |
 |---|----------|----------------|----------------------|
 | Q1 | Do real 9985 captures match the HP10 bit maps in §0e.3/§0e.4 across pump-on, heating, idle-with-flow and defrost states? | Only one 9985 payload exists today | 4 captures from any 9985 unit (all modes) |
-| Q2 | Is HP10 `ctrlFlags` bit 2 (`highPressureLowPressure`) a latched condition or a live switch input? Should it suppress heating / be surfaced as a fault? | Candidate cause of the 11-05 stops with no `faults[]` entry | capture with bit 2 set + service-manual cross-check |
+| Q2 | Is HP10 `ctrlFlags` bit 2 (`highPressureLowPressure`) a latched condition or a live switch input? Should it suppress heating / be surfaced as a fault? | Candidate cause of the 11-05 stops with no `faults[]` entry. Now **exposed** as a diagnostic binary sensor, so captures from affected users will show whether it tracks the switch or latches | capture with bit 2 set + service-manual cross-check |
 | Q3 | What exactly does `isLocalUIControl` (state bit 8) mean, and should HA disable writes while it is set? | Panel takeover would silently ignore HA writes | capture with the panel being operated |
 | Q4 | With `twoWireEnabled` set, are `mode`/`setpoint` writes still honoured, or does the dry contact override them? | Could make heat control a no-op | capture from a two-wire installation |
 | Q5 | Is HP10 `waterTemp` a computed value or a mirror of `ws1Temp`? Should `hp_water_temp2` map to `ws2Temp` on 9985? | Sensor accuracy / duplicate entities | 2 captures with different ws1/ws2 spread |
-| Q6 | Should water temperature be reported unavailable when `flowSensorOneState` is false (app behaviour)? | User-visible correctness (issue #30 asked for it) | product decision, no capture needed |
+| Q6 | ~~Should water temperature be reported unavailable when `flowSensorOneState` is false?~~ | **Resolved** — gated on flow (unknown + `unavailable_reason: no_flow`) | — |
 | Q7 | Is `faults[]` on HP10 always a single word, and are bits 8+ used? | Unknown bits currently decode to nothing | capture with an induced fault (e.g. unplug a water sensor) |
 | Q8 | Why does the app's per-PID fault **card** table for 9985 contain only `pressure` / `pressureLockout`, while the `HP10_FAULTS` bit template uses `lowPressureHighPressure` / `lp5hp5Lockout`? | Either a vendor naming mismatch (cards never render) or a table we misread | induced pressure fault + watch the app's alert card |
 | Q9 | Does HP10 support cooling or auto? App hardcodes `['OFF','HEAT']` and `supports_cooling = false` | Configuration surface | model-number list from AquaCal / a cooling unit capture |

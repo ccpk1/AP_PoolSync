@@ -31,6 +31,7 @@ from .const import (
     WIFI_RSSI_FAIR_MIN,
     WIFI_RSSI_GOOD_MIN,
 )
+from .fault_codes import decode_faults
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,7 +79,15 @@ SYNC_FLAGS: dict[str, int] = {
 
 _HEAT_PUMP_CTRL_FLAGS: dict[PoolSyncHeatPumpFlagLayout, dict[str, int]] = {
     HEAT_PUMP_LAYOUT_HP: {"flow": 1 << 0, "compressor": 1 << 2, "fan": 1 << 3},
-    HEAT_PUMP_LAYOUT_HP10: {"flow": 1 << 3, "compressor": 1 << 0, "fan": 1 << 1},
+    HEAT_PUMP_LAYOUT_HP10: {
+        "flow": 1 << 3,
+        "compressor": 1 << 0,
+        "fan": 1 << 1,
+        # Live HP/LP pressure-switch input. The app renders this as its own
+        # "HP/LP" status row. Distinct from the latched faults[] bit 6
+        # (lowPressureHighPressure). See docs/poolsync-reverse-engineering.md §0e.4.
+        "high_low_pressure": 1 << 2,
+    },
 }
 
 _HEAT_PUMP_STATE_FLAGS: dict[PoolSyncHeatPumpFlagLayout, dict[str, int]] = {
@@ -334,6 +343,7 @@ class PoolSyncHeatPumpRuntime:
     is_make_delay: bool | None
     is_remote_controlled: bool | None
     is_local_ui_control: bool | None
+    pressure_switch_active: bool | None
     mode_value: int | None
     pool_spa_mode: int | None
     mode_context: PoolSyncHeatPumpModeContext | None
@@ -917,7 +927,12 @@ def _get_number_value(section: dict[str, Any] | None, key: str) -> int | float |
 
 
 def _get_first_active_fault_code(section: dict[str, Any] | None) -> int | None:
-    """Return the first non-zero fault code from a device payload."""
+    """Return the first non-zero fault code from a device payload.
+
+    Note: ``faults[]`` elements are bitmask words, not codes, so this is only
+    useful for the raw diagnostics dump. Use :func:`get_heat_pump_fault_names`
+    for anything user-facing.
+    """
     faults = _get_dict_value(section, "faults")
     if not isinstance(faults, list):
         return None
@@ -929,6 +944,21 @@ def _get_first_active_fault_code(section: dict[str, Any] | None) -> int | None:
             return fault_code
 
     return None
+
+
+def resolve_active_faults(
+    role_key: str,
+    section: dict[str, Any] | None,
+    pid: int | None,
+) -> list[str]:
+    """Return the decoded fault labels for one device payload.
+
+    A device's ``faults[]`` array is a bitmask, so there is no single "fault
+    code" to report; the meaningful representation is the set of active fault
+    names, which also depends on the product ID for heat pumps.
+    """
+    faults = _get_dict_value(section, "faults")
+    return decode_faults(role_key, faults, pid)
 
 
 def _get_top_fault_info(
@@ -986,6 +1016,22 @@ def _heat_pump_flag(
     return bool(ctrl_flags_raw & _HEAT_PUMP_CTRL_FLAGS[layout][name])
 
 
+def _optional_ctrl_flag(
+    ctrl_flags_raw: int | None,
+    layout: PoolSyncHeatPumpFlagLayout,
+    name: str,
+) -> bool | None:
+    """Return a ctrlFlags bit, or None when the layout has no such bit.
+
+    Used for bits that only exist on one firmware family, so a missing bit is
+    reported as unknown instead of a misleading False.
+    """
+    if ctrl_flags_raw is None:
+        return None
+    mask = _HEAT_PUMP_CTRL_FLAGS[layout].get(name)
+    return None if mask is None else bool(ctrl_flags_raw & mask)
+
+
 def _heat_pump_has_flow(
     ctrl_flags_raw: int, layout: PoolSyncHeatPumpFlagLayout
 ) -> bool:
@@ -1031,6 +1077,25 @@ def _state_flag(
     if state_flags_raw is None:
         return None
     return _heat_pump_state_flag(state_flags_raw, layout, name)
+
+
+def _hp_fault_names(parsed_data: PoolSyncParsedData, **kwargs: Any) -> list[str]:
+    """Return the decoded active fault labels for a heat pump instance."""
+    hp_devices = parsed_data.devices.get("heat_pump", [])
+    index = kwargs.get("index", 0)
+    if not hp_devices or index >= len(hp_devices):
+        return []
+    device = hp_devices[index]
+    pid = _get_int_value(device.node_attr, "pid")
+    return resolve_active_faults("heat_pump", device.data, pid)
+
+
+def get_heat_pump_fault_names(
+    parsed_data: PoolSyncParsedData,
+    index: int = 0,
+) -> list[str]:
+    """Return decoded active fault labels for the heat pump."""
+    return _hp_fault_names(parsed_data, index=index)
 
 
 def get_sync_flags(parsed_data: PoolSyncParsedData) -> dict[str, bool] | None:
@@ -1350,6 +1415,9 @@ def get_heat_pump_runtime(
         is_local_ui_control=_state_flag(
             state_flags_raw, flag_layout, "is_local_ui_control"
         ),
+        pressure_switch_active=_optional_ctrl_flag(
+            ctrl_flags_raw, flag_layout, "high_low_pressure"
+        ),
         mode_value=mode_value,
         pool_spa_mode=pool_spa_mode,
         mode_context=mode_context,
@@ -1640,6 +1708,11 @@ _BINARY_SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         else None
     ),
     "heatpump_ext_ctrl": _dv("heat_pump", "config", "extCtrlMode"),
+    "heatpump_pressure": lambda parsed_data, **kwargs: (
+        runtime.pressure_switch_active
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
+        else None
+    ),
     "heatpump_in_group": lambda parsed_data, **kwargs: get_hp_in_group(
         get_equipment_runtime(parsed_data)
     ),
@@ -1745,11 +1818,11 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
         if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
         else None
     ),
-    "hp_fault_code": lambda parsed_data, **kwargs: _get_first_active_fault_code(
-        hp_devices[idx].data
-        if (hp_devices := parsed_data.devices.get("heat_pump", []))
-        and (idx := kwargs.get("index", 0)) < len(hp_devices)
-        else None
+    # A device's faults[] array is a bitmask, so the meaningful user-facing
+    # value is the set of active fault names, not the raw word. The state is the
+    # comma-joined labels; attributes carry the list and raw words.
+    "hp_fault_code": lambda parsed_data, **kwargs: (
+        ", ".join(names) if (names := _hp_fault_names(parsed_data, **kwargs)) else None
     ),
     "hp_pool_setpoint_temp": lambda parsed_data, **kwargs: (
         runtime.pool_setpoint
