@@ -1,0 +1,344 @@
+{
+  "home_assistant": {
+    "arch": "aarch64",
+    "dev": false,
+    "docker": true,
+    "hassio": true,
+    "installation_type": "Home Assistant OS",
+    "os_name": "Linux",
+    "os_version": "6.18.52-haos",
+    "python_version": "3.14.6",
+    "timezone": "America/New_York",
+    "version": "2026.10.2",
+    "virtualenv": false,
+    "container_arch": "aarch64",
+    "supervisor": "2026.10.5",
+    "host_os": "Home Assistant OS 18.3",
+    "docker_version": "29.7.2",
+    "chassis": "embedded",
+    "run_as_root": true
+  },
+  "custom_components": {
+    "hacs": {
+      "documentation": "https://hacs.xyz/docs/use/",
+      "version": "2.0.5",
+      "requirements": [
+        "aiogithubapi>=22.10.1"
+      ]
+    },
+    "poolsync_custom": {
+      "documentation": "https://github.com/ccpk1/AP_PoolSync",
+      "version": "2.0.1",
+      "requirements": []
+    }
+  },
+  "integration_manifest": {
+    "domain": "poolsync_custom",
+    "name": "PoolSync Custom",
+    "codeowners": [
+      "ccpk1"
+    ],
+    "config_flow": true,
+    "dependencies": [],
+    "documentation": "https://github.com/ccpk1/AP_PoolSync",
+    "iot_class": "local_polling",
+    "issue_tracker": "https://github.com/ccpk1/AP_PoolSync/issues",
+    "loggers": [
+      "custom_components.poolsync_custom"
+    ],
+    "version": "2.0.1",
+    "is_built_in": false,
+    "overwrites_built_in": false
+  },
+  "setup_times": {
+    "null": {
+      "setup": 9.391701314598322e-05
+    },
+    "01M5YQR0F7TZ2Q6VP5WXYAQ30M": {
+      "wait_import_platforms": -18.4001279840013,
+      "config_entry_setup": 18.551841047010385
+    }
+  },
+  "data": {
+    "config_entry": {
+      "created_at": "2026-10-27T13:10:41.383645+00:00",
+      "data": {
+        "ip_address": "**REDACTED**",
+        "macAddress": "**REDACTED**",
+        "password": "**REDACTED**"
+      },
+      "discovery_keys": {},
+      "disabled_by": null,
+      "domain": "poolsync_custom",
+      "entry_id": "01M5YQR0F7TZ2Q6VP5WXYAQ30M",
+      "minor_version": 1,
+      "modified_at": "2026-10-27T13:10:41.383652+00:00",
+      "options": {},
+      "pref_disable_new_entities": false,
+      "pref_disable_polling": false,
+      "source": "user",
+      "subentries": [],
+      "title": "PoolSync (XXXXXX)",
+      "unique_id": "**REDACTED**",
+      "version": 1
+    },
+    "coordinator": {
+      "last_failure_class": null,
+      "last_failure_context": null,
+      "last_failure_detail": null,
+      "last_update_success": true,
+      "last_exception": null,
+      "name": "poolsync_custom(**REDACTED**)",
+      "update_interval_seconds": 120.0
+    },
+    "runtime_data": {
+      "poolSync": {
+        "status": {
+          "online": true,
+          "flags": 0,
+          "rssi": -40,
+          "boardTemp": 40,
+          "dateTime": "Mon Nov  2 12:41:09 2026",
+          "remoteUiPid": 4096,
+          "remoteUiVersion": 0
+        },
+        "system": {
+          "macAddr": "**REDACTED**",
+          "bssid": "**REDACTED**",
+          "fwVersion": 864,
+          "hwVersion": "3.0"
+        },
+        "config": {
+          "name": "**REDACTED**",
+          "setupMode": 0,
+          "serviceMode": 0,
+          "brightness": 0,
+          "timeZone": "EST5EDT,M3.2.0,M11.1.0",
+          "latitude": "**REDACTED**",
+          "longitude": "**REDACTED**",
+          "optIns": 4294967295,
+          "isWatching": 29894016
+        },
+        "faults": 0,
+        "stats": {
+          "numPowerups": 19,
+          "lastEsp32ResetReason": 3,
+          "restartHistory": "08070908",
+          "cfgRamConflicts": 0,
+          "cfgNvramConflicts": 0,
+          "wifiDisconnects": 21,
+          "awsDisconnects": 10,
+          "caFileRestores": 0,
+          "certFileRestores": 0,
+          "certFlashRestores": 0,
+          "pvtkeyFileRestores": 0,
+          "pvtkeyFlashRestores": 0,
+          "certRefreshes": 0,
+          "systemRestarts": 16,
+          "iRamFreeMin": 84947,
+          "iRamMaxBlock": 73728,
+          "iRamMaxBlockMin": 73728,
+          "spiRamFreeMin": 2861183,
+          "spiRamMaxBlock": 2818048,
+          "spiRamMaxBlockMin": 2818048,
+          "minTaskStackSize": 1680,
+          "taskNameMinStack": "UDP",
+          "numAwsIotTxMessages": 1228,
+          "numAwsIotRxMessages": 128,
+          "numDeviceOffline": 0,
+          "lastOfflineDevPid": 0,
+          "lastOfflineDevAddr": 0,
+          "numDeviceCmdErrResp": 0,
+          "numDeviceMsgNoResp": 2,
+          "minRssi": -62,
+          "maxRssi": -26,
+          "minBoardTemp": 26,
+          "maxBoardTemp": 59,
+          "numConnectButtonPresses": 4,
+          "numServiceButtonPresses": 2,
+          "numServiceAccessButtonPresses": 5,
+          "numSetupButtonPresses": 0,
+          "numConsoleLogins": 0,
+          "numConsoleIncorrectPassword": 20,
+          "upTimeSecs": 1009806,
+          "mqttKeepAliveTimeouts": 524342,
+          "numFatFsRegenerations": 0,
+          "numDeviceInstallStableFw": 0,
+          "lastDeviceInstallStableFwPid": 0,
+          "device0CommErrors": 2,
+          "device1CommErrors": 0,
+          "device2CommErrors": 0,
+          "device3CommErrors": 0,
+          "device4CommErrors": 0,
+          "device5CommErrors": 0,
+          "device6CommErrors": 0,
+          "device7CommErrors": 0
+        }
+      },
+      "devices": {
+        "0": {
+          "nodeAttr": {
+            "name": "Heat Pump",
+            "pid": 9985,
+            "nodeAddr": 24,
+            "idmpAddr": 0,
+            "online": true,
+            "flags": 0,
+            "bootMode": 2,
+            "fwUpdProg": 0,
+            "fwUpdResult": 0
+          },
+          "status": {
+            "stateFlags": 8,
+            "ctrlFlags": 4,
+            "waterTemp": 87.3,
+            "ws1Temp": 87.3,
+            "ws2Temp": 86.98,
+            "ds1Temp": 89.06,
+            "ds2Temp": 86.64
+          },
+          "faults": [
+            0
+          ],
+          "system": {
+            "modelNum": "",
+            "serialNum": "",
+            "appFwVersion": 275,
+            "blFwVersion": 256,
+            "hwVersion": "E"
+          },
+          "config": {
+            "mode": 1,
+            "setpoint": 104,
+            "setpointMin": 60,
+            "setpointMax": 104
+          }
+        },
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null,
+        "7": null,
+        "8": null,
+        "9": null,
+        "10": null,
+        "11": null,
+        "12": null,
+        "13": null,
+        "14": null,
+        "15": null
+      },
+      "deviceType": {
+        "0": "heatPump",
+        "1": "",
+        "2": "",
+        "3": "",
+        "4": "",
+        "5": "",
+        "6": "",
+        "7": "",
+        "8": "",
+        "9": "",
+        "10": "",
+        "11": "",
+        "12": "",
+        "13": "",
+        "14": "",
+        "15": ""
+      }
+    },
+    "heat_pump_debug": {
+      "active_target_temperature": 104,
+      "active_fault_code": null,
+      "capabilities": {
+        "model_number": "",
+        "profile": "unknown_heat_pump",
+        "supports_heating": true,
+        "supports_cooling": false,
+        "supports_pool_spa_mode": false,
+        "supports_separate_spa_setpoint": false
+      },
+      "compressor_running": true,
+      "ctrl_flags_raw": 4,
+      "faults_raw": [
+        0
+      ],
+      "fan_running": false,
+      "has_flow": true,
+      "mode_context": "heat_pool",
+      "mode_value": 1,
+      "pool_setpoint": 104,
+      "pool_spa_mode": null,
+      "spa_setpoint": null,
+      "state_flags_raw": 8
+    },
+    "mapped_sensor_values": {
+      "board_temp": 40,
+      "wifi_rssi": -40,
+      "wifi_signal_status": "good",
+      "system_datetime": "Mon Nov  2 12:41:09 2026",
+      "firmware_version": 864,
+      "hardware_version": "3.0",
+      "display_brightness": 0,
+      "wifi_disconnects": 21,
+      "aws_disconnects": 10,
+      "num_powerups": 19,
+      "system_restarts": 16,
+      "num_device_offline": 0,
+      "heat_pump_0_hp_water_temp": 87.3,
+      "heat_pump_0_hp_air_temp": null,
+      "heat_pump_0_hp_board_temp": null,
+      "heat_pump_0_hp_mode": "heat_pool",
+      "heat_pump_0_hp_setpoint_temp": 104,
+      "heat_pump_0_hp_pool_setpoint_temp": 104,
+      "heat_pump_0_hp_spa_setpoint_temp": null,
+      "heat_pump_0_hp_water_temp2": null,
+      "heat_pump_0_hp_ds1_temp": 89.06,
+      "heat_pump_0_hp_ds2_temp": 86.64,
+      "heat_pump_0_hp_fault_code": null,
+      "heat_pump_0_hp_top_fault_code": null,
+      "heat_pump_0_hp_top_fault_count": null
+    },
+    "mapped_binary_sensor_values": {
+      "poolsync_online": true,
+      "service_mode_active": 0,
+      "system_fault": 0,
+      "heat_pump_0_heatpump_online": true,
+      "heat_pump_0_heatpump_fault": [
+        0
+      ],
+      "heat_pump_0_heatpump_flow": true,
+      "heat_pump_0_heatpump_compressor": true,
+      "heat_pump_0_heatpump_fan": false,
+      "heat_pump_0_heatpump_ext_ctrl": null,
+      "heat_pump_0_heatpump_in_group": null
+    },
+    "mapped_number_values": {
+      "heat_pump_0_temperature_output_control": 104,
+      "heat_pump_0_pool_temperature_output_control": 104,
+      "heat_pump_0_spa_temperature_output_control": null,
+      "pump_rpm_control": null
+    },
+    "mapped_select_values": {},
+    "faults_debug": {
+      "heat_pump_0": {
+        "raw": [
+          0
+        ],
+        "active_faults": []
+      }
+    },
+    "device": {
+      "entry_type": null,
+      "hw_version": "3.0",
+      "manufacturer": "AutoPilot",
+      "model": "PoolSync",
+      "name": "PoolSync (XXXXXX)",
+      "name_by_user": null,
+      "sw_version": "864"
+    }
+  },
+  "issues": []
+}

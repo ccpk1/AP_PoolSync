@@ -98,31 +98,57 @@ _FAULT_TABLES: dict[str, dict[int, tuple[str, str]]] = {
     "heat_pump": HP_FAULTS,
 }
 
+# PID 9985 (firmware hpc/2701, vendor app class "Hp10") reports an 8-bit fault
+# word with different meanings from the 44-entry HP table used by 9984/9986.
+# See docs/poolsync-reverse-engineering.md §0e.5.
+HEAT_PUMP_PID_HP10 = 9985
 
-def get_fault_table(role_key: str) -> dict[int, tuple[str, str]] | None:
-    """Return the fault table for a device role, or None if unknown."""
+HP10_FAULTS: dict[int, tuple[str, str]] = {
+    0: ("waterSensorOne", "Water Sensor 1"),
+    1: ("waterSensorTwo", "Water Sensor 2"),
+    2: ("ds1Sensor", "Defrost Sensor 1"),
+    3: ("ds2Sensor", "Defrost Sensor 2"),
+    4: ("compressor", "Compressor Fault"),
+    5: ("highWaterTemp", "High Water Temperature"),
+    6: ("lowPressureHighPressure", "High/Low Pressure"),
+    7: ("lp5hp5Lockout", "HP5/LP5 Lockout"),
+}
+
+
+def get_fault_table(
+    role_key: str, pid: int | None = None
+) -> dict[int, tuple[str, str]] | None:
+    """Return the fault table for a device role, or None if unknown.
+
+    Heat pumps use different tables per product ID: PID 9985 uses
+    ``HP10_FAULTS``, while 9984/9986 (and an unknown PID) use ``HP_FAULTS``.
+    """
+    if role_key == "heat_pump" and pid == HEAT_PUMP_PID_HP10:
+        return HP10_FAULTS
     return _FAULT_TABLES.get(role_key)
 
 
-def decode_faults(role_key: str, faults: Any) -> list[str]:
+def decode_faults(role_key: str, faults: Any, pid: int | None = None) -> list[str]:
     """Decode a device ``faults[]`` array into user-facing fault labels.
 
-    Each element of ``faults`` is treated as a bitmask. Returns the list of
-    user-facing labels for every set bit, in ascending bit order. Returns an
-    empty list for unknown roles, malformed input, or no active faults.
+    Each element of ``faults`` is a 32-bit word of a single bitmask that runs
+    across the array, so the table index is ``word_index * 32 + bit``. Returns
+    the labels for every set bit in ascending index order, or an empty list for
+    unknown roles, malformed input, or no active faults.
     """
-    table = get_fault_table(role_key)
+    table = get_fault_table(role_key, pid)
     if table is None or not isinstance(faults, list):
         return []
 
     decoded: list[str] = []
-    for fault_code in faults:
-        if isinstance(fault_code, bool) or not isinstance(fault_code, int):
+    for word_index, fault_word in enumerate(faults):
+        if isinstance(fault_word, bool) or not isinstance(fault_word, int):
             continue
-        if fault_code <= 0:
+        if fault_word <= 0:
             continue
-        for bit in range(fault_code.bit_length()):
-            if fault_code & (1 << bit):
-                if entry := table.get(bit):
-                    decoded.append(entry[1])
+        for bit in range(32):
+            if not fault_word & (1 << bit):
+                continue
+            if entry := table.get(word_index * 32 + bit):
+                decoded.append(entry[1])
     return decoded

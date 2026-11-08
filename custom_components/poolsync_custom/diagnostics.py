@@ -89,6 +89,7 @@ async def async_get_config_entry_diagnostics(
                 },
                 "compressor_running": heat_pump_runtime.compressor_running,
                 "ctrl_flags_raw": heat_pump_runtime.ctrl_flags_raw,
+                "flag_layout": heat_pump_runtime.flag_layout,
                 "faults_raw": (
                     _hp_device.data.get("faults")
                     if (_hp_devices := parsed_data.devices.get("heat_pump", []))
@@ -100,6 +101,7 @@ async def async_get_config_entry_diagnostics(
                 "has_flow": heat_pump_runtime.has_flow,
                 "mode_context": heat_pump_runtime.mode_context,
                 "mode_value": heat_pump_runtime.mode_value,
+                "pid": heat_pump_runtime.pid,
                 "pool_setpoint": heat_pump_runtime.pool_setpoint,
                 "pool_spa_mode": heat_pump_runtime.pool_spa_mode,
                 "spa_setpoint": heat_pump_runtime.spa_setpoint,
@@ -384,9 +386,12 @@ async def async_get_config_entry_diagnostics(
                 if not isinstance(raw_faults, list):
                     continue
                 prefix = f"{role_key}_{idx}"
+                pid = (device.node_attr or {}).get("pid")
                 faults_debug[prefix] = {
                     "raw": raw_faults,
-                    "active_faults": decode_faults(role_key, raw_faults),
+                    "active_faults": decode_faults(
+                        role_key, raw_faults, pid if isinstance(pid, int) else None
+                    ),
                 }
         if faults_debug:
             result["faults_debug"] = faults_debug
