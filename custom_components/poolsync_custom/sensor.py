@@ -927,6 +927,20 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
             device_node_addr=self._device_node_addr,
         )
 
+    def _suppressed_reason(self, parsed_data: Any) -> str | None:
+        """Return why a value is deliberately blank, or None if it is not.
+
+        A blank value normally means the entity should be unavailable. Some
+        values are blank because the reading is meaningless rather than missing,
+        and those should stay available so they render as unknown with a reason
+        instead of disappearing.
+        """
+        if self.entity_description.key == "hp_water_temp":
+            runtime = get_heat_pump_runtime(parsed_data, index=self._device_index)
+            if runtime is not None and runtime.has_flow is False:
+                return "no_flow"
+        return None
+
     @callback
     def _update_attrs(self) -> None:
         """Update cached entity attributes from coordinator data."""
@@ -942,7 +956,10 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
             value = get_sensor_value(parsed_data, self.entity_description.key)
         if value is None:
             self._attr_native_value = None
-            self._attr_available = False
+            # A blank value renders as "unknown". Availability comes from
+            # CoordinatorEntity.available, so a healthy coordinator keeps the
+            # entity visible; where the blank is expected (no water flow) the
+            # reason is exposed by extra_state_attributes.
             return
         if self._value_fn:
             try:
@@ -999,13 +1016,8 @@ class PoolSyncSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
             }
 
         if self.entity_description.key == "hp_water_temp":
-            runtime = get_heat_pump_runtime(parsed_data, index=self._device_index)
-            if runtime is None or runtime.has_flow is not False:
-                return None
-            # The value is suppressed rather than wrong: without flow the probe
-            # sits in a stagnant pipe, which is why the vendor app shows
-            # "No Flow" instead of a temperature.
-            return {"unavailable_reason": "no_flow"}
+            reason = self._suppressed_reason(parsed_data)
+            return {"unavailable_reason": reason} if reason else None
 
         if self.entity_description.key == "group_info":
             equip_runtime = get_equipment_runtime(parsed_data)

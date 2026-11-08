@@ -6,3 +6,6 @@ htmlcov/
 # Virtual environments and editable-install metadata
 .venv/
 *.egg-info/
+
+# Locally built HACS release archive
+poolsync_custom.zip
