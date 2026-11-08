@@ -1,7 +1,7 @@
 {
   "config": {
     "progress": {
-      "link": "Press the Auth or Service button on your PoolSync device at {ip_address} to complete local linking.\n\nThe integration is waiting for the device to return its access password. This attempt will time out after about {time_remaining} seconds."
+      "link": "Authorizing the PoolSync device at {ip_address}.\n\nPress the authorization button within the next {time_remaining} seconds:\n\n- PoolSync controller, or a PoolSync integrated into the heat pump (middle button): press AUTH once. If the LED does not respond, press and hold the Service (middle) button for about 3 seconds.\n- Heat pump display: press AUTH on the heat pump display.\n- Chlorinator display: press Yes on the chlorinator display.\n\nThe integration is waiting for the device to return its access password."
     },
     "step": {
       "user": {
@@ -13,7 +13,7 @@
       },
       "reauth_confirm": {
         "title": "PoolSync Reauthenticate Device",
-        "description": "Press Submit to start local relinking for the PoolSync device at {ip_address}. Then press the Auth or Service button on the physical device to complete reauthentication."
+        "description": "The PoolSync device at {ip_address} needs to be relinked. Select Submit, then press the authorization button on the unit that shows the PoolSync screen. The next screen lists the button for each hardware type."
       },
       "reconfigure": {
         "title": "PoolSync Reconfigure Device",
@@ -32,8 +32,8 @@
       "invalid_ip": "The IP address format is invalid. Please enter a valid IP address (e.g., 192.168.1.100).",
       "api_error": "An API error occurred while communicating with the PoolSync device. Check Home Assistant logs for more details. The device might have responded with an unexpected message.",
       "internal_error_polling_setup": "Internal setup error during the device linking phase. Please try again.",
-      "link_failed": "The linking process failed. The device did not provide a valid password after the button press, or a communication error occurred during linking. Please try again. You may need to restart your PoolSync device.",
-      "link_timeout": "The linking process timed out. The Auth or Service button was not pressed within the allowed time, or the device did not respond with a password. Please try again. You may need to restart your PoolSync device.",
+      "link_failed": "The linking process failed. The device did not return a valid password after the button press, or a communication error occurred during linking. On a PoolSync controller or integrated panel press AUTH, or press and hold the Service (middle) button for about 3 seconds if nothing happens. On a heat pump display press AUTH; on a chlorinator display press Yes. Then retry.",
+      "link_timeout": "The linking process timed out before the device returned a password. On a PoolSync controller or integrated panel press AUTH, or press and hold the Service (middle) button for about 3 seconds if nothing happens. On a heat pump display press AUTH; on a chlorinator display press Yes. Retry, and restart the PoolSync device if it keeps timing out.",
       "unknown": "An unexpected error occurred. Please check the Home Assistant logs for details."
     },
     "abort": {

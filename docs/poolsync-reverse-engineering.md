@@ -681,9 +681,20 @@ The app picks its on-screen pairing instruction from `remoteUiPid` and `hwVersio
 
 `hwVersion === '3.0'` does **not** change the text — inside the 4096 branch it only swaps the illustration (`pushLink1`/`pushLink2`, `instructionImage`/`instructionImage_new`, bytecode `0x000290`/`0x0002ab`). The newer setup wizard (`SetupPushLink` #14724) uses the same split via `deviceToSetup.setupType` (`embedded` → `embeddedAuth`, `commChlor` → `commChlorAuth`) and has a slightly different embedded wording ("Press and hold the Service Button on your `<device>`…", byte 42985656).
 
-Integration-side consequence: for an **integrated/embedded** controller the documented button is the **Service (middle) button held ~3 s**, not the AUTH button. This matches the workaround reported in issue #30 ("press Service first, then AUTH") — it is the app's own instruction for that hardware, not a protocol quirk.
+Integration-side consequence: the config flow cannot name one universal button. Its text gives the app's instruction per hosting device and adds the observed fallback (AUTH once; if the LED does not react, hold Service ~3 s and press AUTH), which is also the workaround reported in issue #30.
 
 `remoteUiPid` / `remoteUiVersion` come from `poolSync.status.remoteUiPid` / `remoteUiVersion`; an embedded unit reports `4096` with `remoteUiVersion: 0`. `hwVersion` is `poolSync.system.hwVersion` (the issue #30 unit: `"3.0"`).
+
+**Observed values in our fixtures:**
+
+| Unit | `remoteUiPid` | `hwVersion` | Pairing reported |
+|------|---------------|-------------|------------------|
+| T75 / 075AHDSBLH (standalone controller, project owner) | 4096 | 2.0 | single AUTH press |
+| 090 system | 4096 | 3.0 | not reported |
+| SQ160R (heat pump hosts the UI) | 9986 | 3.0 | not reported |
+| Issue #30 AquaCal 055AHDSBLH (integrated) | 4096 | 3.0 | AUTH alone did nothing; **Service, then AUTH** worked (2026-11-02) |
+
+So `remoteUiPid` alone does **not** separate "standalone" from "integrated": the owner's standalone T75 and the integrated issue #30 unit both report `4096`. The app's static text for `4096` is "Service (middle) button for 3 seconds", while the standalone owner reports a single AUTH press works. Treat the app's text as the instruction for integrated panels and the single press as the standalone norm; the practical guidance is therefore *try AUTH once, and if the LED does not react, hold Service ~3 s and press AUTH.* This is why the integration's UI cannot give one universal button name.
 
 #### 1.1b Authorized clients (why a re-pair can break an existing client)
 

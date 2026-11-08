@@ -55,7 +55,7 @@ Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Wheth
 
 1. In Home Assistant, go to **Settings** → **Devices & Services** → **Add Integration**.
 2. Search for **PoolSync Custom** and enter the local IP address of your PoolSync device.
-3. When prompted, press the physical **Auth** or **Service** button on your PoolSync controller.
+3. When prompted, press the authorization button **on the unit that shows the PoolSync screen** (see [Which button do I press?](#which-button-do-i-press) below).
 
 <table>
   <tr>
@@ -81,6 +81,29 @@ If linking fails, the flow offers a retry path. If repeated attempts fail, resta
     </td>
   </tr>
 </table>
+
+---
+
+## Which button do I press?
+
+PoolSync is sold both as a **standalone controller** and as hardware **integrated into the heat pump or chlorinator**. The button that authorizes a local link is not the same on all of them, and the PoolSync app itself shows a different instruction depending on **which unit is hosting the authorization screen**. Home Assistant talks to the same controller, so the same rule applies.
+
+| Where the authorization screen appears | Button to press |
+| --- | --- |
+| **PoolSync controller / integrated panel** (the unit showing the prompt is the PoolSync itself) | Press **AUTH** once. If the LED does not react, press and hold the **Service** (middle) button for about **3 seconds**. |
+| **Heat pump display** (the PoolSync UI runs on the heat pump) | Press **AUTH** on the heat pump display. |
+| **Chlorinator display** (the PoolSync UI runs on the chlorinator) | Press **Yes** on the chlorinator display. |
+
+Notes:
+
+- You must press the button **within 120 seconds** of the Home Assistant prompt. Both the LED and the pairing countdown are your feedback.
+- On integrated units the **AUTH press alone can be silently ignored** — this is the most common cause of a `link_timeout`. Press **Service** first (the LED lights), then press **AUTH** while Home Assistant is still waiting. This is the sequence the PoolSync app instructs for controller-hosted prompts, and it is what resolved [issue #30](https://github.com/ccpk1/AP_PoolSync/issues/30).
+- If no **POOLSYNC AUTHORIZE** screen appears on the panel:
+  - *Heat pump display*: navigate to the **POOLSYNC WIFI** menu screen or the **MAIN** status screen.
+  - *Chlorinator display*: press **MENU** → **Network** → **Select** → **Authorize** → **Select**.
+- Close the PoolSync app on your phone before pairing. A phone session holding the link can block new attempts.
+- Relinking authorizes the Home Assistant client. If the device's authorized clients are cleared (from the app: *"Clear all previously authorized users"*), the integration will need to be reauthenticated — Home Assistant will raise a reauth prompt rather than silently going stale.
+- The integration reports the hosting device and hardware revision in **Settings → Devices & Services → PoolSync → Download diagnostics**, under `runtime_data.poolSync.status.remoteUiPid` and `.system.hwVersion`, which is what the app uses to choose the instruction above.
 
 ---
 
@@ -243,7 +266,7 @@ This removes the Home Assistant config entry and its entities. It does not chang
 
 ## Troubleshooting & Diagnostics
 
-- **Linking Issues:** If pairing times out, reboot the physical PoolSync controller and retry the HA configuration flow immediately after startup.
+- **Linking Issues:** Press the button on the unit that shows the PoolSync screen — see [Which button do I press?](#which-button-do-i-press). If auth times out, try **Service** first (hold ~3 s), then **AUTH**, and make sure you are inside the 120-second window with the PoolSync app closed. If it still fails, reboot the physical PoolSync controller and retry the Home Assistant configuration flow immediately after startup.
 - **Intermittent Unavailability:** Check Wi-Fi RSSI on the controller device page. Outdoor pool equipment often suffers from marginal Wi-Fi signals; weak links cause TCP connection resets.
 - **Debugging:** Export Diagnostic JSON directly from the PoolSync Device page in HA when filing GitHub issues. I've made efforts to redact private information (such as hardware serial numbers, tokens, and passwords) in the exported diagnostic file, but you should always review it and double-check before submitting if you have any concerns. If you spot anything that should be redacted, please [open an issue](https://github.com/ccpk1/AP_PoolSync/issues) and I'll make sure it's covered in a future update.
 
