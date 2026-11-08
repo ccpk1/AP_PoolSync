@@ -53,30 +53,23 @@ Bring your complete AutoPilot PoolSync infrastructure into Home Assistant. Wheth
 
 ## Initial Setup & Local Linking
 
-> **These steps are hardware-specific.** The button that authorizes Home Assistant depends on which unit runs
-> the PoolSync screen. The walkthrough below is written for the **standalone PoolSync controller** — the
-> hardware this project was developed on, and the source of every screenshot used here. If your PoolSync is
-> built into a heat pump, read [PoolSync integrated into a heat pump](#poolsync-integrated-into-a-heat-pump)
-> instead: depending on the variant you press **AUTH** on the heat pump display, or authorize on the controller
-> exactly like a standalone unit. For a chlorinator-hosted unit see
-> [PoolSync integrated into a chlorinator](#poolsync-integrated-into-a-chlorinator).
-
-All hardware types share the same first two steps:
-
 1. In Home Assistant, go to **Settings** → **Devices & Services** → **Add Integration**.
 2. Search for **PoolSync Custom** and enter the local IP address of your PoolSync device.
 
-Home Assistant then starts a 120-second authorization window and waits for the device to return an access
-password. What you press during that window is what differs — continue with the section for your hardware, or
-use the [authorization summary](#authorization-summary) as a quick reference.
+Home Assistant then opens a **120-second** window and waits for your PoolSync to hand back an access password.
+What you press during that window depends on your hardware, because PoolSync is sold in a few different shapes.
+
+> **The walkthrough and screenshots below are from a standalone PoolSync controller** — the hardware this
+> project was built on. If your PoolSync does **not** have its own screen and you operate it from your heat
+> pump or chlorinator display, use the matching section instead.
 
 ---
 
-### Standalone PoolSync Controller
+### If your PoolSync has its own panel
 
-The examples and screenshots in this section are from a standalone PoolSync controller.
+This covers the standalone controller, and any PoolSync unit that shows its own screen.
 
-**Next:** press the **AUTH** button once on the controller.
+**Next:** press the **AUTH** button once.
 
 <table>
   <tr>
@@ -91,9 +84,16 @@ The examples and screenshots in this section are from a standalone PoolSync cont
   </tr>
 </table>
 
-If the AUTH press does nothing, hold the **Service** (middle) button for about **3 seconds** instead. The
-PoolSync app documents the Service hold for controller-hosted prompts, but standalone controllers are also
-reported to accept a single AUTH press (this is what the controller used for development does).
+**If nothing happens,** hold the **Service** (middle) button for about **3 seconds** instead.
+
+> **Why both?** The PoolSync phone app's own instruction for this hardware is to *"Press and hold the Service
+> Button (middle button) on your `<device>` for 3 seconds before the timer runs out to authorize this device."*
+> On the standalone controller this project was built on, a single AUTH press is enough — you can see the AUTH
+> LED light. So start with AUTH; fall back to the Service hold.
+>
+> If the AUTH LED never lights and every attempt times out, try pressing **Service** first (its LED lights) and
+> **then AUTH** while Home Assistant is still counting down. That two-button sequence is what resolved
+> [issue #30](https://github.com/ccpk1/AP_PoolSync/issues/30) on an integrated AquaCal unit.
 
 **Then:** wait for Home Assistant to complete pairing and generate config entries for all detected hardware.
 
@@ -110,28 +110,10 @@ try again.
 
 ---
 
-### PoolSync integrated into a heat pump
+### If you operate PoolSync from your heat pump's display
 
-Integrated units come in two variants, and they behave differently depending on **which unit runs the PoolSync
-screen**.
-
-#### The controller runs the screen
-
-Most integrated AquaCal/AutoPilot units keep the PoolSync UI on the controller itself — the data reports
-`status.remoteUiPid = 4096`, the same value as a standalone controller. Follow the
-[standalone controller steps](#standalone-poolsync-controller) exactly: press **AUTH** once, and hold
-**Service** for about **3 seconds** if nothing happens.
-
-> ⚠️ **Reported exception:** on at least one integrated AquaCal unit
-> ([issue #30](https://github.com/ccpk1/AP_PoolSync/issues/30), `remoteUiPid 4096`, `hwVersion 3.0`) a single
-> AUTH press was silently ignored — the AUTH LED never lit and every attempt timed out. What worked was pressing
-> **Service** first (its LED lights), **then** pressing **AUTH** while Home Assistant was still counting down.
-> That is a two-button sequence; if AUTH alone does nothing on your unit, try it before giving up.
-
-#### The heat pump display runs the screen
-
-On these units the heat pump itself hosts the PoolSync UI — the data reports `status.remoteUiPid = 9986`. The
-vendor app's instruction for this case is:
+On these units the PoolSync screens appear on the heat pump's display rather than on a PoolSync panel. The
+PoolSync phone app's instruction for that hardware is:
 
 > **"Press AUTH on the heat pump display:"**
 > *"Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the POOLSYNC WIFI menu screen or
@@ -139,19 +121,22 @@ vendor app's instruction for this case is:
 
 So:
 
-- Go to the heat pump display and press **AUTH**.
-- If no **POOLSYNC AUTHORIZE** prompt appears, navigate to the **POOLSYNC WIFI** menu screen or the **MAIN**
-  status screen and press **AUTH** there.
+- Press **AUTH** on the heat pump display.
+- If no **POOLSYNC AUTHORIZE** prompt appears, go to the **POOLSYNC WIFI** menu screen or the **MAIN** status
+  screen and press **AUTH** there.
+- If AUTH alone does nothing, the **Service then AUTH** fallback described in the section above is worth trying.
+
+No user running this configuration has reported its pairing behaviour yet, so the steps above are transcribed
+from the app.
 
 ---
 
-### PoolSync integrated into a chlorinator
+### If you operate PoolSync from your chlorinator's display
 
-> 🟡 **App-documented only.** The vendor app has a dedicated path for this hardware, but no user has reported a
-> chlorinator-hosted PoolSync to this project yet, so it is untested here.
+> 🟡 **Not yet reported by a user.** The PoolSync phone app has a dedicated instruction for this hardware, but
+> nobody running it has contacted this project, so the steps below are transcribed from the app and untested.
 
-On these units the chlorinator display hosts the PoolSync UI — the data reports `status.remoteUiPid = 9731`.
-The vendor app's instruction is:
+The PoolSync phone app's instruction is:
 
 > **"Press Yes on the chlorinator display to authorize this device:"**
 > *"Tip: If the POOLSYNC AUTHORIZE screen does not appear then press the MENU button and navigate to the
@@ -167,12 +152,11 @@ So:
 
 ### Authorization summary
 
-| Where the PoolSync screen lives | Detected as | What to press |
-| :--- | :--- | :--- |
-| Standalone controller | `remoteUiPid = 4096` | **AUTH** once; if nothing happens, hold **Service** ~3 s |
-| Integrated unit, controller runs the screen | `remoteUiPid = 4096` | Same as standalone. One report needed **Service** first, then **AUTH** |
-| Integrated unit, heat pump display runs the screen | `remoteUiPid = 9986` | **AUTH** on the heat pump display |
-| Integrated unit, chlorinator display runs the screen *(untested here)* | `remoteUiPid = 9731` | **Yes** on the chlorinator display |
+| Where you see the PoolSync screen | What to press |
+| :--- | :--- |
+| On the PoolSync's own panel | **AUTH** once; if nothing happens, hold **Service** ~3 s |
+| On your heat pump's display | **AUTH** on the heat pump display |
+| On your chlorinator's display *(untested here)* | **Yes** on the chlorinator display |
 
 Applies to all hardware types:
 
@@ -184,9 +168,9 @@ Applies to all hardware types:
   you must be on the same Wi-Fi network as the device."*
 - Relinking authorizes the Home Assistant client. If the device's authorized clients are cleared (app: *"Clear
   all previously authorized users"*), Home Assistant raises a reauth prompt rather than silently going stale.
-- To find which case yours is: **Settings → Devices & Services → PoolSync → Download diagnostics**, then
-  `runtime_data.poolSync.status.remoteUiPid` — `4096` controller, `9986` heat pump display, `9731` chlorinator
-  display.
+- **Reporting a pairing problem?** Download diagnostics from **Settings → Devices & Services → PoolSync** and
+  include `poolSync.status.remoteUiPid` and `poolSync.system.hwVersion` — together with the button that finally
+  worked, that is what lets this guide be corrected for your hardware.
 
 ---
 
