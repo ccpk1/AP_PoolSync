@@ -668,33 +668,82 @@ Once the user presses the physical button, the API returns the device `password`
 >
 > Related device-side state resets (not currently used by the integration): `DELETE /api/poolsync?cmd=pushLink` (app `legacy_resetHashAPI`, clears the local auth hash) and `POST /api/dongle/link` with body `{"reset": true}` (app `resetHash`).
 
-#### 1.1a The app tells different users to press different buttons
+#### 1.1a Pairing instructions are selected by UI host, not by model
 
-The app picks its on-screen pairing instruction from `remoteUiPid` and `hwVersion` (`PushLinkScreen` #14549, and the newer `SetupPushLink` #14724 via `deviceToSetup.setupType`):
+The authorization button differs per hardware variant, and the app has **two** screens that encode this:
+`PushLinkScreen` (#14549, "Device Linking", legacy) and `SetupPushLink` (#14724, setup wizard). Both were
+read from `tests/PoolSync_4.73/hbctool_output.hasm`; all strings below are verbatim.
 
-| Condition | Instruction shown | Evidence |
-|-----------|-------------------|----------|
-| `remoteUiPid === 4096` (the PoolSync controller itself, label `embeddedAuth`) | "Press and hold the **Service Button (middle button)** on your `<device>` **for 3 seconds** before the timer runs out to authorize this device. You will need to authorize all mobile devices you wish to access this `<device>`." | string at byte 41426521 |
-| `remoteUiPid === 9986` (heat pump is the UI host) | "Press AUTH on the heat pump display:" + *"Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the POOLSYNC WIFI menu screen or the MAIN status screen…"* | 41431251 / 41432196 |
-| `remoteUiPid === 9731` (`commChlorAuth`) | "Press Yes on the chlorinator display to authorize this device:" + *"Tip: … press the MENU button and navigate to the Network setting…"* | 41435xxx / 41436705 |
-| anything else (incl. `remoteUiPid` 9984/9985, and `9986`-less heat pumps) | image only, no button text | #14549 default branch `0x0004e8` |
+**Screen 1 — `PushLinkScreen` (#14549), keyed on `status.remoteUiPid`:**
 
-`hwVersion === '3.0'` does **not** change the text — inside the 4096 branch it only swaps the illustration (`pushLink1`/`pushLink2`, `instructionImage`/`instructionImage_new`, bytecode `0x000290`/`0x0002ab`). The newer setup wizard (`SetupPushLink` #14724) uses the same split via `deviceToSetup.setupType` (`embedded` → `embeddedAuth`, `commChlor` → `commChlorAuth`) and has a slightly different embedded wording ("Press and hold the Service Button on your `<device>`…", byte 42985656).
+```
+0x0001ba  LoadConstInt 4096   ; remoteUiPid
+0x0001c0  StrictEq  R19
+0x0001cf  JmpFalse  -> 0x0002e4
+          ... "Press and hold the Service Button (middle button) on your <defaultName>
+               for 3 seconds before the timer runs out to authorize this device. You will
+               need to authorize all mobile devices you wish to access this <defaultName>."
+0x0002e4  LoadConstInt 9986
+0x0002ea  StrictEq  R7
+0x0002f6  JmpFalse  -> 0x0003e8
+          ... "Press AUTH on the heat pump display:" +
+              "Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the
+               POOLSYNC WIFI menu screen or the MAIN status screen of the heat pump."
+0x0003e8  LoadConstInt 9731
+0x0003ee  StrictEq  R18
+0x0003f6  JmpFalse  -> 0x0004e8
+          ... "Press Yes on the chlorinator display to authorize this device:" +
+              "Tip: If the POOLSYNC AUTHORIZE screen does not appear then press the MENU button
+               and navigate to the Network setting, press Select, navigate to the Authorize
+               setting and press Select."
+0x0004e8  (fallthrough: progress bar, no instruction text)
+```
 
-Integration-side consequence: the config flow cannot name one universal button. Its text gives the app's instruction per hosting device and adds the observed fallback (AUTH once; if the LED does not react, hold Service ~3 s and press AUTH), which is also the workaround reported in issue #30.
+**Screen 2 — `SetupPushLink` (#14724), keyed on `deviceToSetup` (the setup wizard's device type):**
 
-`remoteUiPid` / `remoteUiVersion` come from `poolSync.status.remoteUiPid` / `remoteUiVersion`; an embedded unit reports `4096` with `remoteUiVersion: 0`. `hwVersion` is `poolSync.system.hwVersion` (the issue #30 unit: `"3.0"`).
+```
+0x0001a2  'wall'      -> "Press and hold the Service Button on your <device>
+                          for 3 seconds before the timer runs out to authorize this device. …"
+0x0002b2  'embedded'  -> "Press AUTH on the heat pump display:" + POOLSYNC WIFI / MAIN status tip
+0x00048c  'commChlor' -> "Press Yes on the chlorinator display:"  + MENU → Network → Select → Authorize tip
+```
 
-**Observed values in our fixtures:**
+The two screens agree, which cross-validates the mapping:
 
-| Unit | `remoteUiPid` | `hwVersion` | Pairing reported |
-|------|---------------|-------------|------------------|
+| UI host | `remoteUiPid` | wizard `setupType` | Instruction | Illustration asset |
+|---------|---------------|--------------------|-------------|--------------------|
+| PoolSync controller (standalone wall unit, or built into the heat pump) | `4096` | `wall` | hold **Service (middle)** button ~3 s | `images.pushLink1` / `pushLink2`, `instructionImage(_new)` |
+| Heat pump display | `9986` | `embedded` | press **AUTH** on the heat pump display | `images.embeddedAuth` |
+| Chlorinator display | `9731` | `commChlor` | press **Yes** on the chlorinator display | `images.commChlorAuth` |
+| anything else | — | — | **no instruction text at all** (progress bar only) | — |
+
+Corrections to earlier notes in this document: `embeddedAuth` and `commChlorAuth` are *image asset names*, not
+setup types; `hwVersion === '3.0'` does **not** select text — inside the 4096 branch it only picks
+`pushLink1`/`pushLink2` and `instructionImage`/`instructionImage_new` (`0x000290`, `0x0002ab`).
+
+**There is no 10-second hold in app v4.73.** The only durations in any instruction are:
+
+| Duration | Operation | Verbatim |
+|----------|-----------|----------|
+| 3 s | authorize (both pairing screens) | "…for 3 seconds before the timer runs out to authorize this device…" |
+| 15 s | enter **Wi-Fi setup mode** (`SetupDeviceSelection` #14676, asset `tropicSetupLights`) | "are flashing. If not, hold the button for 15 seconds or until they flash." — preceded by "Press the Setup button on the physical device to begin. The third light will turn on once in setup mode." and "Do not press the setup button." (when already on Wi-Fi) |
+| 30 s | software restart | "Do you want to restart your device? This may take up to 30 seconds before you can use it again." |
+
+Button names used by the app (`parseSyncFlags` labels + `stats` counters): **Connect**, **Service**,
+**Service Access**, **Setup**. The pairing text refers to the Service button as the "middle" button.
+
+**Field observations vs the app text:**
+
+| Unit | `remoteUiPid` | `hwVersion` | What actually worked |
+|------|---------------|-------------|----------------------|
 | T75 / 075AHDSBLH (standalone controller, project owner) | 4096 | 2.0 | single AUTH press |
 | 090 system | 4096 | 3.0 | not reported |
 | SQ160R (heat pump hosts the UI) | 9986 | 3.0 | not reported |
 | Issue #30 AquaCal 055AHDSBLH (integrated) | 4096 | 3.0 | AUTH alone did nothing; **Service, then AUTH** worked (2026-11-02) |
 
-So `remoteUiPid` alone does **not** separate "standalone" from "integrated": the owner's standalone T75 and the integrated issue #30 unit both report `4096`. The app's static text for `4096` is "Service (middle) button for 3 seconds", while the standalone owner reports a single AUTH press works. Treat the app's text as the instruction for integrated panels and the single press as the standalone norm; the practical guidance is therefore *try AUTH once, and if the LED does not react, hold Service ~3 s and press AUTH.* This is why the integration's UI cannot give one universal button name.
+The app's text for `4096`/`wall` (hold Service ~3 s) matches the issue #30 unit. The standalone T75 accepts a
+single AUTH press, so on at least some controller hardware either action authorizes. The integration therefore
+cannot name one universal button and states the app's per-host instruction plus that fallback.
 
 #### 1.1b Authorized clients (why a re-pair can break an existing client)
 
