@@ -65,9 +65,49 @@ HEAT_PUMP_PID_HP10 = 9985
 HEAT_PUMP_LAYOUT_HP: PoolSyncHeatPumpFlagLayout = "hp"
 HEAT_PUMP_LAYOUT_HP10: PoolSyncHeatPumpFlagLayout = "hp10"
 
+# Controller-level status.flags (app: SYNC_FLAGS, parsed by parseSyncFlags).
+# The button bits are momentary, so they show which physical button the dongle
+# currently sees held - useful when a user reports that a press did nothing.
+SYNC_FLAGS: dict[str, int] = {
+    "is_updating": 1 << 0,
+    "connect_button_pressed": 1 << 1,
+    "service_button_pressed": 1 << 2,
+    "service_access_button_pressed": 1 << 3,
+    "setup_button_pressed": 1 << 4,
+}
+
 _HEAT_PUMP_CTRL_FLAGS: dict[PoolSyncHeatPumpFlagLayout, dict[str, int]] = {
     HEAT_PUMP_LAYOUT_HP: {"flow": 1 << 0, "compressor": 1 << 2, "fan": 1 << 3},
     HEAT_PUMP_LAYOUT_HP10: {"flow": 1 << 3, "compressor": 1 << 0, "fan": 1 << 1},
+}
+
+_HEAT_PUMP_STATE_FLAGS: dict[PoolSyncHeatPumpFlagLayout, dict[str, int]] = {
+    HEAT_PUMP_LAYOUT_HP: {
+        "is_off": 1 << 0,
+        "is_wait_flow": 1 << 1,
+        "is_holding": 1 << 2,
+        "is_heating": 1 << 3,
+        "is_cooling": 1 << 4,
+        "is_defrosting": 1 << 5,
+        "is_faulted": 1 << 6,
+        "is_locked_out": 1 << 7,
+        "is_remote_controlled": 1 << 8,
+        "is_make_delay": 1 << 9,
+        "is_gas_heating_cool_down": 1 << 10,
+        "is_wait_source_flow": 1 << 11,
+        "is_freeze_protecting": 1 << 12,
+    },
+    HEAT_PUMP_LAYOUT_HP10: {
+        "is_off": 1 << 0,
+        "is_heating": 1 << 1,
+        "is_holding": 1 << 2,
+        "is_wait_flow": 1 << 3,
+        "is_defrosting": 1 << 4,
+        "is_faulted": 1 << 5,
+        "is_make_delay": 1 << 6,
+        "is_locked_out": 1 << 7,
+        "is_local_ui_control": 1 << 8,
+    },
 }
 
 
@@ -283,6 +323,17 @@ class PoolSyncHeatPumpRuntime:
     has_flow: bool | None
     compressor_running: bool | None
     fan_running: bool | None
+    is_off: bool | None
+    is_wait_flow: bool | None
+    is_holding: bool | None
+    is_heating: bool | None
+    is_cooling: bool | None
+    is_defrosting: bool | None
+    is_faulted: bool | None
+    is_locked_out: bool | None
+    is_make_delay: bool | None
+    is_remote_controlled: bool | None
+    is_local_ui_control: bool | None
     mode_value: int | None
     pool_spa_mode: int | None
     mode_context: PoolSyncHeatPumpModeContext | None
@@ -956,6 +1007,44 @@ def _heat_pump_fan_running(
     return _heat_pump_flag(ctrl_flags_raw, layout, "fan")
 
 
+def _heat_pump_state_flag(
+    state_flags_raw: int,
+    layout: PoolSyncHeatPumpFlagLayout,
+    name: str,
+) -> bool | None:
+    """Return a named stateFlags bit, or None when the layout has no such bit.
+
+    The HP10 layout has fewer states than HP (no cooling, freeze protection, or
+    remote-control bit), so an absent flag is reported as None rather than
+    False.
+    """
+    mask = _HEAT_PUMP_STATE_FLAGS[layout].get(name)
+    return None if mask is None else bool(state_flags_raw & mask)
+
+
+def _state_flag(
+    state_flags_raw: int | None,
+    layout: PoolSyncHeatPumpFlagLayout,
+    name: str,
+) -> bool | None:
+    """Return a named stateFlags bit, or None when the payload has no flags."""
+    if state_flags_raw is None:
+        return None
+    return _heat_pump_state_flag(state_flags_raw, layout, name)
+
+
+def get_sync_flags(parsed_data: PoolSyncParsedData) -> dict[str, bool] | None:
+    """Return the controller status flags decoded to named booleans.
+
+    Includes the momentary physical-button bits, which is how you can tell
+    whether a pairing button press actually reached the dongle.
+    """
+    flags = _get_int_value(parsed_data.system.status, "flags")
+    if flags is None:
+        return None
+    return {name: bool(flags & mask) for name, mask in SYNC_FLAGS.items()}
+
+
 def _resolve_device_types(data: dict[str, Any]) -> dict[str, list[str]]:
     """Resolve all known device types from the deviceType map.
 
@@ -1246,6 +1335,21 @@ def get_heat_pump_runtime(
         fan_running=_heat_pump_fan_running(ctrl_flags_raw, flag_layout)
         if ctrl_flags_raw is not None
         else None,
+        is_off=_state_flag(state_flags_raw, flag_layout, "is_off"),
+        is_wait_flow=_state_flag(state_flags_raw, flag_layout, "is_wait_flow"),
+        is_holding=_state_flag(state_flags_raw, flag_layout, "is_holding"),
+        is_heating=_state_flag(state_flags_raw, flag_layout, "is_heating"),
+        is_cooling=_state_flag(state_flags_raw, flag_layout, "is_cooling"),
+        is_defrosting=_state_flag(state_flags_raw, flag_layout, "is_defrosting"),
+        is_faulted=_state_flag(state_flags_raw, flag_layout, "is_faulted"),
+        is_locked_out=_state_flag(state_flags_raw, flag_layout, "is_locked_out"),
+        is_make_delay=_state_flag(state_flags_raw, flag_layout, "is_make_delay"),
+        is_remote_controlled=_state_flag(
+            state_flags_raw, flag_layout, "is_remote_controlled"
+        ),
+        is_local_ui_control=_state_flag(
+            state_flags_raw, flag_layout, "is_local_ui_control"
+        ),
         mode_value=mode_value,
         pool_spa_mode=pool_spa_mode,
         mode_context=mode_context,
@@ -1385,39 +1489,56 @@ def get_heat_pump_climate_hvac_action(
     parsed_data: PoolSyncParsedData,
     index: int = 0,
 ) -> PoolSyncHeatPumpClimateHvacAction | None:
-    """Return the active climate HVAC action for the heat pump."""
+    """Return the active climate HVAC action for the heat pump.
+
+    The heat pump's own state machine is authoritative when it reports one:
+    ``isOff`` wins, then ``isHeating``/``isCooling``. Only when the device does
+    not expose those states (or reports none of them active) do we fall back to
+    the compressor relay plus the configured mode.
+    """
     runtime = get_heat_pump_runtime(parsed_data, index=index)
     if runtime is None or runtime.mode_context is None:
         return None
 
-    if runtime.mode_context == HEAT_PUMP_MODE_OFF:
+    if runtime.is_off or runtime.mode_context == HEAT_PUMP_MODE_OFF:
         return "off"
 
-    if runtime.mode_context in {HEAT_PUMP_MODE_HEAT_POOL, HEAT_PUMP_MODE_HEAT_SPA}:
-        return "heating" if runtime.compressor_running else "idle"
-
-    if runtime.mode_context == HEAT_PUMP_MODE_COOL_POOL:
-        return "cooling" if runtime.compressor_running else "idle"
-
-    if runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL:
-        if not runtime.compressor_running:
-            return "idle"
-        if runtime.capabilities.supports_cooling:
-            return "cooling"
+    # Bounded by capability: a heat-only unit must never report "cooling", and a
+    # cool-only unit must never report "heating", whatever the flag word says.
+    if runtime.is_heating and runtime.capabilities.supports_heating:
         return "heating"
 
-    return None
+    if runtime.is_cooling and runtime.capabilities.supports_cooling:
+        return "cooling"
+
+    if runtime.compressor_running:
+        if runtime.mode_context == HEAT_PUMP_MODE_COOL_POOL:
+            return "cooling"
+        if runtime.mode_context == HEAT_PUMP_MODE_AUTO_POOL:
+            return "cooling" if runtime.capabilities.supports_cooling else "heating"
+        return "heating"
+
+    return "idle"
 
 
 def get_heat_pump_climate_current_temperature(
     parsed_data: PoolSyncParsedData,
     index: int = 0,
 ) -> int | float | None:
-    """Return the current climate temperature for the heat pump."""
+    """Return the current climate temperature for the heat pump.
+
+    Without flow the probe is reading standing water in the pipe, not the pool,
+    so the value is reported as unknown. The vendor app shows "No Flow" instead
+    of a number for the same reason.
+    """
+    runtime = get_heat_pump_runtime(parsed_data, index=index)
+    if runtime is None or runtime.has_flow is not True:
+        return None
+
     hp_devices = parsed_data.devices.get("heat_pump", [])
     if not hp_devices or not hp_devices[index].is_present:
         return None
-    return _get_number_value(hp_devices[index].status, "waterTemp")
+    return _get_temp_value(hp_devices[index].status, "waterTemp")
 
 
 def get_heat_pump_climate_target_temperature(
@@ -1598,7 +1719,20 @@ _SENSOR_VALUE_GETTERS: dict[str, Callable[..., Any]] = {
     "chem_fw_version": _dv("chem_sync", "system", "fwVersion"),
     "chem_hw_version": _dv("chem_sync", "system", "hwVersion"),
     "chem_model_num": _dv("chem_sync", "system", "modelNum"),
-    "hp_water_temp": _dv("heat_pump", "status", "waterTemp"),
+    "hp_water_temp": lambda parsed_data, **kwargs: (
+        _get_temp_value(
+            (
+                device := _resolve_device(
+                    parsed_data, "heat_pump", kwargs.get("index", 0)
+                )
+            )
+            and device.status,
+            "waterTemp",
+        )
+        if (runtime := get_heat_pump_runtime(parsed_data, index=kwargs.get("index", 0)))
+        and runtime.has_flow is True
+        else None
+    ),
     "hp_air_temp": _dv("heat_pump", "status", "airTemp"),
     "hp_board_temp": _dv("heat_pump", "status", "boardTemp"),
     "hp_mode": lambda parsed_data, **kwargs: (

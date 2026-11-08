@@ -16,6 +16,7 @@ from custom_components.poolsync_custom.runtime import (
     HEAT_PUMP_PRESET_POOL,
     HEAT_PUMP_PRESET_SPA,
     get_heat_pump_capabilities,
+    get_heat_pump_climate_current_temperature,
     get_heat_pump_climate_hvac_action,
     get_heat_pump_climate_hvac_mode,
     get_heat_pump_climate_hvac_modes,
@@ -23,6 +24,8 @@ from custom_components.poolsync_custom.runtime import (
     get_heat_pump_climate_preset_modes,
     get_heat_pump_climate_target_temperature,
     get_heat_pump_runtime,
+    get_sensor_value,
+    get_sync_flags,
     get_wifi_signal_status,
     parse_poolsync_runtime_data,
 )
@@ -467,3 +470,136 @@ def test_wifi_signal_status_ignores_boolean_rssi_values() -> None:
     )
 
     assert get_wifi_signal_status(parsed_data) is None
+
+
+@pytest.mark.parametrize(
+    ("sample_name", "expected_true", "expected_false"),
+    [
+        # 090 reports isOff for a fully idle unit, isHeating while the
+        # compressor runs, and isHolding while filtering at setpoint.
+        ("090-all-off.json", {"is_off"}, {"is_heating", "is_holding"}),
+        ("090-manual-2000rpm.json", {"is_holding"}, {"is_off", "is_heating"}),
+        ("090-compressor-on-2900rpm-pool-group.json", {"is_heating"}, {"is_off"}),
+        # SQ160R uses isWaitFlow instead of isOff when the pump is stopped.
+        ("sq160r-heating.json", {"is_heating"}, {"is_off", "is_holding"}),
+        ("sq160r-idle.json", {"is_holding"}, {"is_off", "is_heating"}),
+        ("sq160r-off.json", {"is_wait_flow"}, {"is_heating"}),
+        # T75.
+        ("t75-heat-pool.json", {"is_heating"}, {"is_off", "is_wait_flow"}),
+        ("t75-off-with-flow.json", {"is_off"}, {"is_heating"}),
+        ("t75-in-celcius.json", {"is_wait_flow"}, {"is_off", "is_heating"}),
+        ("t75-heatpump-fault.json", {"is_faulted", "is_locked_out"}, {"is_heating"}),
+        # HP10: issue #30 reported isWaitFlow (stateFlags 8) with the pump off.
+        ("hp10-issue30-pump-off.json", {"is_wait_flow"}, {"is_off", "is_heating"}),
+    ],
+)
+def test_heat_pump_state_flags_use_pid_layout(
+    sample_name: str, expected_true: set[str], expected_false: set[str]
+) -> None:
+    """Test stateFlags decode to the layout of the device PID."""
+    runtime = get_heat_pump_runtime(_load_parsed_data(sample_name))
+
+    assert runtime is not None
+    for name in expected_true:
+        assert getattr(runtime, name) is True, f"{sample_name}: {name}"
+    for name in expected_false:
+        assert getattr(runtime, name) is False, f"{sample_name}: {name}"
+
+
+def test_hp10_state_flags_are_not_decoded_with_hp_order() -> None:
+    """Test HP10 stateFlags 8 is isWaitFlow, not isHeating as HP would read it.
+
+    Issue #30 shipped stateFlags 8 alongside a stopped pump. Under the HP order
+    bit 3 is isHeating, which would have claimed the unit was heating.
+    """
+    runtime = get_heat_pump_runtime(_load_parsed_data("hp10-issue30-pump-off.json"))
+
+    assert runtime is not None
+    assert runtime.flag_layout == "hp10"
+    assert runtime.state_flags_raw == 8
+    assert runtime.is_wait_flow is True
+    assert runtime.is_heating is False
+    # HP-only states do not exist in the HP10 layout.
+    assert runtime.is_cooling is None
+    assert runtime.is_remote_controlled is None
+
+
+@pytest.mark.parametrize(
+    ("sample_name", "expected_action"),
+    [
+        ("t75-heat-pool.json", "heating"),
+        ("090-compressor-on-2900rpm-pool-group.json", "heating"),
+        ("sq160r-heating.json", "heating"),
+        ("sq160r-idle.json", "idle"),
+        ("090-manual-2000rpm.json", "idle"),
+        ("t75-off-no-flow.json", "off"),
+        ("090-all-off.json", "off"),
+        ("hp10-issue30-pump-off.json", "idle"),
+    ],
+)
+def test_climate_hvac_action_follows_device_state_flags(
+    sample_name: str, expected_action: str
+) -> None:
+    """Test the HVAC action comes from the heat pump's own state machine."""
+    assert (
+        get_heat_pump_climate_hvac_action(_load_parsed_data(sample_name))
+        == expected_action
+    )
+
+
+@pytest.mark.parametrize(
+    ("sample_name", "flows"),
+    [
+        ("t75-heat-pool.json", True),
+        ("t75-off-with-flow.json", True),
+        ("t75-off-no-flow.json", False),
+        ("090-all-off.json", False),
+        ("hp10-issue30-pump-off.json", False),
+    ],
+)
+def test_water_temperature_is_gated_on_flow(sample_name: str, flows: bool) -> None:
+    """Test water temperature is unknown without flow, matching the app."""
+    parsed_data = _load_parsed_data(sample_name)
+
+    current = get_heat_pump_climate_current_temperature(parsed_data)
+    sensor = get_sensor_value(parsed_data, "hp_water_temp")
+
+    if flows:
+        assert isinstance(current, (int, float))
+        assert isinstance(sensor, (int, float))
+    else:
+        assert current is None
+        assert sensor is None
+
+
+@pytest.mark.parametrize(
+    ("raw_flags", "expected_true"),
+    [
+        (0, set()),
+        (1 << 0, {"is_updating"}),
+        (1 << 1, {"connect_button_pressed"}),
+        (1 << 2, {"service_button_pressed"}),
+        (1 << 3, {"service_access_button_pressed"}),
+        (1 << 4, {"setup_button_pressed"}),
+        ((1 << 2) | (1 << 0), {"service_button_pressed", "is_updating"}),
+    ],
+)
+def test_controller_sync_flags_decode(raw_flags: int, expected_true: set[str]) -> None:
+    """Test controller status.flags decodes to the documented button bits."""
+    payload = _load_diagnostics_json("090-all-off.json")
+    runtime_data = payload["data"]["runtime_data"]
+    runtime_data["poolSync"]["status"]["flags"] = raw_flags
+
+    flags = get_sync_flags(parse_poolsync_runtime_data(runtime_data))
+
+    assert flags is not None
+    assert {name for name, set_ in flags.items() if set_} == expected_true
+
+
+def test_controller_sync_flags_absent_returns_none() -> None:
+    """Test a payload without status.flags yields None rather than all-False."""
+    payload = _load_diagnostics_json("090-all-off.json")
+    runtime_data = payload["data"]["runtime_data"]
+    runtime_data["poolSync"]["status"].pop("flags", None)
+
+    assert get_sync_flags(parse_poolsync_runtime_data(runtime_data)) is None

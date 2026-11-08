@@ -27,6 +27,7 @@ from .runtime import (
     get_heat_pump_runtime,
     get_number_value,
     get_sensor_value,
+    get_sync_flags,
     get_valve_position_name,
     get_valve_position_options,
 )
@@ -62,6 +63,11 @@ async def async_get_config_entry_diagnostics(
         "last_failure_context": coordinator.last_failure_context,
         "last_failure_detail": coordinator.last_failure_detail,
         "last_update_success": coordinator.last_update_success,
+        "last_successful_update": (
+            coordinator.last_success_utc.isoformat()
+            if getattr(coordinator, "last_success_utc", None)
+            else None
+        ),
         "last_exception": (
             str(coordinator.last_exception) if coordinator.last_exception else None
         ),
@@ -74,6 +80,11 @@ async def async_get_config_entry_diagnostics(
     if coordinator.data is not None:
         result["runtime_data"] = async_redact_data(coordinator.data, TO_REDACT)
         parsed_data = ensure_parsed_data(coordinator)
+
+        # Momentary physical-button state, for "I pressed AUTH and nothing
+        # happened" reports. See docs/poolsync-reverse-engineering.md §1.1d.
+        if sync_flags := get_sync_flags(parsed_data):
+            result["sync_flags"] = sync_flags
 
         if heat_pump_runtime := get_heat_pump_runtime(parsed_data):
             result["heat_pump_debug"] = {
@@ -105,6 +116,19 @@ async def async_get_config_entry_diagnostics(
                 "pool_setpoint": heat_pump_runtime.pool_setpoint,
                 "pool_spa_mode": heat_pump_runtime.pool_spa_mode,
                 "spa_setpoint": heat_pump_runtime.spa_setpoint,
+                "state_flags": {
+                    "is_off": heat_pump_runtime.is_off,
+                    "is_wait_flow": heat_pump_runtime.is_wait_flow,
+                    "is_holding": heat_pump_runtime.is_holding,
+                    "is_heating": heat_pump_runtime.is_heating,
+                    "is_cooling": heat_pump_runtime.is_cooling,
+                    "is_defrosting": heat_pump_runtime.is_defrosting,
+                    "is_faulted": heat_pump_runtime.is_faulted,
+                    "is_locked_out": heat_pump_runtime.is_locked_out,
+                    "is_make_delay": heat_pump_runtime.is_make_delay,
+                    "is_remote_controlled": heat_pump_runtime.is_remote_controlled,
+                    "is_local_ui_control": heat_pump_runtime.is_local_ui_control,
+                },
                 "state_flags_raw": heat_pump_runtime.state_flags_raw,
             }
 
