@@ -336,7 +336,7 @@ This removes the Home Assistant config entry and its entities. It does not chang
 
 - **Linking Issues:** Press the button for your hardware type — see [Initial Setup & Local Linking](#initial-setup--local-linking). If auth times out, try the **Service** hold (~3 s) then **AUTH**, and stay inside the 120-second window with the PoolSync app closed. If it still fails, reboot the physical PoolSync controller and retry the Home Assistant configuration flow immediately after startup.
 - **Intermittent Unavailability:** Check Wi-Fi RSSI on the controller device page. Outdoor pool equipment often suffers from marginal Wi-Fi signals; weak links cause TCP connection resets.
-- **Debugging:** Export Diagnostic JSON directly from the PoolSync Device page in HA when filing GitHub issues. I've made efforts to redact private information (such as hardware serial numbers, tokens, and passwords) in the exported diagnostic file, but you should always review it and double-check before submitting if you have any concerns. If you spot anything that should be redacted, please [open an issue](https://github.com/ccpk1/AP_PoolSync/issues) and I'll make sure it's covered in a future update.
+- **Debugging:** Export Diagnostic JSON directly from the PoolSync Device page in HA when filing GitHub issues. Credentials, IP addresses, MAC addresses/BSSIDs, hardware serial numbers, timezone/latitude/longitude and the last six characters of the MAC used in entry titles are redacted, including where they appear inside free-form strings. You should still review the file before submitting; if you spot anything that should be redacted, please [open an issue](https://github.com/ccpk1/AP_PoolSync/issues) and I'll make sure it's covered in a future update.
 
 ---
 
@@ -412,8 +412,8 @@ Release steps:
 #    (and pyproject.toml, which is kept in sync).
 
 # 2. Land it on main, then tag and push.
-git tag 2.1.0
-git push origin 2.1.0
+git tag 2.1.1
+git push origin 2.1.1
 ```
 
 Pushing the tag runs `.github/workflows/release.yml`, which:

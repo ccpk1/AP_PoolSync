@@ -8,5 +8,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ccpk1/AP_PoolSync/issues",
   "loggers": ["custom_components.poolsync_custom"],
-  "version": "2.1.0"
+  "categories": ["water.pools_spas"],
+  "version": "2.1.1"
 }
