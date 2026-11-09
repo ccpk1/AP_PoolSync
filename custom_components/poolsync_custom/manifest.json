@@ -1,6 +1,7 @@
 {
   "domain": "poolsync_custom",
   "name": "PoolSync Custom",
+  "categories": ["water.pools_spas"],
   "codeowners": ["@ccpk1"],
   "config_flow": true,
   "dependencies": [],
@@ -8,5 +9,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ccpk1/AP_PoolSync/issues",
   "loggers": ["custom_components.poolsync_custom"],
-  "version": "2.1.0"
+  "version": "2.1.1"
 }
