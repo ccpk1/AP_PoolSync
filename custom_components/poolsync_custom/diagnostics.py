@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -12,6 +12,7 @@ from homeassistant.helpers import device_registry as dr
 from . import PoolSyncConfigEntry
 from .const import API_RESPONSE_MAC_ADDRESS, DOMAIN
 from .fault_codes import decode_faults
+from .redact import collect_sensitive_values, redact_values
 from .runtime import (
     ensure_parsed_data,
     get_binary_sensor_value,
@@ -39,12 +40,40 @@ TO_REDACT = {
     API_RESPONSE_MAC_ADDRESS,
     "bssid",
     "cellSerialNum",
+    "cell_serial_number",
     "drvSerialNum",
     "latitude",
     "longitude",
     "macAddr",
     "serialNum",
+    "timeZone",
+    "title",
+    "unique_id",
 }
+
+# The title is redacted by key; scrubbing its value would also blank the generic
+# device name wherever it appears in a message.
+_SCRUB_KEYS = TO_REDACT - {"title"}
+
+
+def _redact(
+    result: dict[str, Any],
+    entry: PoolSyncConfigEntry,
+    coordinator: Any | None = None,
+) -> dict[str, Any]:
+    """Redact sensitive keys and scrub known identifiers from every string."""
+    # Collect from the raw sources; the result sections are already partly redacted.
+    sensitive_values = collect_sensitive_values(entry.as_dict(), _SCRUB_KEYS)
+    if coordinator is not None:
+        sensitive_values.update(collect_sensitive_values(coordinator.data, _SCRUB_KEYS))
+    mac_address = entry.data.get(API_RESPONSE_MAC_ADDRESS)
+    if isinstance(mac_address, str):
+        # The last six characters of the MAC end up in entry titles and names.
+        sensitive_values.add(mac_address[-6:])
+
+    return async_redact_data(
+        redact_values(result, sensitive_values, REDACTED), TO_REDACT
+    )
 
 
 async def async_get_config_entry_diagnostics(
@@ -57,7 +86,7 @@ async def async_get_config_entry_diagnostics(
 
     coordinator = entry.runtime_data if hasattr(entry, "runtime_data") else None
     if coordinator is None:
-        return result
+        return _redact(result, entry)
 
     result["coordinator"] = {
         "last_failure_class": coordinator.last_failure_class,
@@ -434,4 +463,4 @@ async def async_get_config_entry_diagnostics(
             "sw_version": device.sw_version,
         }
 
-    return result
+    return _redact(result, entry, coordinator)

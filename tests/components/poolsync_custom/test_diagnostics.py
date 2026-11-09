@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -93,6 +94,8 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     assert diagnostics["config_entry"]["data"][CONF_IP_ADDRESS] == REDACTED
     assert diagnostics["config_entry"]["data"][CONF_PASSWORD] == REDACTED
     assert diagnostics["config_entry"]["data"][API_RESPONSE_MAC_ADDRESS] == REDACTED
+    assert diagnostics["config_entry"]["unique_id"] == REDACTED
+    assert diagnostics["config_entry"]["title"] == REDACTED
 
     assert diagnostics["coordinator"]["name"] == "runtime-owner"
     assert diagnostics["coordinator"]["last_failure_class"] == "transport_error"
@@ -103,7 +106,7 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
     }
     assert (
         diagnostics["coordinator"]["last_failure_detail"]
-        == "Cannot connect to PoolSync device at 192.168.50.70"
+        == f"Cannot connect to PoolSync device at {REDACTED}"
     )
     assert diagnostics["coordinator"]["last_update_success"] is False
     assert diagnostics["coordinator"]["last_exception"] == "boom"
@@ -183,6 +186,77 @@ async def test_diagnostics_use_runtime_data_and_redact_sensitive_fields(hass) ->
         "raw": [8, 0],
         "active_faults": ["HP5 Lockout"],
     }
+
+
+async def test_diagnostics_scrub_identifiers_embedded_in_strings(hass) -> None:
+    """Test identifiers embedded in names and messages are redacted too."""
+    cell_serial = "CELLSN12345"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=f"PoolSync ({TEST_MAC_ADDRESS[-6:]})",
+        data={
+            CONF_IP_ADDRESS: TEST_IP_ADDRESS,
+            CONF_PASSWORD: TEST_PASSWORD,
+            API_RESPONSE_MAC_ADDRESS: TEST_MAC_ADDRESS,
+        },
+        unique_id=TEST_MAC_ADDRESS,
+    )
+    entry.add_to_hass(hass)
+
+    entry.runtime_data = SimpleNamespace(
+        data={
+            "poolSync": {
+                "config": {"name": f"PoolSync ({TEST_MAC_ADDRESS[-6:]})"},
+                "system": {"macAddr": TEST_MAC_ADDRESS},
+            },
+            "devices": {
+                "0": {
+                    "nodeAttr": {"name": "Chlorinator", "pid": 9730, "nodeAddr": 1},
+                    "system": {"cellSerialNum": cell_serial, "serialNum": ""},
+                    "status": {},
+                    "config": {},
+                }
+            },
+            "deviceType": {"0": "chlorSync"},
+        },
+        last_failure_class="transport_error",
+        last_failure_context=None,
+        last_failure_detail=(
+            f"Request to http://{TEST_IP_ADDRESS}/api/poolsync timed out"
+        ),
+        last_exception=RuntimeError(
+            f"connection lost for {DOMAIN}({TEST_MAC_ADDRESS})"
+        ),
+        last_update_success=False,
+        mac_address=TEST_MAC_ADDRESS,
+        name=f"{DOMAIN}({TEST_MAC_ADDRESS})",
+        update_interval=None,
+    )
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    payload = json.dumps(diagnostics)
+
+    assert diagnostics["config_entry"]["unique_id"] == REDACTED
+    assert diagnostics["config_entry"]["title"] == REDACTED
+    assert diagnostics["coordinator"]["name"] == f"{DOMAIN}({REDACTED})"
+    assert diagnostics["coordinator"]["last_failure_detail"] == (
+        f"Request to http://{REDACTED}/api/poolsync timed out"
+    )
+    assert diagnostics["coordinator"]["last_exception"] == (
+        f"connection lost for {DOMAIN}({REDACTED})"
+    )
+    assert (
+        diagnostics["runtime_data"]["poolSync"]["config"]["name"]
+        == f"PoolSync ({REDACTED})"
+    )
+    assert (
+        diagnostics["mapped_sensor_values"]["chlorinator_0_cell_serial_number"]
+        == REDACTED
+    )
+    assert TEST_MAC_ADDRESS not in payload
+    assert TEST_MAC_ADDRESS[-6:] not in payload
+    assert TEST_IP_ADDRESS not in payload
+    assert cell_serial not in payload
 
 
 async def test_diagnostics_handle_missing_runtime_data(hass) -> None:
