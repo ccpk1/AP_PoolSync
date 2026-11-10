@@ -4,23 +4,21 @@ Reference document tracking what we know, what we've built, and what we suspect.
 
 ---
 
-## 0a. Source: Android App (APK) Analysis
+## 0a. Sources
 
-The official PoolSync Android app (v4.73, package `com.poolconnect.sync`) was obtained from APKPure and analysed to extract API protocol details.
+Three independent sources back the claims in this document:
 
-**Method:**
-1. Downloaded the XAPK bundle and decompiled the base APK with `JADX`
-2. The main application bundle (`assets/index.android.bundle`) was identified as **Hermes bytecode** (React Native 0.85.3, Hermes v98)
-3. Disassembled to Hermes assembly with [`hermes-dec`](https://github.com/P1sec/hermes-dec) (v0.1.5): `hbctool disasm index.android.bundle output.hasm`
-4. The Hermes assembly (68 MB, ~1M lines) preserves string constants, function names, and instruction patterns — enough to reconstruct API endpoints and request formats without recovering full JavaScript logic
+1. **Live local API traffic.** Requests issued against real hardware (initially a T75 heat pump on fw 860, later a 090 system with a heat pump, variable-speed pump and return valve), with the responses stored as diagnostic fixtures under `tests/sample_diagnostics/`. The live-tested tables in §0b, and most of §4 and §5, come from here.
+2. **User packet captures.** The write payloads in F1, F7a and F10a were confirmed by capturing what the vendor app sent to the device.
+3. **Observed app behaviour.** Endpoint paths, header sets, pairing prompts, button-hold durations and UI labels were cross-checked against the vendor Android app (v4.73, package `com.poolconnect.sync`) as it behaves on screen and on the wire.
 
-**Status:** Early-stage exploration. The disassembly reveals API endpoint strings, HTTP header patterns, and function names. Full decompilation to readable JS is limited by Hermes bytecode version (98) and the absence of a sourcemap. Deeper analysis may yield additional protocol details as techniques improve.
+Everything here is a behavioural description written in our own words. This document reproduces no vendor source code and carries no disassembly listings or offsets. Where a claim rests only on the app's user-facing behaviour and has not been reproduced against hardware, the section says so and marks it accordingly.
 
 ---
 
-## 0b. Live API Probing & Decompiled Endpoint Map (Preliminary)
+## 0b. Live API Probing & App Endpoint Map (Preliminary)
 
-A live T75 heat pump (fw 860, hw 2.0) was probed via the local HTTP API. Additionally, the Hermes-disassembled Android app bundle revealed the complete set of API functions and their HTTP methods. **These findings are preliminary** — only one firmware version has been live-tested, and behaviour may vary across models and firmware revisions.
+A live T75 heat pump (fw 860, hw 2.0) was probed via the local HTTP API. Cross-checking against the vendor app supplied the remaining endpoint set and their HTTP methods. **These findings are preliminary** — only one firmware version has been live-tested at the time of writing, and behaviour may vary across models and firmware revisions.
 
 ### Live-tested (fw 860, T75 heat pump only — no additional devices)
 
@@ -57,9 +55,9 @@ User: {userSub or static UUID}
 Content-Type: application/json
 ```
 
-### Decompiled function-to-method map (from APK, not live-tested)
+### App function-to-method map (observed in the app, not live-tested)
 
-Functions that build HTTP requests, with their methods, inferred from Hermes assembly:
+Requests the app issues, with their methods:
 
 | Function | Method | Endpoint | Notes |
 |----------|--------|----------|-------|
@@ -93,9 +91,9 @@ The `User` header is **mandatory** for PATCH requests — the device returns 401
 
 **Key note on `updateDevice` vs `putDevice`:** The app has *two* write paths — `updateDevice` (PATCH → `?cmd=devices&device={id}`) for partial updates, and `putDevice` (PUT → `/api/dongle/devices/{id}` or cloud `thingsAPI.updateShadow`) for full state replacement. Our current `setDeviceConfigValue` write method uses the PATCH path, matching `updateDevice`. The PUT/dongle path is likely for initial provisioning, not runtime control.
 
-### 0c. Complete Field Name Mappings (from APK Decompilation)
+### 0c. Complete Field Name Mappings
 
-The decompiled app contains a master mapping object (`DEVICES`) that translates between internal constant names and API data paths. Every readable sensor and writable config field is defined here. The mapping uses dot-separated paths into the per-device data object:
+The app resolves every readable sensor and writable config field through a single mapping from internal constant names to API data paths. The mapping uses dot-separated paths into the per-device data object:
 
 - `status.{field}` → readable sensor values
 - `config.{field}` → writable configuration values
@@ -329,7 +327,7 @@ The decompiled app contains a master mapping object (`DEVICES`) that translates 
 
 #### Equipment (positional array indices)
 
-> **⚠️ Source note:** The `VIRTUAL_EQUIPMENT_*` index mapping below is **derived from the decompiled app code (v4.73) and is NOT yet verified against live device writes.** The index *positions* are confirmed by real diagnostics (see F1/F2), but the *semantic meaning* of each named constant is inferred from the app's display logic and has not been confirmed to match the device's write API.
+> **⚠️ Source note:** The `VIRTUAL_EQUIPMENT_*` index mapping below is **derived from the app's display behaviour (v4.73) and is NOT yet verified against live device writes.** The index *positions* are confirmed by real diagnostics (see F1/F2), but the *semantic meaning* of each named constant is inferred from how the app renders the values and has not been confirmed to match the device's write API.
 
 Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPMENT_*` constants map array indices:
 
@@ -351,13 +349,13 @@ Equipment entries are positional arrays (not named objects). The `VIRTUAL_EQUIPM
 | `VIRTUAL_EQUIPMENT_PARAM_13` | `[13]` | Type-specific parameter 13 |
 | `VIRTUAL_EQUIPMENT_PARAM_14` | `[14]` | Type-specific parameter 14 |
 
-**From decompiled app (2026-08-17, unverified):** The app dispatches on `VIRTUAL_EQUIPMENT_TYPE` (`[0]`) to render each equipment type. The pump (type 0) display logic reads `GROUP_EQUIPMENT_PARAM0` (the speed value) and multiplies by 50 to show RPM, or shows "Priming" when the priming flag is set. This is consistent with the verified ×50 RPM factor and priming flag location from diagnostics, but the app's display logic itself is unverified against live writes.
+**From app behaviour (2026-08-17, unverified):** The app renders each equipment type differently based on `VIRTUAL_EQUIPMENT_TYPE` (`[0]`). For the pump (type 0) it reads `GROUP_EQUIPMENT_PARAM0` (the speed value) and multiplies by 50 to show RPM, or shows "Priming" when the priming flag is set. This is consistent with the verified ×50 RPM factor and priming flag location from diagnostics, but the display behaviour itself is unverified against live writes.
 
-#### Group config array (field mapping from decompiled app)
+#### Group config array (field mapping from app behaviour)
 
-> **⚠️ Source note:** The `GROUP_*` field mapping below is **derived from the decompiled app code (v4.73) and is NOT yet verified against live device writes.** The `config[3]` active-state position is verified by real diagnostics (see F6), but the other field meanings are inferred from the app's constant names and have not been confirmed against the device's write API.
+> **⚠️ Source note:** The `GROUP_*` field mapping below is **derived from the app's display behaviour (v4.73) and is NOT yet verified against live device writes.** The `config[3]` active-state position is verified by real diagnostics (see F6), but the other field meanings are inferred from the app's constant names and have not been confirmed against the device's write API.
 
-The master `DEVICES` mapping object in the decompiled app defines the exact group config array structure:
+The app's field mapping defines the group config array structure:
 
 | Constant | Array Index | Meaning |
 |----------|-------------|---------|
@@ -384,13 +382,13 @@ The app defines these default names for device types:
 | `CHLOR_DEFAULT_NAME` | `Chlorinator` | ChlorSync |
 | `CHEM_DEFAULT_NAME` | `Chem Controller` | ChemSync |
 
-### 0d. Fault Code Mapping (from APK Decompilation)
+### 0d. Fault Code Mapping
 
-> **Source of truth:** The fault tables below come from the **vendor's own app (v4.73)** — the `faultParser` dispatch logic and the `CHLOR_FAULTS` / `CHEM_FAULTS` / `COMM_CHLOR_FAULTS` / `HP_FAULTS` object definitions. Because this is the vendor's shipped client, we treat it as **authoritative** for how faults are surfaced to users. The vendor manual's display strings (e.g. "Lo SaLt", "CLn CELL", "NO FLO") are the user-facing subset of the same faults, just with display labels instead of internal identifiers.
+> **Source:** The fault tables below were derived from how the **vendor's own app (v4.73)** labels and displays faults, and they are treated as **authoritative** for how faults are surfaced to users. The vendor manual's display strings (e.g. "Lo SaLt", "CLn CELL", "NO FLO") are the user-facing subset of the same faults, just with display labels instead of internal identifiers.
 >
 > **Adjustment policy:** We implement against these tables as-is. If a concrete counter-example ever surfaces (a device reporting a fault code that decodes to an implausible name), we adjust that single entry. We do **not** wait on packet captures or exhaustive fault-code testing — those can never cover every code, so they are not a realistic validation path.
 
-The app decodes a device's `faults[]` array as a **bitmask**. The `faultParser` function dispatches on device PID to select the correct fault table, then converts the fault code to a binary string, reverses it, and marks each fault name whose bit is set as active.
+The app decodes a device's `faults[]` array as a **bitmask**. It picks the fault table by device PID, then treats bit *n* of the word (least significant bit first) as the *n*th entry in that table, marking every entry whose bit is set as active.
 
 **PID dispatch:**
 - PID `9729` / `9730` (ChlorSync / Chlor Cell) → `CHLOR_FAULTS`
@@ -437,13 +435,13 @@ The app decodes a device's `faults[]` array as a **bitmask**. The `faultParser` 
 
 **Fault-count histogram structure:** The `faultCounts` histogram groups faults into `stats[]` buckets — ChlorSync uses `stats[13–18]` (4 faults per bucket), ChemSync uses `stats[6–8]`. The `CHLOR_FAULTS` field maps to the raw `faults` array in the API payload (confirmed via the `CHLOR_FAULTS: 'faults'` key mapping).
 
-**Multi-word fault arrays:** the per-fault reducer (Hermes #19970) maps a *linear* template index to `word = floor(i / 32)` and `bit = i % 32`, i.e. `faults[0]` bits 0–31 then `faults[1]` bits 0–11. Any implementation that decodes each array element independently from bit 0 (as the integration currently does) mis-decodes `faults[1]` and beyond. HP10 only ever uses `faults[0]`.
+**Multi-word fault arrays:** template indices are *linear*, mapping to `word = floor(i / 32)` and `bit = i % 32`, i.e. `faults[0]` bits 0–31 then `faults[1]` bits 0–11. Any implementation that decodes each array element independently from bit 0 (as the integration did before 2.1.0) mis-decodes `faults[1]` and beyond. HP10 only ever uses `faults[0]`.
 
 ---
 
 ### 0e. Heat Pump Firmware Families — `HP` (9984/9986) vs `HP10` (9985)
 
-> **Source of truth:** app v4.73 Hermes disassembly in `tests/PoolSync_4.73/hbctool_output.hasm`. Everything below was read from bytecode, not inferred from captures.
+> **Evidence base:** the issue #30 diagnostic capture stored as `tests/sample_diagnostics/hp10-issue30-pump-off.json`, the `t75-*` and `sq160r-*` fixtures, and the app's own UI for the same unit. Every claim below is reproducible from those fixtures.
 >
 > This section exists because the 2026-11-02 diagnostics in issue #30 proved the integration was decoding a PID **9985** unit with the 9984/9986 layout: integration reported flow=on / compressor=on while the app showed Flow OFF / Compressor OFF / "No Flow" from the *same* payload (`stateFlags: 8`, `ctrlFlags: 4`).
 
@@ -455,25 +453,17 @@ The app decodes a device's `faults[]` array as a **bitmask**. The `faultParser` 
 | **9985** | `hpc/2701` | **version 275, min 274** | **`Hp10`** |
 | 9986 | `hpc/2702` | version 46, min 46 | `HeatPump` |
 
-The hex directory name *is* the PID (`0x2700` = 9984, `0x2701` = 9985, `0x2702` = 9986; likewise `0x1000` = 4096 dongle, `0x2601`–`0x2603` = 9729–9731 ChlorSync, `0x2A00` = 10752 ChemSync). Evidence: firmware/version table keyed with `DefineOwnByIndexL` per PID at disasm byte ~11911693–11913900, and the dispatch block in `_loop` (Hermes #21178, `_loop` @ `0x004d55c7`) which branches `pid === 9984 || pid === 9986` → `parseHp*`, `pid === 9985` → `parseHp10*`.
+The hex directory name *is* the PID (`0x2700` = 9984, `0x2701` = 9985, `0x2702` = 9986; likewise `0x1000` = 4096 dongle, `0x2601`–`0x2603` = 9729–9731 ChlorSync, `0x2A00` = 10752 ChemSync). The app selects the parser family from the PID: 9984 and 9986 use the `HeatPump` decoders, 9985 uses the `Hp10` decoders.
 
 The issue #30 unit reports `appFwVersion: 275`, `hwVersion: "E"` — an exact match for the 9985 (2701) entry, independent of `nodeAttr.pid`.
 
 #### 0e.2 How the bit layout was verified (method)
 
-All flag parsers share one body (`parseHpStateFlags` #12188 @`0x003eec3e`, `parseHp10StateFlags` #12189 @`0x003eed08`, `parseHpControlFlags` #12190 @`0x003eedd2`, `parseHp10ControlFlags` #12191 @`0x003eee9c`, plus `parseDeviceFlags` #12187 and `parseSyncFlags`):
+Every flag word (`stateFlags`, `ctrlFlags`, `nodeAttr.flags`, `status.flags`) decodes the same way: the value is read as a binary number and the template's *n*th key is the bit at position *n*, counting from the least significant bit. Bit order is therefore tied to key order in the table, LSB first.
 
-```js
-let bits = isNaN(value) ? '0' : Number(value).toString(2);
-bits.split('').reverse().forEach((char, i) => {      // closure #19969
-  if (char !== '1') return;
-  result[Object.keys(TEMPLATE)[i]] = true;           // LSB = template key 0
-});
-```
+That convention is cross-checked against the 9984/9986 fixtures already in the repo (`t75-heat-pool` `ctrlFlags=13` → flow(0)+compressor(2)+fan(3); `t75-off-*` `stateFlags=1` → `isOff`; `t75-heatpump-fault` `stateFlags=192` → `isFaulted`(6)+`isLockedOut`(7); `t75-spa-startup` `stateFlags=520` → `isHeating`(3)+`isMakeDelay`(9)).
 
-So **template key order == bit index, LSB first**. This is cross-checked against the 9984/9986 fixtures already in the repo (`t75-heat-pool` `ctrlFlags=13` → flow(0)+compressor(2)+fan(3); `t75-off-*` `stateFlags=1` → `isOff`; `t75-heatpump-fault` `stateFlags=192` → `isFaulted`(6)+`isLockedOut`(7); `t75-spa-startup` `stateFlags=520` → `isHeating`(3)+`isMakeDelay`(9)).
-
-Templates are the objects bound to the identifiers listed below, defined around disasm byte 11936000–11940900.
+Independent corroboration comes from the HP10 capture in issue #30: `ctrlFlags: 4` and `stateFlags: 8` decode under the HP10 tables to `highPressureLowPressure` and `isWaitFlow`, which is what the app displayed for that unit, while the HP tables read the same two values as "compressor on" and no state at all.
 
 #### 0e.3 `status.stateFlags`
 
@@ -546,7 +536,7 @@ Diffed against `t75-*` (9984) and `sq160r-*` (9986) fixtures and the issue #30 c
 
 On HP10 `waterTemp` duplicates `ws1Temp` (both 87.3 in the capture) with `ws2Temp` ~0.3 °F lower; `ds1Temp`/`ds2Temp` are still present (89.06 / 86.64).
 
-#### 0e.7 Model-class differences (`_loop` #21178)
+#### 0e.7 Model-class differences (`HP` vs `HP10`)
 
 | Property | `HP` | `HP10` |
 |----------|------|--------|
@@ -560,21 +550,21 @@ On HP10 `waterTemp` duplicates `ws1Temp` (both 87.3 in the capture) with `ws2Tem
 | `compRPM`, `flowPeriod`, `efficiencyMode`, `gasBoostMode`, `multiUnitAddr/Mode`, `poolSpaMode`, `displayVersion`, `compressorModel` | parsed | zero/undefined |
 | `maxTemp` / `minTemp` fallback | 110 / 60 | 110 / 60 (payload supplies 104 / 60) |
 
-`getHpRemoteControlStatus(extCtrlMode, mode)` (Hermes #12209) compares `extCtrlMode` against `2` and `{2,4}` and `mode` against `{1,3}`; it is only ever non-zero for `HP` (the `Hp10` class hardcodes `remoteControl = false`). The exact truth table has not been re-derived from bytecode — treat it as “remote/external control active”.
+`getHpRemoteControlStatus(extCtrlMode, mode)` compares `extCtrlMode` against `2` and `{2,4}` and `mode` against `{1,3}`; it is only ever non-zero for `HP` (HP10 hardcodes `remoteControl = false`). The exact truth table has not been pinned down — treat it as “remote/external control active”.
 
 #### 0e.8 App UI differences driven by `isHeatPump10` / `isPhase2`
 
-- **Status banner priority** (`HeatPumpScreen` #14514, chain at `0x000280`): powered off → locked out → faulted → two-wire → sub-unit, where
+- **Status banner priority** (heat-pump screen): powered off → locked out → faulted → two-wire → sub-unit, where
   - "System is Powered Off" = `isHeatPump10 && isOff` (HP10) — the exact string users see when the panel/unit reports off,
   - "System Locked Out" = `isHeatPump10 && !isOff && isLockedOut`,
   - "two-wire" = `isHeatPump10 && !isOff && !isLockedOut && twoWireEnabled`,
   - HP10 does **not** use `ctrlFlags` bit 10 for this; HP's `poweredOff` bit has no HP10 equivalent.
 - **Faulted banner** uses `faults.waterSensorOne || faults.waterSensorTwo` on HP10 (i.e. water-sensor faults only), not `isFaulted`.
 - **Controls disabled** when `(isHeatPump10 && isOff) || (isHeatPump10 && isLockedOut) || isFaulted`.
-- **Setpoint writes** (`updateTemp` #21718): `isPhase2` ⇒ always write `config.setpoint`; otherwise write `spaSetpoint` when `poolSpaMode !== 0`. Writes are refused when `!isOnline` or `isFreezeProtecting`.
+- **Setpoint writes**: `isPhase2` ⇒ always write `config.setpoint`; otherwise write `spaSetpoint` when `poolSpaMode !== 0`. Writes are refused when `!isOnline` or `isFreezeProtecting`.
 - **Slider label**: `isPhase2` → "Setpoint"; else "Pool Setpoint"/"Spa Setpoint". Because T75 fw 563 also satisfies `isPhase2`, the T75 shows a single "Setpoint" too.
-- **Settings rows** (`HeatPumpSettings` #14522): `Compressor` (RPM), `Flow Hours`, `Efficiency Mode`, `Compressor Model` require `isVS && !isSubUnit`; `Schedule Mode` requires `!isPhase2 && !isSubUnit`; `Logical ID` requires `logicIdSupport`; `Gas Boost` requires `!isPhase2 && !isSubUnit` (shown on phase-2 units even though HP10 has no `gasBoost` field).
-- **HP10 status detail list** (`buildUiStatus` #20240) is a distinct 20-row set: Off, Heating, Holding Setpoint Temp, Waiting for Flow, Defrosting, Faulted, Make Delay, Locked Out, Local UI Control, Compressor Relay State, Fan Relay State, HP/LP, Flow Sensor 1 State, Two-Wire Enabled, Two-Wire Heat Mode, Water Temp, Water Sensor 1/2 Temp, Defrost Sensor 1/2 Temp.
+- **Settings rows** (heat-pump settings screen): `Compressor` (RPM), `Flow Hours`, `Efficiency Mode`, `Compressor Model` require `isVS && !isSubUnit`; `Schedule Mode` requires `!isPhase2 && !isSubUnit`; `Logical ID` requires `logicIdSupport`; `Gas Boost` requires `!isPhase2 && !isSubUnit` (shown on phase-2 units even though HP10 has no `gasBoost` field).
+- **HP10 status detail list** is a distinct 20-row set: Off, Heating, Holding Setpoint Temp, Waiting for Flow, Defrosting, Faulted, Make Delay, Locked Out, Local UI Control, Compressor Relay State, Fan Relay State, HP/LP, Flow Sensor 1 State, Two-Wire Enabled, Two-Wire Heat Mode, Water Temp, Water Sensor 1/2 Temp, Defrost Sensor 1/2 Temp.
 - HP10 shows **no** `Compressor Speed`, `Flow Period (3-day avg)`, `Outlet Water Temp`, `Ambient Air Temp`, `Solar Temp`, `Board Temperature` rows (those belong to the `HP` list).
 
 #### 0e.9 What the 2026-11-02 payload decodes to
@@ -662,74 +652,49 @@ All of these are built and tested. Data source for each is noted.
 
 Once the user presses the physical button, the API returns the device `password` which is stored in the config entry. The `macAddress` from the full data payload (`GET /api/poolsync?cmd=poolSync&all`) is used as the unique ID.
 
-> **Method correction (verified 2026-10-11 against app v4.73 and `api.py`):** `pushLink&start` is a **PUT**, not a GET as previously recorded. This table, `const.py:API_PATH_PUSHLINK_START`, and the app's `startPushLinking` (Hermes function #14049) all agree. The header set for `&start` is `User` only — `Authorization` is not sent, since the password does not exist yet.
+> **Method correction (verified 2026-10-11 against app v4.73 and `api.py`):** `pushLink&start` is a **PUT**, not a GET as previously recorded. This table, `const.py:API_PATH_PUSHLINK_START`, and the app's own push-link start call all agree. The header set for `&start` is `User` only — `Authorization` is not sent, since the password does not exist yet.
 >
-> The app also closes the session with `PATCH /api/poolsync?cmd=pushLink&end` (`endPushLinking`, #14051). The integration does not currently call `&end`; on a timeout the link session is left open on the device, which is a plausible cause of a subsequent `&start` returning HTTP 400 with an empty body.
+> The app also closes the session with `PATCH /api/poolsync?cmd=pushLink&end`. The integration does not currently call `&end`; on a timeout the link session is left open on the device, which is a plausible cause of a subsequent `&start` returning HTTP 400 with an empty body.
 >
 > Related device-side state resets (not currently used by the integration): `DELETE /api/poolsync?cmd=pushLink` (app `legacy_resetHashAPI`, clears the local auth hash) and `POST /api/dongle/link` with body `{"reset": true}` (app `resetHash`).
 
 #### 1.1a Pairing instructions are selected by UI host, not by model
 
-The authorization button differs per hardware variant, and the app has **two** screens that encode this:
-`PushLinkScreen` (#14549, "Device Linking", legacy) and `SetupPushLink` (#14724, setup wizard). Both were
-read from `tests/PoolSync_4.73/hbctool_output.hasm`; all strings below are verbatim.
+The authorization button differs per hardware variant, and the app has **two** screens that encode this: the legacy
+"Device Linking" screen, keyed on `status.remoteUiPid`, and the setup wizard, keyed on the wizard's own device type.
+The text below is quoted as it appears on screen; which branch shows it is our description of the app's behaviour.
 
-**Screen 1 — `PushLinkScreen` (#14549), keyed on `status.remoteUiPid`:**
+**Legacy linking screen — selected by `status.remoteUiPid`:**
 
-```
-0x0001ba  LoadConstInt 4096   ; remoteUiPid
-0x0001c0  StrictEq  R19
-0x0001cf  JmpFalse  -> 0x0002e4
-          ... "Press and hold the Service Button (middle button) on your <defaultName>
-               for 3 seconds before the timer runs out to authorize this device. You will
-               need to authorize all mobile devices you wish to access this <defaultName>."
-0x0002e4  LoadConstInt 9986
-0x0002ea  StrictEq  R7
-0x0002f6  JmpFalse  -> 0x0003e8
-          ... "Press AUTH on the heat pump display:" +
-              "Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the
-               POOLSYNC WIFI menu screen or the MAIN status screen of the heat pump."
-0x0003e8  LoadConstInt 9731
-0x0003ee  StrictEq  R18
-0x0003f6  JmpFalse  -> 0x0004e8
-          ... "Press Yes on the chlorinator display to authorize this device:" +
-              "Tip: If the POOLSYNC AUTHORIZE screen does not appear then press the MENU button
-               and navigate to the Network setting, press Select, navigate to the Authorize
-               setting and press Select."
-0x0004e8  (fallthrough: progress bar, no instruction text)
-```
+| `remoteUiPid` | Instruction shown |
+|---------------|-------------------|
+| `4096` | "Press and hold the Service Button (middle button) on your <defaultName> for 3 seconds before the timer runs out to authorize this device. You will need to authorize all mobile devices you wish to access this <defaultName>." |
+| `9986` | "Press AUTH on the heat pump display:" + "Tip: If the POOLSYNC AUTHORIZE screen does not appear then navigate to the POOLSYNC WIFI menu screen or the MAIN status screen of the heat pump." |
+| `9731` | "Press Yes on the chlorinator display to authorize this device:" + "Tip: If the POOLSYNC AUTHORIZE screen does not appear then press the MENU button and navigate to the Network setting, press Select, navigate to the Authorize setting and press Select." |
+| anything else | progress bar only, no instruction text |
 
-**Screen 2 — `SetupPushLink` (#14724), keyed on `deviceToSetup` (the setup wizard's device type):**
+**Setup wizard — selected by the wizard's device type.** The two screens agree, which cross-validates the mapping:
 
-```
-0x0001a2  'wall'      -> "Press and hold the Service Button on your <device>
-                          for 3 seconds before the timer runs out to authorize this device. …"
-0x0002b2  'embedded'  -> "Press AUTH on the heat pump display:" + POOLSYNC WIFI / MAIN status tip
-0x00048c  'commChlor' -> "Press Yes on the chlorinator display:"  + MENU → Network → Select → Authorize tip
-```
-
-The two screens agree, which cross-validates the mapping:
-
-| UI host | `remoteUiPid` | wizard `setupType` | Instruction | Illustration asset |
-|---------|---------------|--------------------|-------------|--------------------|
-| PoolSync controller (standalone wall unit, or built into the heat pump) | `4096` | `wall` | hold **Service (middle)** button ~3 s | `images.pushLink1` / `pushLink2`, `instructionImage(_new)` |
-| Heat pump display | `9986` | `embedded` | press **AUTH** on the heat pump display | `images.embeddedAuth` |
-| Chlorinator display | `9731` | `commChlor` | press **Yes** on the chlorinator display | `images.commChlorAuth` |
+| Wizard type | `remoteUiPid` | UI host | Instruction | Illustration asset |
+|-------------|---------------|---------|-------------|--------------------|
+| `wall` | `4096` | PoolSync controller (standalone wall unit, or built into the heat pump) | hold **Service (middle)** button ~3 s | `images.pushLink1` / `pushLink2`, `instructionImage(_new)` |
+| `embedded` | `9986` | Heat pump display | press **AUTH** on the heat pump display | `images.embeddedAuth` |
+| `commChlor` | `9731` | Chlorinator display | press **Yes** on the chlorinator display | `images.commChlorAuth` |
 | anything else | — | — | **no instruction text at all** (progress bar only) | — |
 
 Corrections to earlier notes in this document: `embeddedAuth` and `commChlorAuth` are *image asset names*, not
-setup types; `hwVersion === '3.0'` does **not** select text — inside the 4096 branch it only picks
-`pushLink1`/`pushLink2` and `instructionImage`/`instructionImage_new` (`0x000290`, `0x0002ab`).
+setup types; `hwVersion === '3.0'` does **not** select text — inside the 4096 branch it only picks between two
+illustration variants (`pushLink1`/`pushLink2` and `instructionImage`/`instructionImage_new`).
 
 **There is no 10-second hold in app v4.73.** The only durations in any instruction are:
 
 | Duration | Operation | Verbatim |
 |----------|-----------|----------|
 | 3 s | authorize (both pairing screens) | "…for 3 seconds before the timer runs out to authorize this device…" |
-| 15 s | enter **Wi-Fi setup mode** (`SetupDeviceSelection` #14676, asset `tropicSetupLights`) | "are flashing. If not, hold the button for 15 seconds or until they flash." — preceded by "Press the Setup button on the physical device to begin. The third light will turn on once in setup mode." and "Do not press the setup button." (when already on Wi-Fi) |
+| 15 s | enter **Wi-Fi setup mode** (device-selection step, asset `tropicSetupLights`) | "are flashing. If not, hold the button for 15 seconds or until they flash." — preceded by "Press the Setup button on the physical device to begin. The third light will turn on once in setup mode." and "Do not press the setup button." (when already on Wi-Fi) |
 | 30 s | software restart | "Do you want to restart your device? This may take up to 30 seconds before you can use it again." |
 
-Button names used by the app (`parseSyncFlags` labels + `stats` counters): **Connect**, **Service**,
+Button names used by the app (`SYNC_FLAGS` labels + `stats` counters): **Connect**, **Service**,
 **Service Access**, **Setup**. The pairing text refers to the Service button as the "middle" button.
 
 **Field observations vs the app text:**
@@ -748,28 +713,28 @@ cannot name one universal button and states the app's per-host instruction plus 
 #### 1.1b Authorized clients (why a re-pair can break an existing client)
 
 - Each successful `pushLink` authorizes **one client** and hands back the password. The app's copy: *"You will need to authorize all mobile devices you wish to access this `<device>`"*, and the setup wizard has a step *"Clear all previously authorized users who can remotely access the device."*
-- That step is `DELETE /api/poolsync?cmd=pushLink` (`resetHash` #14052, `legacy_resetHashAPI` #21260), sent **with** `Authorization` + `User` headers. Full device wipe is `DELETE /api/poolsync?cmd=factoryReset` (`factoryReset` #14060).
+- That step is `DELETE /api/poolsync?cmd=pushLink` (the app's "clear authorized users" / auth-hash reset call), sent **with** `Authorization` + `User` headers. Full device wipe is `DELETE /api/poolsync?cmd=factoryReset`.
 - Practically: if a device is re-paired from the app or the user runs the "clear authorized users" step, the password stored in the Home Assistant config entry may be invalidated. Symptom would be HTTP 401 / `ConfigEntryAuthFailed`, **not** frozen values or connection refused.
 - The dongle also exposes `poolSync.config.authorized` (mapped by `AUTHORIZED`) in newer firmware; absent in the 864-firmware payload from issue #30.
 
 #### 1.1c Local API surface used by the app v4.73
 
-| Endpoint | Method | App function | Notes |
-|----------|--------|--------------|-------|
-| `/api/poolsync?cmd=poolSync&all` | GET | `getSync` #14053 | full snapshot; same path the integration uses (`API_PATH_ALL_DATA`) |
-| `/api/poolsync?cmd=poolSync` | PATCH | `updateSync` #14054 | controller-level config writes |
-| `/api/poolsync?cmd=changeStatus` | GET | `checkChangeStatus` #14055 | lightweight change check (not used by the integration) |
-| `/api/poolsync?cmd=devices&device={id}` | GET / PATCH | `getDevice` #14057 / `updateDevice` #14058 | per-device read/write; PATCH sends `Content-Type: application/json` + `Authorization` + `User` |
-| `/api/poolsync?cmd=discover` | GET | `discoverDevices` #14056 | ask the dongle to re-scan attached equipment |
-| `/api/poolsync?cmd=restart` | GET | `restartDevice` #14059 | software restart ("may take up to 30 seconds") |
-| `/api/dongle`, `/api/dongle/state`, `/api/dongle/devices/{id}` | GET/PUT | `getDongle` #14069, `putDongleState` #14070, `putDevice` #14071 | newer API; the app falls back to it on HTTP 404 from the legacy path |
-| `/api/dongle/software_restart`, `/api/dongle/factory_reset` | POST/DELETE | `restartDevice` #14072 | newer equivalents |
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/poolsync?cmd=poolSync&all` | GET | full snapshot; same path the integration uses (`API_PATH_ALL_DATA`) |
+| `/api/poolsync?cmd=poolSync` | PATCH | controller-level config writes |
+| `/api/poolsync?cmd=changeStatus` | GET | lightweight change check (not used by the integration) |
+| `/api/poolsync?cmd=devices&device={id}` | GET / PATCH | per-device read/write; PATCH sends `Content-Type: application/json` + `Authorization` + `User` |
+| `/api/poolsync?cmd=discover` | GET | ask the dongle to re-scan attached equipment |
+| `/api/poolsync?cmd=restart` | GET | software restart ("may take up to 30 seconds") |
+| `/api/dongle`, `/api/dongle/state`, `/api/dongle/devices/{id}` | GET/PUT | newer API; the app falls back to it on HTTP 404 from the legacy path |
+| `/api/dongle/software_restart`, `/api/dongle/factory_reset` | POST/DELETE | newer equivalents |
 
-`updateDevice` also calls `thingsAPI.updateShadow(...)` before the local PATCH — the app keeps the cloud shadow in sync, but the local PATCH is what changes the device.
+When the app writes a device setting it also syncs the cloud shadow; only the local PATCH changes the device itself.
 
 #### 1.1d Dongle-side state worth reading during pairing / comms troubleshooting
 
-`poolSync.status.flags` (`SYNC_FLAGS`, parsed by `parseSyncFlags`) is a 5-bit word the integration currently ignores:
+`poolSync.status.flags` (`SYNC_FLAGS`) is a 5-bit word the integration currently ignores:
 
 | Bit | Key | Meaning |
 |-----|-----|---------|
@@ -1060,7 +1025,7 @@ Raw array (actual values from 1750 RPM sample):
 
 **Only indices 7 and 14 are confirmed to change with operating state.** Indices 8–12 are constant across all three samples — they're likely static capability values (min/max RPM, etc.) but this is unconfirmed. Indices 2–6, 10, and 13 have unknown purpose.
 
-**RPM factor confirmed as ×50:** 35→1750, 58→2900, 69→3450 — all three match the filenames from the user. **Also confirmed from the decompiled app (2026-08-17):** the pump display logic reads the speed value and multiplies by 50 to render RPM, and shows "Priming" when the priming flag is set.
+**RPM factor confirmed as ×50:** 35→1750, 58→2900, 69→3450 — all three match the filenames from the user. **Also confirmed from the app (2026-08-17):** the pump display reads the speed value and multiplies by 50 to render RPM, and shows "Priming" when the priming flag is set.
 
 **Manual override (2026-08-15, VERIFIED):** A diagnostic with a manual pump override to 2000 RPM shows `raw[7]=40` (40×50=2000) while only the POOL group is active (which would normally run at 1750). This confirms manual override is reflected in `raw[7]`. Notably, in the manual-override sample `raw[5]=2147483640` (≈0x7FFFFFF8, near INT32_MAX) and `raw[6]=4294896` — large/garbage values that appear to flag manual-override mode, distinct from the group-driven case where `raw[5]=300` (the group's RPM setting) and `raw[6]=0`. This flag is not yet decoded.
 
@@ -1122,7 +1087,7 @@ Raw array:
 
 Group config array: `[name, nameId, maxActive, state, timeSet, timeLeft, freezeProtecting, scheduleMode]`
 
-The field names are **confirmed** from the decompiled app's `GROUP_*` constants (see "Group config array" section above).
+The field names are **confirmed** from the app's `GROUP_*` field mapping (see "Group config array" section above).
 
 | Index | Field | Range |
 |-------|-------|-------|
@@ -1167,7 +1132,7 @@ Group equip sub-object maps equipment IDs to settings for that group:
 
 #### F5. Equipment Type Taxonomy
 
-**From decompiled app (2026-08-17, unverified):** The decompiled app dispatches on `VIRTUAL_EQUIPMENT_TYPE` (`[0]`) with distinct branches for types 0, 1, 2, and 3. Types 0 (pump) and 1 (valve) are **verified** by real diagnostics; types 2 and 3 are inferred from the app's dispatch logic.
+**From app behaviour (2026-08-17, unverified):** The app renders `VIRTUAL_EQUIPMENT_TYPE` (`[0]`) with distinct branches for types 0, 1, 2, and 3. Types 0 (pump) and 1 (valve) are **verified** by real diagnostics; types 2 and 3 are inferred from what the app displays for them.
 
 | Type | Name | Seen In | Notes |
 |------|------|---------|-------|
@@ -1277,15 +1242,15 @@ This retroactively explains the diagnostic values that previously looked like ga
 
 #### F8. Group index 1 Is the Name ID
 
-**From decompiled app (2026-08-17, unverified):** `GROUP_NAME_ID` = `config[1]`. Values: 0 (POOL), 22 (WATERFALL), 2 (FILTRATION), 8 (AMBIANCE), 3 (CLEANER). Not obviously bitmask-mapped to equipment types. Could be a group category/preset ID. The index position is verified by diagnostics; the semantic meaning is inferred from the app's constant name.
+**From app behaviour (2026-08-17, unverified):** `GROUP_NAME_ID` = `config[1]`. Values: 0 (POOL), 22 (WATERFALL), 2 (FILTRATION), 8 (AMBIANCE), 3 (CLEANER). Not obviously bitmask-mapped to equipment types. Could be a group category/preset ID. The index position is verified by diagnostics; the semantic meaning is inferred from the app's constant name.
 
 #### F9. Group index 2 Is Max Active
 
-**From decompiled app (2026-08-17, unverified):** `GROUP_MAX_ACTIVE` = `config[2]`. Values: 192 (POOL/FILTRATION), 24 (WATERFALL), 32 (AMBIANCE), 48 (CLEANER). Does not match RPM (RPM comes from equip sub-object). Could be GPM target, priority, or display category. The index position is verified by diagnostics; the semantic meaning is inferred from the app's constant name.
+**From app behaviour (2026-08-17, unverified):** `GROUP_MAX_ACTIVE` = `config[2]`. Values: 192 (POOL/FILTRATION), 24 (WATERFALL), 32 (AMBIANCE), 48 (CLEANER). Does not match RPM (RPM comes from equip sub-object). Could be GPM target, priority, or display category. The index position is verified by diagnostics; the semantic meaning is inferred from the app's constant name.
 
 #### F10. Group Duration Is Auto-Shutoff Timer
 
-**From decompiled app (2026-08-17, unverified):** `GROUP_TIME_SET` = `config[4]` and `GROUP_TIME_LEFT` = `config[5]`. Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). `config[5]` is non-zero when the group has been running — a countdown remaining or a start timestamp. The index positions are verified by diagnostics; the semantic meanings are inferred from the app's constant names.
+**From app behaviour (2026-08-17, unverified):** `GROUP_TIME_SET` = `config[4]` and `GROUP_TIME_LEFT` = `config[5]`. Each group has a duration (48h for POOL, 4h for WATERFALL, 90m for AMBIANCE, 15m for CLEANER). `config[5]` is non-zero when the group has been running — a countdown remaining or a start timestamp. The index positions are verified by diagnostics; the semantic meanings are inferred from the app's constant names.
 
 **✅ Confirmed (2026-09-03, user packet captures + three sequential diagnostics):**
 - **`timeSet` (config[4]) is the static set duration and does NOT decrement.** It stays at 5400 (90 min) across three snapshots of the WATERFALL group: on, 5 minutes later (running), and off. The integration's duration number entity reads this value, so it is stable (no recorder churn).
@@ -1331,7 +1296,7 @@ This retroactively explains the diagnostic values that previously looked like ga
 
 **Note:** The duration is only meaningful when turning a group on. Turning off uses `[0, 0]`. When turning on without a duration, the app uses the group's configured default max (e.g. 21600 for Waterfall).
 
-The earlier decompiled-app analysis (`updateDevice` → `{devices: {...}}` → `config[3]`) was a reasonable hypothesis but the **confirmed capture shows the real payload is flat** (`groups.{key}.state`), not wrapped in `devices.{id}`.
+The earlier app-behaviour hypothesis (`updateDevice` → `{devices: {...}}` → `config[3]`) was reasonable but the **confirmed capture shows the real payload is flat** (`groups.{key}.state`), not wrapped in `devices.{id}`.
 
 #### F10b. Integration Services (UI mode)
 
@@ -1756,7 +1721,7 @@ Two separate events are involved; they should not be conflated.
 - `stats.numDeviceMsgNoResp: 2` and `stats.device0CommErrors: 2` — the dongle↔heat-pump link had logged only two non-responses at snapshot time, so a persistent bus failure is not proven.
 - "System is Powered Off" is `isHeatPump10 && isOff` (state flag bit 0) — the *heat pump* told the dongle it was off. Combined with the compressor stopping, that is the heat pump's own behaviour, not HA's.
 - Later in the same log HA got `Connect call failed ('192.168.1.153', 80)` — the dongle's HTTP listener went away, consistent with the software-restart counters. The integration then serves the last snapshot for up to 3 consecutive failures (`_MAX_STALE_TRANSPORT_FAILURES`), so ~6 min of frozen-but-plausible values before entities go unavailable.
-- Nothing HP10-specific was found in the pairing or transport layer: the app uses the same endpoints, the same `&all` snapshot, and tolerates far more polling than HA's 120 s (the app's polling middleware loop carries a 2500 ms constant, #25969 `_loop` @ `0x0055fa6b` — **tentative**, that loop is a transpiled generator with several constants).
+- Nothing HP10-specific was found in the pairing or transport layer: the app uses the same endpoints, the same `&all` snapshot, and tolerates far more polling than HA's 120 s (the app polls on a 2500 ms cycle — **tentative**, observed from timing rather than a confirmed constant).
 
 **Plausible-but-unproven for (b):** `ctrlFlags` bit 2 (`highPressureLowPressure`) was *set* in the 11-02 capture while the compressor was off and `faults: [0]` reported nothing. If HP10 latches a pressure-switch condition that never appears in `faults[]`, it could explain both "no fault code" and the repeated stops. One capture cannot settle this (§7.3 Q2).
 
